@@ -1,0 +1,10 @@
+# docker-compose.yml
+services:
+  db:
+    image: pgvector/pgvector:pg18  # swap pg16 for your version
+    environment:
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_USER: postgres
+      POSTGRES_DB: flockr
+    ports:
+      - "5432:5432"
