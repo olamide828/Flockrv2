@@ -8,32 +8,24 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class JinaService
 {
-    private const MODEL  = 'jina-embeddings-v3';
-    private const DIM    = 1024;
-    private const URL    = 'https://api.jina.ai/v1/embeddings';
+    private const MODEL = 'jina-embeddings-v3';
+    private const DIM   = 1024;
+    private const URL   = 'https://api.jina.ai/v1/embeddings';
 
     // ─── Embedding generation ─────────────────────────────────────────────────
 
-    /**
-     * Get a single embedding vector for a text string.
-     * Returns a 1024-dim float array.
-     */
     public function embed(string $text): array
     {
         return $this->embedBatch([$text])[0];
     }
 
-    /**
-     * Embed multiple texts in one API call (cheaper, faster).
-     * Returns array of 1024-dim float arrays.
-     */
     public function embedBatch(array $texts): array
     {
-        // Jina max input: 8192 tokens per string, 2048 strings per batch
-        $chunks = array_chunk($texts, 100);
+        $chunks        = array_chunk($texts, 100);
         $allEmbeddings = [];
 
         foreach ($chunks as $chunk) {
@@ -41,11 +33,11 @@ class JinaService
                 ->timeout(60)
                 ->retry(2, 500)
                 ->post(self::URL, [
-                    'model'           => self::MODEL,
-                    'input'           => $chunk,
-                    'task'            => 'retrieval.passage',  // for indexing
-                    'dimensions'      => self::DIM,
-                    'embedding_type'  => 'float',
+                    'model'          => self::MODEL,
+                    'input'          => $chunk,
+                    'task'           => 'retrieval.passage',
+                    'dimensions'     => self::DIM,
+                    'embedding_type' => 'float',
                 ]);
 
             if ($response->failed()) {
@@ -61,9 +53,6 @@ class JinaService
         return $allEmbeddings;
     }
 
-    /**
-     * Get a query embedding (different task type — optimised for search queries).
-     */
     public function embedQuery(string $query): array
     {
         $response = Http::withToken(config('services.jina.api_key'))
@@ -71,7 +60,7 @@ class JinaService
             ->post(self::URL, [
                 'model'      => self::MODEL,
                 'input'      => [$query],
-                'task'       => 'retrieval.query',  // search query, not document
+                'task'       => 'retrieval.query',
                 'dimensions' => self::DIM,
             ]);
 
@@ -85,29 +74,44 @@ class JinaService
     // ─── Postgres / pgvector storage ─────────────────────────────────────────
 
     /**
-     * Generate and persist a product's embedding.
-     * Text = name + category + description + tags — gives best retrieval quality.
+     * Check if the embedding column exists before running any vector SQL.
+     * This prevents crashes when pgvector migration hasn't been run yet.
      */
+    private function hasEmbeddingColumn(string $table): bool
+    {
+        return Schema::hasColumn($table, 'embedding');
+    }
+
     public function indexProduct(Product $product): void
     {
+        if (!$this->hasEmbeddingColumn('products')) {
+            Log::info('Skipping product embedding — column does not exist yet.');
+            return;
+        }
+
         $text = implode(' ', array_filter([
             $product->name,
             $product->category?->name,
             $product->description,
-            $product->ai_description,
+            $product->ai_description ?? '',
             implode(' ', $product->tags ?? []),
         ]));
 
-        $vector = $this->embed($text);
-        $this->saveVector('products', $product->id, $vector);
+        try {
+            $vector = $this->embed($text);
+            $this->saveVector('products', $product->id, $vector);
+        } catch (\Throwable $e) {
+            Log::error('Product embedding failed', ['product_id' => $product->id, 'error' => $e->getMessage()]);
+        }
     }
 
-    /**
-     * Generate and persist a video's embedding.
-     * Text = title + captions + keywords + hashtags.
-     */
     public function indexVideo(Video $video): void
     {
+        if (!$this->hasEmbeddingColumn('videos')) {
+            Log::info('Skipping video embedding — column does not exist yet.');
+            return;
+        }
+
         $text = implode(' ', array_filter([
             $video->title,
             $video->description,
@@ -116,16 +120,18 @@ class JinaService
             implode(' ', $video->hashtags ?? []),
         ]));
 
-        $vector = $this->embed($text);
-        $this->saveVector('videos', $video->id, $vector);
+        try {
+            $vector = $this->embed($text);
+            $this->saveVector('videos', $video->id, $vector);
+        } catch (\Throwable $e) {
+            Log::error('Video embedding failed', ['video_id' => $video->id, 'error' => $e->getMessage()]);
+        }
     }
 
-    /**
-     * Save a float[] vector to the embedding column using raw SQL.
-     * Eloquent doesn't have a vector type, so we cast manually.
-     */
     public function saveVector(string $table, int $id, array $vector): void
     {
+        if (!$this->hasEmbeddingColumn($table)) return;
+
         $vectorStr = '[' . implode(',', $vector) . ']';
         DB::statement(
             "UPDATE {$table} SET embedding = ?::vector WHERE id = ?",
@@ -135,87 +141,107 @@ class JinaService
 
     // ─── Semantic search ──────────────────────────────────────────────────────
 
-    /**
-     * Find similar products using cosine distance (<->).
-     *
-     * SELECT * FROM products
-     *   ORDER BY embedding <-> $queryVector
-     *   LIMIT 10
-     */
     public function searchProducts(string $query, int $limit = 20, array $filters = []): Collection
     {
-        $vector    = $this->embedQuery($query);
-        $vectorStr = '[' . implode(',', $vector) . ']';
-
-        $sql = "
-            SELECT p.id,
-                   1 - (p.embedding <-> ?::vector) AS similarity
-            FROM products p
-            WHERE p.status = 'active'
-              AND p.stock_quantity > 0
-              AND p.embedding IS NOT NULL
-        ";
-
-        $bindings = [$vectorStr];
-
-        if (!empty($filters['category_id'])) {
-            $sql .= ' AND p.category_id = ?';
-            $bindings[] = $filters['category_id'];
-        }
-        if (!empty($filters['price_max'])) {
-            $sql .= ' AND p.price <= ?';
-            $bindings[] = $filters['price_max'];
-        }
-        if (!empty($filters['price_min'])) {
-            $sql .= ' AND p.price >= ?';
-            $bindings[] = $filters['price_min'];
+        // Fall back to keyword search if embedding column doesn't exist
+        if (!$this->hasEmbeddingColumn('products')) {
+            return Product::with(['seller:id,name,username,avatar', 'category:id,name'])
+                ->where('status', 'active')
+                ->where('stock_quantity', '>', 0)
+                ->where(fn ($q) => $q->where('name', 'ilike', "%{$query}%")
+                    ->orWhere('description', 'ilike', "%{$query}%"))
+                ->limit($limit)
+                ->get();
         }
 
-        $sql .= ' ORDER BY p.embedding <-> ?::vector LIMIT ?';
-        $bindings[] = $vectorStr;
-        $bindings[] = $limit;
+        try {
+            $vector    = $this->embedQuery($query);
+            $vectorStr = '[' . implode(',', $vector) . ']';
 
-        $rows = DB::select($sql, $bindings);
-        $ids  = collect($rows)->pluck('id');
+            $sql = "
+                SELECT p.id,
+                       1 - (p.embedding <-> ?::vector) AS similarity
+                FROM products p
+                WHERE p.status = 'active'
+                  AND p.stock_quantity > 0
+                  AND p.embedding IS NOT NULL
+            ";
 
-        // Hydrate Eloquent models, preserve similarity order
-        return Product::with(['seller:id,name,username,avatar', 'category:id,name'])
-            ->whereIn('id', $ids)
-            ->get()
-            ->sortBy(fn ($p) => $ids->search($p->id))
-            ->values();
+            $bindings = [$vectorStr];
+
+            if (!empty($filters['category_id'])) {
+                $sql .= ' AND p.category_id = ?';
+                $bindings[] = $filters['category_id'];
+            }
+            if (!empty($filters['price_max'])) {
+                $sql .= ' AND p.price <= ?';
+                $bindings[] = $filters['price_max'];
+            }
+            if (!empty($filters['price_min'])) {
+                $sql .= ' AND p.price >= ?';
+                $bindings[] = $filters['price_min'];
+            }
+
+            $sql      .= ' ORDER BY p.embedding <-> ?::vector LIMIT ?';
+            $bindings[] = $vectorStr;
+            $bindings[] = $limit;
+
+            $rows = DB::select($sql, $bindings);
+            $ids  = collect($rows)->pluck('id');
+
+            return Product::with(['seller:id,name,username,avatar', 'category:id,name'])
+                ->whereIn('id', $ids)
+                ->get()
+                ->sortBy(fn ($p) => $ids->search($p->id))
+                ->values();
+        } catch (\Throwable $e) {
+            Log::error('Semantic search failed', ['error' => $e->getMessage()]);
+            return collect();
+        }
     }
 
     /**
-     * Find products similar to a given product (recommendation widget).
+     * Find products similar to a given product.
+     * Returns empty collection safely if embedding column doesn't exist.
      */
     public function similarProducts(Product $product, int $limit = 6): Collection
     {
-        $row = DB::selectOne(
-            "SELECT embedding::text FROM products WHERE id = ?",
-            [$product->id]
-        );
-
-        if (!$row || !$row->embedding) {
-            return collect();
+        if (!$this->hasEmbeddingColumn('products')) {
+            // Fall back: same category, different product
+            return Product::with('seller:id,name,avatar')
+                ->where('status', 'active')
+                ->where('id', '!=', $product->id)
+                ->where('category_id', $product->category_id)
+                ->inRandomOrder()
+                ->limit($limit)
+                ->get();
         }
 
-        $sql = "
-            SELECT id
-            FROM products
-            WHERE status = 'active'
-              AND id != ?
-              AND embedding IS NOT NULL
-            ORDER BY embedding <-> ?::vector
-            LIMIT ?
-        ";
+        try {
+            $row = DB::selectOne(
+                "SELECT embedding::text FROM products WHERE id = ?",
+                [$product->id]
+            );
 
-        $ids = collect(DB::select($sql, [$product->id, $row->embedding, $limit]))->pluck('id');
+            if (!$row || !$row->embedding) {
+                return collect();
+            }
 
-        return Product::with('seller:id,name,avatar')
-            ->whereIn('id', $ids)
-            ->get()
-            ->sortBy(fn ($p) => $ids->search($p->id))
-            ->values();
+            $ids = collect(DB::select(
+                "SELECT id FROM products
+                 WHERE status = 'active' AND id != ? AND embedding IS NOT NULL
+                 ORDER BY embedding <-> ?::vector LIMIT ?",
+                [$product->id, $row->embedding, $limit]
+            ))->pluck('id');
+
+            return Product::with('seller:id,name,avatar')
+                ->whereIn('id', $ids)
+                ->get()
+                ->sortBy(fn ($p) => $ids->search($p->id))
+                ->values();
+        } catch (\Throwable $e) {
+            Log::error('similarProducts failed', ['error' => $e->getMessage()]);
+            return collect();
+        }
     }
 }

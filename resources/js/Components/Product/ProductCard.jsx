@@ -1,151 +1,157 @@
-import { useState } from 'react'
-import { Link, router, usePage } from '@inertiajs/react'
-import axios from 'axios'
+import { Link, router, usePage } from '@inertiajs/react';
+import axios from 'axios';
+import { useState } from 'react';
+import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiVerifiedBadgeLine } from 'react-icons/ri';
 
 export default function ProductCard({ product, layout = 'grid' }) {
-  const { auth } = usePage().props
-  const [saved,   setSaved]   = useState(product.is_saved ?? false)
-  const [imgErr,  setImgErr]  = useState(false)
+    const { auth } = usePage().props;
+    const [saved, setSaved] = useState(product.is_saved ?? false);
+    const [imgErr, setImgErr] = useState(false);
 
-  const handleSave = async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!auth?.user) { router.visit('/login'); return }
-    setSaved(s => !s)
-    await axios.post(`/api/products/${product.id}/save`).catch(() => setSaved(s => !s))
-  }
-
-  const handleBuy = async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!auth?.user) { router.visit('/login'); return }
-    try {
-      const { data } = await axios.post('/api/orders/checkout', { product_id: product.id, quantity: 1 })
-      window.location.href = data.authorization_url
-    } catch (err) {
-      alert(err.response?.data?.message ?? 'Checkout failed.')
-    }
-  }
-
-  if (layout === 'list') {
-    return (
-      <Link href={`/products/${product.slug}`} className="flex gap-4 p-3 bg-flockr-card rounded-flockr border border-white/[0.06] hover:border-white/[0.12] transition-all group">
-        <div className="w-20 h-20 rounded-xl overflow-hidden bg-flockr-surface shrink-0 relative">
-          {!imgErr && product.primary_image
-            ? <img src={product.primary_image} alt={product.name} className="w-full h-full object-cover" onError={() => setImgErr(true)} />
-            : <PlaceholderImage />
-          }
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-medium line-clamp-2 leading-snug">{product.name}</p>
-          <p className="text-flockr-muted text-xs mt-0.5">@{product.seller?.username}</p>
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-flockr-orange font-bold naira">₦{Number(product.price).toLocaleString()}</span>
-            <button onClick={handleBuy} className="btn-primary text-xs py-1.5 px-3">Buy</button>
-          </div>
-        </div>
-      </Link>
-    )
-  }
-
-  return (
-    <Link href={`/products/${product.slug}`} className="product-card group block">
-      {/* Image */}
-      <div className="relative aspect-square overflow-hidden bg-flockr-surface">
-        {!imgErr && product.primary_image
-          ? <img
-              src={product.primary_image}
-              alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              onError={() => setImgErr(true)}
-            />
-          : <PlaceholderImage />
+    const handleSave = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!auth?.user) {
+            router.visit('/login');
+            return;
         }
+        setSaved((s) => !s);
+        await axios.post(`/api/products/${product.id}/save`).catch(() => setSaved((s) => !s));
+    };
 
-        {/* Discount badge */}
-        {product.discount_percent && (
-          <span className="absolute top-2 left-2 badge badge-orange">
-            -{product.discount_percent}%
-          </span>
-        )}
+    const handleBuy = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!auth?.user) {
+            router.visit('/login');
+            return;
+        }
+        try {
+            const { data } = await axios.post('/api/orders/checkout', { product_id: product.id, quantity: 1 });
+            window.location.href = data.authorization_url;
+        } catch (err) {
+            alert(err.response?.data?.message ?? 'Checkout failed.');
+        }
+    };
 
-        {/* Sold out overlay */}
-        {!product.is_in_stock && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-white font-display font-bold text-sm tracking-widest uppercase">Sold Out</span>
-          </div>
-        )}
+    // Primary image — use accessor (full URL) or fall back
+    const imgSrc = !imgErr && product.primary_image ? product.primary_image : null;
 
-        {/* Save button */}
-        <button
-          onClick={handleSave}
-          className="absolute top-2 right-2 w-8 h-8 rounded-full glass flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110"
-        >
-          <svg className={`w-4 h-4 ${saved ? 'text-flockr-amber' : 'text-white'}`} fill={saved ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
-          </svg>
-        </button>
-      </div>
+    // Seller avatar — use accessor
+    const sellerAvatar =
+        product.seller?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(product.seller?.name ?? 'S')}&background=1a1a1a&size=32`;
 
-      {/* Info */}
-      <div className="p-3 space-y-2">
-        <p className="text-white text-sm font-medium line-clamp-2 leading-snug">{product.name}</p>
+    const sellerHandle = product.seller?.username ? `@${product.seller.username}` : product.seller?.name ? product.seller.name : null;
 
-        <div className="flex items-center gap-1.5">
-          <img
-            src={product.seller?.avatar_url ?? `https://ui-avatars.com/api/?name=${product.seller?.name}&background=1a1a1a&size=32`}
-            alt={product.seller?.name}
-            className="w-4 h-4 rounded-full object-cover"
-          />
-          <span className="text-flockr-muted text-xs truncate">@{product.seller?.username}</span>
-          {product.seller?.is_verified && (
-            <span className="verified-badge w-3 h-3">
-              <svg className="w-1.5 h-1.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-flockr-orange font-bold naira leading-tight">
-              ₦{Number(product.price).toLocaleString()}
-            </div>
-            {product.compare_price && (
-              <div className="text-flockr-muted text-xs line-through naira">
-                ₦{Number(product.compare_price).toLocaleString()}
-              </div>
-            )}
-          </div>
-
-          {product.is_in_stock && (
-            <button
-              onClick={handleBuy}
-              className="btn-primary text-xs py-2 px-3"
+    if (layout === 'list') {
+        return (
+            <Link
+                href={`/products/${product.slug}`}
+                className="bg-flockr-card rounded-flockr group flex gap-4 border border-white/[0.06] p-3 transition-all hover:border-white/[0.12]"
             >
-              Buy Now
-            </button>
-          )}
-        </div>
+                <div className="bg-flockr-surface relative h-20 w-20 shrink-0 overflow-hidden rounded-xl">
+                    {imgSrc ? (
+                        <img src={imgSrc} alt={product.name} className="h-full w-full object-cover" onError={() => setImgErr(true)} />
+                    ) : (
+                        <Placeholder />
+                    )}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 text-sm leading-snug font-medium text-white">{product.name}</p>
+                    {sellerHandle && <p className="text-flockr-muted mt-0.5 text-xs">{sellerHandle}</p>}
+                    <div className="mt-2 flex items-center justify-between">
+                        <span className="text-flockr-orange font-bold">₦{Number(product.price).toLocaleString()}</span>
+                        <button onClick={handleBuy} className="btn-primary px-3 py-1.5 text-xs">
+                            Buy
+                        </button>
+                    </div>
+                </div>
+            </Link>
+        );
+    }
 
-        {/* Views / orders social proof */}
-        {product.orders_count > 0 && (
-          <p className="text-flockr-muted text-[11px]">
-            🔥 {product.orders_count > 50 ? '50+' : product.orders_count} sold
-          </p>
-        )}
-      </div>
-    </Link>
-  )
+    return (
+        <Link href={`/products/${product.slug}`} className="product-card group block">
+            {/* Image */}
+            <div className="bg-flockr-surface relative aspect-square overflow-hidden">
+                {imgSrc ? (
+                    <img
+                        src={imgSrc}
+                        alt={product.name}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={() => setImgErr(true)}
+                    />
+                ) : (
+                    <Placeholder />
+                )}
+
+                {product.discount_percent && <span className="badge badge-orange absolute top-2 left-2">-{product.discount_percent}%</span>}
+
+                {!product.is_in_stock && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                        <span className="font-display text-sm font-bold tracking-widest text-white uppercase">Sold Out</span>
+                    </div>
+                )}
+
+                <button
+                    onClick={handleSave}
+                    className="glass absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full opacity-0 transition-all duration-200 group-hover:opacity-100 hover:scale-110"
+                >
+                    {saved ? <RiBookmarkFill size={16} color="#FBBF24" /> : <RiBookmarkLine size={16} color="#fff" />}
+                </button>
+            </div>
+
+            {/* Info */}
+            <div className="space-y-2 p-3">
+                <p className="line-clamp-2 text-sm leading-snug font-medium text-white">{product.name}</p>
+
+                {/* Seller row — always show if seller data exists */}
+                {product.seller && (
+                    <div className="flex items-center gap-1.5">
+                        <img
+                            src={sellerAvatar}
+                            alt={product.seller.name}
+                            className="h-4 w-4 shrink-0 rounded-full object-cover"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                            }}
+                        />
+                        {sellerHandle && <span className="text-flockr-muted truncate text-xs">{sellerHandle}</span>}
+                        {product.seller.is_verified && <RiVerifiedBadgeLine size={11} color="#FF6B35" className="shrink-0" />}
+                    </div>
+                )}
+
+                <div className="flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                        <div className="text-flockr-orange leading-tight font-bold">₦{Number(product.price).toLocaleString()}</div>
+
+                        {product.compare_price && (
+                            <div className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</div>
+                        )}
+                    </div>
+
+                    {product.is_in_stock && (
+                       <button
+    onClick={handleBuy}
+    className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold whitespace-nowrap shrink-0 btn-primary"
+>
+    Buy Now
+</button>
+                    )}
+                </div>
+
+                {product.orders_count > 0 && (
+                    <p className="text-flockr-muted text-[11px]">{product.orders_count > 50 ? '50+' : product.orders_count} sold</p>
+                )}
+            </div>
+        </Link>
+    );
 }
 
-function PlaceholderImage() {
-  return (
-    <div className="w-full h-full flex items-center justify-center bg-flockr-surface text-flockr-subtle">
-      <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-      </svg>
-    </div>
-  )
+function Placeholder() {
+    return (
+        <div className="bg-flockr-surface text-flockr-subtle flex h-full w-full items-center justify-center">
+            <RiImageLine size={40} />
+        </div>
+    );
 }

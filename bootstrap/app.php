@@ -15,11 +15,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health:   '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->redirectGuestsTo('/login'); 
 
         // Inertia middleware — must be in web group
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);
+
+        $middleware->statefulApi();
 
         // Named middleware aliases
         $middleware->alias([

@@ -1,15 +1,31 @@
 import { useState, useRef } from 'react'
-import { Head, useForm, usePage } from '@inertiajs/react'
+import { Head, useForm, usePage, router } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
+import {
+  FiFileText,
+  FiMapPin,
+  FiPhone,
+  FiMail,
+  FiCheckCircle,
+  FiAlertTriangle,
+  FiPackage,
+  FiUsers,
+  FiMessageCircle,
+  FiHeart,
+  FiTruck,
+  FiGift,
+  FiInfo,
+} from 'react-icons/fi'
 
 export default function ProfileSettings({ banks = [] }) {
   const { auth } = usePage().props
-  const [tab,         setTab]         = useState('profile')
-  const [avatarPrev,  setAvatarPrev]  = useState(auth?.user?.avatar_url)
+  const [tab, setTab] = useState('profile')
+  const [editing, setEditing] = useState(false)
+  const [avatarPrev, setAvatarPrev] = useState(auth?.user?.avatar_url ?? null)
   const fileRef = useRef(null)
 
-  const { data, setData, post, processing, errors, recentlySuccessful } = useForm({
+  const { data, setData, post, processing, errors, recentlySuccessful, reset } = useForm({
     name:     auth?.user?.name     ?? '',
     username: auth?.user?.username ?? '',
     bio:      auth?.user?.bio      ?? '',
@@ -18,16 +34,8 @@ export default function ProfileSettings({ banks = [] }) {
     avatar:   null,
   })
 
-  const bankForm = useForm({
-    bank_code:      '',
-    account_number: '',
-  })
-
-  const pwForm = useForm({
-    current_password:      '',
-    password:              '',
-    password_confirmation: '',
-  })
+  const bankForm = useForm({ bank_code: '', account_number: '' })
+  const pwForm   = useForm({ current_password: '', password: '', password_confirmation: '' })
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0]
@@ -38,227 +46,477 @@ export default function ProfileSettings({ banks = [] }) {
 
   const submitProfile = (e) => {
     e.preventDefault()
-    post('/settings/profile', { forceFormData: true })
+    post('/settings/profile', {
+      forceFormData: true,
+      preserveScroll: true,
+      onSuccess: () => setEditing(false),
+    })
   }
 
-  const submitBank = (e) => {
-    e.preventDefault()
-    bankForm.post('/settings/bank')
-  }
-
-  const submitPassword = (e) => {
-    e.preventDefault()
-    pwForm.post('/settings/password')
+  const cancelEdit = () => {
+    setEditing(false)
+    setAvatarPrev(auth?.user?.avatar_url ?? null)
+    reset()
   }
 
   const TABS = [
-    { key: 'profile',  label: '👤 Profile' },
-    { key: 'security', label: '🔒 Security' },
-    ...(auth?.user?.role === 'seller' ? [{ key: 'payouts', label: '💳 Payouts' }] : []),
-    { key: 'notifications', label: '🔔 Notifications' },
+    { key: 'profile',       label: 'Profile',       icon: PersonIcon },
+    { key: 'security',      label: 'Security',      icon: LockIcon   },
+    ...(auth?.user?.role === 'seller'
+      ? [{ key: 'payouts',  label: 'Payouts',       icon: CardIcon   }]
+      : []
+    ),
+    { key: 'notifications', label: 'Notifications', icon: BellIcon   },
   ]
+
+  
 
   return (
     <>
       <Head title="Settings" />
-      <div className="h-screen overflow-y-auto scroll-hidden bg-flockr-black">
+      <div className="h-screen overflow-y-auto scroll-hidden" style={{ background: 'var(--flockr-black)' }}>
 
-        <div className="sticky top-0 z-20 bg-flockr-black/90 backdrop-blur-md border-b border-white/[0.06] px-6 py-4">
-          <h1 className="font-display font-bold text-white text-xl">Settings</h1>
+        {/* ── Top bar ─────────────────────────────────────────────────── */}
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 30,
+          width: '100%', boxSizing: 'border-box',
+          background: 'rgba(10,10,10,0.92)',
+          backdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          padding: '14px 20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--flockr-text)' }}>
+            Settings
+          </span>
+          {tab === 'profile' && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              style={{
+                background: 'rgba(255,92,0,0.12)',
+                border: '1px solid rgba(255,92,0,0.35)',
+                color: 'var(--flockr-orange)',
+                borderRadius: 999, padding: '7px 18px',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Edit Profile
+            </button>
+          )}
+          {tab === 'profile' && editing && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={cancelEdit} style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: 'var(--flockr-muted)', borderRadius: 999,
+                padding: '7px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              }}>Cancel</button>
+              <button onClick={submitProfile} disabled={processing} style={{
+                background: 'var(--flockr-orange)', border: 'none',
+                color: '#fff', borderRadius: 999,
+                padding: '7px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                opacity: processing ? 0.7 : 1,
+              }}>
+                {processing ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="max-w-2xl mx-auto px-5 py-6 pb-28 md:pb-8">
-          {/* Tab nav */}
-          <div className="flex gap-1 p-1 bg-flockr-card rounded-xl border border-white/[0.06] mb-8 overflow-x-auto scroll-hidden">
-            {TABS.map(t => (
+        {/* ── Tab strip ───────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', overflowX: 'auto',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          scrollbarWidth: 'none',
+        }}>
+          {TABS.map(t => {
+            const Icon = t.icon
+            const active = tab === t.key
+            return (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-200 ${
-                  tab === t.key ? 'bg-flockr-orange text-white' : 'text-flockr-muted hover:text-white'
-                }`}
+                onClick={() => { setTab(t.key); setEditing(false) }}
+                style={{
+                  flex: '1 0 auto', minWidth: 80,
+                  padding: '14px 10px 12px',
+                  background: 'none', border: 'none',
+                  borderBottom: active ? '2px solid var(--flockr-orange)' : '2px solid transparent',
+                  color: active ? 'var(--flockr-text)' : 'var(--flockr-muted)',
+                  cursor: 'pointer', fontSize: 12, fontWeight: active ? 600 : 400,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                  transition: 'all 0.15s',
+                }}
               >
+                <Icon size={18} color={active ? 'var(--flockr-orange)' : 'var(--flockr-muted)'} />
                 {t.label}
               </button>
-            ))}
-          </div>
+            )
+          })}
+        </div>
 
-          {/* ── Profile tab ──────────────────────────────────────────── */}
+        <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 0 100px' }}>
+
+          {/* ════════════════════════════════════════════════════════════
+              PROFILE TAB
+          ════════════════════════════════════════════════════════════ */}
           {tab === 'profile' && (
-            <form onSubmit={submitProfile} className="space-y-6">
+            <div>
+              {/* Success banner */}
               {recentlySuccessful && (
-                <div className="flex items-center gap-2 bg-flockr-green/10 border border-flockr-green/30 rounded-flockr px-4 py-3">
-                  <svg className="w-4 h-4 text-flockr-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <div style={{
+                  margin: '16px 16px 0',
+                  background: 'rgba(0,217,126,0.1)',
+                  border: '1px solid rgba(0,217,126,0.3)',
+                  borderRadius: 12, padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="var(--flockr-green)" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
-                  <p className="text-flockr-green text-sm font-medium">Profile updated successfully!</p>
+                  <span style={{ color: 'var(--flockr-green)', fontSize: 13, fontWeight: 500 }}>Profile updated!</span>
                 </div>
               )}
 
-              {/* Avatar upload */}
-              <div className="flex items-center gap-5">
-                <div className="relative">
-                  <img
-                    src={avatarPrev}
-                    alt="Avatar"
-                    className="w-20 h-20 rounded-2xl object-cover ring-2 ring-white/10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-flockr-orange flex items-center justify-center shadow-lg hover:opacity-90 transition-opacity"
-                  >
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
-                    </svg>
-                  </button>
-                  <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
-                </div>
-                <div>
-                  <p className="text-white font-medium text-sm">{auth?.user?.name}</p>
-                  <p className="text-flockr-muted text-xs">@{auth?.user?.username}</p>
-                  <p className="text-flockr-subtle text-xs mt-1">JPG, PNG, WebP · Max 5MB</p>
-                </div>
-              </div>
+              {/* ── Avatar + name block ─────────────────────────────── */}
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                padding: '28px 20px 20px', gap: 14,
+              }}>
+                {/* Avatar */}
+                <div style={{ position: 'relative' }}>
+                  {avatarPrev ? (
+                    <img
+                      src={avatarPrev}
+                      alt={auth?.user?.name}
+                      style={{
+                        width: 96, height: 96, borderRadius: '50%',
+                        objectFit: 'cover',
+                        border: '3px solid rgba(255,255,255,0.1)',
+                      }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 96, height: 96, borderRadius: '50%',
+                      background: 'linear-gradient(135deg, var(--flockr-orange), #ff8c00)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 34, fontWeight: 700, color: '#fff',
+                      fontFamily: 'var(--font-display)',
+                      border: '3px solid rgba(255,255,255,0.1)',
+                    }}>
+                      {(auth?.user?.name ?? 'U')[0].toUpperCase()}
+                    </div>
+                  )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Full Name" error={errors.name}>
-                  <input value={data.name} onChange={e => setData('name', e.target.value)} className="input-flockr" />
-                </Field>
-                <Field label="Username" error={errors.username}>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-flockr-muted text-sm">@</span>
-                    <input value={data.username} onChange={e => setData('username', e.target.value.toLowerCase())} className="input-flockr pl-7" />
+                  {editing && (
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      style={{
+                        position: 'absolute', bottom: 0, right: 0,
+                        width: 30, height: 30, borderRadius: '50%',
+                        background: 'var(--flockr-orange)', border: '2px solid var(--flockr-black)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#fff" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                      </svg>
+                    </button>
+                  )}
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+                </div>
+
+                {/* Name + username (view mode) */}
+                {!editing && (
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ color: 'var(--flockr-text)', fontWeight: 700, fontSize: 20, fontFamily: 'var(--font-display)', margin: 0 }}>
+                      {auth?.user?.name}
+                    </p>
+                    <p style={{ color: 'var(--flockr-muted)', fontSize: 14, margin: '4px 0 0' }}>
+                      @{auth?.user?.username}
+                    </p>
+                    {auth?.user?.role && (
+                      <span style={{
+                        display: 'inline-block', marginTop: 8,
+                        background: 'rgba(255,92,0,0.12)',
+                        border: '1px solid rgba(255,92,0,0.3)',
+                        color: 'var(--flockr-orange)',
+                        borderRadius: 999, padding: '3px 12px',
+                        fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+                      }}>
+                        {auth?.user?.role}
+                      </span>
+                    )}
                   </div>
-                </Field>
+                )}
+
+                {/* Followers / following — shown for ALL users */}
+                {!editing && (
+                  <div style={{ display: 'flex', gap: 32, marginTop: 4 }}>
+                    {[
+                      { label: 'Following', value: auth?.user?.following_count ?? 0 },
+                      { label: 'Followers', value: auth?.user?.followers_count ?? 0 },
+                      ...(auth?.user?.role === 'seller'
+                        ? [{ label: 'Sales', value: auth?.user?.total_sales ?? 0 }]
+                        : []
+                      ),
+                    ].map(s => (
+                      <div key={s.label} style={{ textAlign: 'center' }}>
+                        <p style={{ color: 'var(--flockr-text)', fontWeight: 700, fontSize: 18, fontFamily: 'var(--font-display)', margin: 0 }}>
+                          {Number(s.value).toLocaleString()}
+                        </p>
+                        <p style={{ color: 'var(--flockr-muted)', fontSize: 12, margin: '2px 0 0' }}>{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <Field label="Bio" error={errors.bio}>
-                <textarea
-                  value={data.bio}
-                  onChange={e => setData('bio', e.target.value)}
-                  rows={3}
-                  placeholder="Tell buyers about yourself or your store..."
-                  className="input-flockr resize-none"
-                  maxLength={200}
-                />
-                <p className="text-flockr-subtle text-xs text-right mt-1">{data.bio.length}/200</p>
-              </Field>
+              {/* ── View mode — profile info ────────────────────────── */}
+              {!editing && (
+                <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {[
+                    { icon: FiFileText,  label: 'Bio',      value: auth?.user?.bio      },
+                    { icon: FiMapPin,    label: 'Location', value: auth?.user?.location },
+                    { icon: FiPhone,     label: 'Phone',    value: auth?.user?.phone    },
+                    { icon: FiMail,      label: 'Email',    value: auth?.user?.email    },
+                  ].map(row => {
+                    const RowIcon = row.icon
+                    return (
+                      <div key={row.label} style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 12,
+                        padding: '14px 16px',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <RowIcon
+                          size={16}
+                          color="var(--flockr-muted)"
+                          style={{ flexShrink: 0, marginTop: 2 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ color: 'var(--flockr-muted)', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 3px' }}>
+                            {row.label}
+                          </p>
+                          <p style={{ color: row.value ? 'var(--flockr-text)' : 'var(--flockr-subtle)', fontSize: 14, margin: 0, lineHeight: 1.5 }}>
+                            {row.value || `No ${row.label.toLowerCase()} added`}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Location" error={errors.location}>
-                  <input value={data.location} onChange={e => setData('location', e.target.value)} placeholder="Lagos, Nigeria" className="input-flockr" />
-                </Field>
-                <Field label="Phone" error={errors.phone}>
-                  <input value={data.phone} onChange={e => setData('phone', e.target.value)} placeholder="08012345678" className="input-flockr" />
-                </Field>
-              </div>
+              {/* ── Edit mode — form fields ─────────────────────────── */}
+              {editing && (
+                <form onSubmit={submitProfile} style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-              <button type="submit" disabled={processing} className="btn-primary w-full py-3.5">
-                {processing ? 'Saving...' : 'Save Changes'}
-              </button>
-            </form>
+                  <FormField label="Full Name" error={errors.name}>
+                    <input
+                      value={data.name}
+                      onChange={e => setData('name', e.target.value)}
+                      placeholder="Your full name"
+                      style={inputStyle}
+                    />
+                  </FormField>
+
+                  <FormField label="Username" error={errors.username}>
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--flockr-card)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
+                      <span style={{ padding: '0 0 0 14px', color: 'var(--flockr-muted)', fontSize: 14, flexShrink: 0 }}>@</span>
+                      <input
+                        value={data.username}
+                        onChange={e => setData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
+                        placeholder="username"
+                        style={{ ...inputStyle, border: 'none', background: 'none', paddingLeft: 6, borderRadius: 0 }}
+                      />
+                    </div>
+                  </FormField>
+
+                  <FormField label="Bio" error={errors.bio}>
+                    <textarea
+                      value={data.bio}
+                      onChange={e => setData('bio', e.target.value)}
+                      placeholder="Tell people about yourself..."
+                      maxLength={200}
+                      rows={3}
+                      style={{ ...inputStyle, resize: 'none', lineHeight: 1.6 }}
+                    />
+                    <p style={{ textAlign: 'right', color: 'var(--flockr-subtle)', fontSize: 11, margin: '4px 0 0' }}>
+                      {data.bio.length}/200
+                    </p>
+                  </FormField>
+
+                  <FormField label="Location" error={errors.location}>
+                    <input
+                      value={data.location}
+                      onChange={e => setData('location', e.target.value)}
+                      placeholder="Lagos, Nigeria"
+                      style={inputStyle}
+                    />
+                  </FormField>
+
+                  <FormField label="Phone Number" error={errors.phone}>
+                    <input
+                      value={data.phone}
+                      onChange={e => setData('phone', e.target.value)}
+                      placeholder="08012345678"
+                      type="tel"
+                      style={inputStyle}
+                    />
+                  </FormField>
+
+                  {/* Mobile save button (also in top bar) */}
+                  <button
+                    type="submit"
+                    disabled={processing}
+                    style={{
+                      width: '100%', padding: '15px', borderRadius: 999,
+                      background: 'var(--flockr-orange)', border: 'none',
+                      color: '#fff', fontSize: 15, fontWeight: 700,
+                      fontFamily: 'var(--font-display)', cursor: 'pointer',
+                      opacity: processing ? 0.7 : 1, marginTop: 8,
+                    }}
+                  >
+                    {processing ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
-          {/* ── Security tab ─────────────────────────────────────────── */}
+          {/* ════════════════════════════════════════════════════════════
+              SECURITY TAB
+          ════════════════════════════════════════════════════════════ */}
           {tab === 'security' && (
-            <form onSubmit={submitPassword} className="space-y-5">
-              <div className="bg-flockr-card rounded-flockr-lg border border-white/[0.06] p-5 space-y-5">
-                <h2 className="font-display font-bold text-white text-base">Change Password</h2>
-                <Field label="Current Password" error={pwForm.errors.current_password}>
-                  <input type="password" value={pwForm.data.current_password} onChange={e => pwForm.setData('current_password', e.target.value)} className="input-flockr" />
-                </Field>
-                <Field label="New Password" error={pwForm.errors.password}>
-                  <input type="password" value={pwForm.data.password} onChange={e => pwForm.setData('password', e.target.value)} className="input-flockr" />
-                </Field>
-                <Field label="Confirm New Password" error={pwForm.errors.password_confirmation}>
-                  <input type="password" value={pwForm.data.password_confirmation} onChange={e => pwForm.setData('password_confirmation', e.target.value)} className="input-flockr" />
-                </Field>
-                <button type="submit" disabled={pwForm.processing} className="btn-primary py-3">
-                  {pwForm.processing ? 'Updating...' : 'Update Password'}
+            <div style={{ padding: 16 }}>
+              <SectionCard title="Change Password">
+                <form onSubmit={e => { e.preventDefault(); pwForm.post('/settings/password') }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <FormField label="Current Password" error={pwForm.errors.current_password}>
+                    <input type="password" value={pwForm.data.current_password} onChange={e => pwForm.setData('current_password', e.target.value)} placeholder="••••••••" style={inputStyle} />
+                  </FormField>
+                  <FormField label="New Password" error={pwForm.errors.password}>
+                    <input type="password" value={pwForm.data.password} onChange={e => pwForm.setData('password', e.target.value)} placeholder="••••••••" style={inputStyle} />
+                  </FormField>
+                  <FormField label="Confirm New Password" error={pwForm.errors.password_confirmation}>
+                    <input type="password" value={pwForm.data.password_confirmation} onChange={e => pwForm.setData('password_confirmation', e.target.value)} placeholder="••••••••" style={inputStyle} />
+                  </FormField>
+                  <button type="submit" disabled={pwForm.processing} style={primaryBtnStyle}>
+                    {pwForm.processing ? 'Updating…' : 'Update Password'}
+                  </button>
+                </form>
+              </SectionCard>
+
+              <div style={{ height: 20 }} />
+
+              <SectionCard title="Danger Zone" style={{ marginTop: 16 }}>
+                <p style={{ color: 'var(--flockr-muted)', fontSize: 13, margin: '0 0 14px' }}>
+                  Once you delete your account, there is no going back.
+                </p>
+                <button style={{
+                  width: '100%', padding: '13px', borderRadius: 999,
+                  background: 'rgba(255,59,92,0.1)', border: '1px solid rgba(255,59,92,0.3)',
+                  color: 'var(--flockr-red)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}>
+                  Delete Account
                 </button>
-              </div>
-            </form>
+              </SectionCard>
+            </div>
           )}
 
-          {/* ── Payouts tab (sellers) ─────────────────────────────────── */}
+          {/* ════════════════════════════════════════════════════════════
+              PAYOUTS TAB
+          ════════════════════════════════════════════════════════════ */}
           {tab === 'payouts' && (
-            <div className="space-y-6">
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
               {auth?.user?.paystack_subaccount_code ? (
-                <div className="flex items-center gap-3 bg-flockr-green/10 border border-flockr-green/30 rounded-flockr p-4">
-                  <svg className="w-5 h-5 text-flockr-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
+                <div style={{
+                  background: 'rgba(0,217,126,0.08)', border: '1px solid rgba(0,217,126,0.25)',
+                  borderRadius: 14, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'flex-start',
+                }}>
+                  <FiCheckCircle size={22} color="var(--flockr-green)" style={{ flexShrink: 0, marginTop: 1 }} />
                   <div>
-                    <p className="text-flockr-green font-medium text-sm">Bank account connected</p>
-                    <p className="text-flockr-green/70 text-xs">Payouts will be sent automatically after order delivery.</p>
+                    <p style={{ color: 'var(--flockr-green)', fontWeight: 600, fontSize: 14, margin: 0 }}>Bank account connected</p>
+                    <p style={{ color: 'rgba(0,217,126,0.6)', fontSize: 12, margin: '3px 0 0' }}>Payouts are automatic after delivery.</p>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 bg-yellow-500/10 border border-yellow-500/20 rounded-flockr p-4">
-                  <span className="text-xl">⚠️</span>
-                  <p className="text-yellow-400 text-sm">Connect your bank account to receive payouts from your sales.</p>
+                <div style={{
+                  background: 'rgba(14, 165, 233, 0.12)', border: '1px solid rgba(255,179,0,0.2)',
+                  borderRadius: 14, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'center',
+                }}>
+                  <FiInfo size={22} color="var(--flockr-amber)" style={{ flexShrink: 0 }} />
+                  <p style={{ color: 'var(--flockr-amber)', fontSize: 13, margin: 0 }}>Connect a bank account to receive your earnings.</p>
                 </div>
               )}
 
-              <form onSubmit={submitBank} className="bg-flockr-card rounded-flockr-lg border border-white/[0.06] p-5 space-y-5">
-                <h2 className="font-display font-bold text-white text-base">Bank Account</h2>
-                <Field label="Bank" error={bankForm.errors.bank_code}>
-                  <select
-                    value={bankForm.data.bank_code}
-                    onChange={e => bankForm.setData('bank_code', e.target.value)}
-                    className="input-flockr"
-                    required
-                  >
-                    <option value="">Select your bank</option>
-                    {banks.map(b => (
-                      <option key={b.code} value={b.code}>{b.name}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Account Number" error={bankForm.errors.account_number}>
-                  <input
-                    type="text"
-                    value={bankForm.data.account_number}
-                    onChange={e => bankForm.setData('account_number', e.target.value.replace(/\D/g, ''))}
-                    placeholder="0123456789"
-                    maxLength={10}
-                    className="input-flockr"
-                    required
-                  />
-                </Field>
-                <button type="submit" disabled={bankForm.processing} className="btn-primary w-full py-3">
-                  {bankForm.processing ? 'Connecting...' : 'Connect Bank Account'}
-                </button>
-              </form>
+              <SectionCard title="Bank Account">
+                <form onSubmit={e => { e.preventDefault(); bankForm.post('/settings/bank') }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <FormField label="Bank" error={bankForm.errors.bank_code}>
+                    <select value={bankForm.data.bank_code} onChange={e => bankForm.setData('bank_code', e.target.value)} style={{ ...inputStyle, appearance: 'none' }} required>
+                      <option value="">Select your bank</option>
+                      {banks.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Account Number" error={bankForm.errors.account_number}>
+                    <input
+                      type="text" value={bankForm.data.account_number}
+                      onChange={e => bankForm.setData('account_number', e.target.value.replace(/\D/g, ''))}
+                      placeholder="0123456789" maxLength={10} style={inputStyle} required
+                    />
+                  </FormField>
+                  <button type="submit" disabled={bankForm.processing} style={primaryBtnStyle}>
+                    {bankForm.processing ? 'Connecting…' : 'Connect Bank Account'}
+                  </button>
+                </form>
+              </SectionCard>
             </div>
           )}
 
-          {/* ── Notifications tab ─────────────────────────────────────── */}
+          {/* ════════════════════════════════════════════════════════════
+              NOTIFICATIONS TAB
+          ════════════════════════════════════════════════════════════ */}
           {tab === 'notifications' && (
-            <div className="bg-flockr-card rounded-flockr-lg border border-white/[0.06] divide-y divide-white/[0.06]">
-              {[
-                { key: 'new_order',      label: 'New Orders',           sub: 'When someone buys your product' },
-                { key: 'new_follower',   label: 'New Followers',        sub: 'When someone follows you' },
-                { key: 'new_comment',    label: 'Comments',             sub: 'When someone comments on your video' },
-                { key: 'new_like',       label: 'Likes',                sub: 'When someone likes your video' },
-                { key: 'order_update',   label: 'Order Updates',        sub: 'Status changes on your purchases' },
-                { key: 'promotions',     label: 'Promotions',           sub: 'Special offers and deals' },
-              ].map(item => (
-                <div key={item.key} className="flex items-center justify-between px-5 py-4">
-                  <div>
-                    <p className="text-white text-sm font-medium">{item.label}</p>
-                    <p className="text-flockr-muted text-xs mt-0.5">{item.sub}</p>
-                  </div>
-                  <ToggleSwitch
-                    defaultOn={auth?.user?.notification_preferences?.[item.key] !== false}
-                    onChange={val => axios.patch('/settings/notifications', { [item.key]: val })}
-                  />
-                </div>
-              ))}
+            <div style={{ padding: 16 }}>
+              <SectionCard title="Push Notifications">
+                {[
+                  { key: 'new_order',    label: 'New Orders',      sub: 'When someone buys your product',          icon: FiPackage       },
+                  { key: 'new_follower', label: 'New Followers',   sub: 'When someone follows you',                icon: FiUsers         },
+                  { key: 'new_comment',  label: 'Comments',        sub: 'When someone comments on your video',     icon: FiMessageCircle },
+                  { key: 'new_like',     label: 'Likes',           sub: 'When someone likes your video',           icon: FiHeart         },
+                  { key: 'order_update', label: 'Order Updates',   sub: 'Delivery and status changes',             icon: FiTruck         },
+                  { key: 'promotions',   label: 'Promotions',      sub: 'Deals and special offers from Flockr',    icon: FiGift          },
+                ].map((item, i, arr) => {
+                  const ItemIcon = item.icon
+                  return (
+                    <div key={item.key} style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      padding: '14px 0',
+                      borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    }}>
+                      <div style={{
+                        width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                        background: 'rgba(255,255,255,0.06)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <ItemIcon size={18} color="var(--flockr-muted)" />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ color: 'var(--flockr-text)', fontSize: 14, fontWeight: 500, margin: 0 }}>{item.label}</p>
+                        <p style={{ color: 'var(--flockr-muted)', fontSize: 12, margin: '2px 0 0' }}>{item.sub}</p>
+                      </div>
+                      <ToggleSwitch
+                        defaultOn={auth?.user?.notification_preferences?.[item.key] !== false}
+                        onChange={val => axios.patch('/settings/notifications', { [item.key]: val }).catch(() => {})}
+                      />
+                    </div>
+                  )
+                })}
+              </SectionCard>
             </div>
           )}
+
         </div>
       </div>
     </>
@@ -267,12 +525,36 @@ export default function ProfileSettings({ banks = [] }) {
 
 ProfileSettings.layout = page => <AppLayout>{page}</AppLayout>
 
-function Field({ label, error, children }) {
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function SectionCard({ title, children }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium text-flockr-muted uppercase tracking-wider">{label}</label>
+    <div style={{
+      background: 'var(--flockr-card)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 16, overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+      }}>
+        <p style={{ color: 'var(--flockr-text)', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, margin: 0 }}>
+          {title}
+        </p>
+      </div>
+      <div style={{ padding: '16px' }}>{children}</div>
+    </div>
+  )
+}
+
+function FormField({ label, error, children }) {
+  return (
+    <div>
+      <p style={{ color: 'var(--flockr-muted)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 7px' }}>
+        {label}
+      </p>
       {children}
-      {error && <p className="text-flockr-red text-xs">{error}</p>}
+      {error && <p style={{ color: 'var(--flockr-red)', fontSize: 12, margin: '5px 0 0' }}>{error}</p>}
     </div>
   )
 }
@@ -280,12 +562,87 @@ function Field({ label, error, children }) {
 function ToggleSwitch({ defaultOn, onChange }) {
   const [on, setOn] = useState(defaultOn)
   return (
-    <button
-      type="button"
-      onClick={() => { const next = !on; setOn(next); onChange(next) }}
-      className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${on ? 'bg-flockr-orange' : 'bg-flockr-subtle'}`}
-    >
-      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${on ? 'translate-x-5' : ''}`} />
-    </button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <span style={{
+        fontSize: 11, fontWeight: 600,
+        color: on ? 'var(--flockr-green)' : 'var(--flockr-muted)',
+        minWidth: 22, textAlign: 'right',
+        transition: 'color 0.2s',
+      }}>
+        {on ? 'ON' : 'OFF'}
+      </span>
+      <button
+        type="button"
+        onClick={() => { const next = !on; setOn(next); onChange(next) }}
+        aria-pressed={on}
+        style={{
+          width: 50, height: 28, borderRadius: 999, border: 'none',
+          background: on ? 'var(--flockr-green)' : 'rgba(255,255,255,0.12)',
+          cursor: 'pointer', position: 'relative',
+          transition: 'background 0.25s',
+          flexShrink: 0,
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 3, left: on ? 25 : 3,
+          width: 22, height: 22, borderRadius: '50%',
+          background: '#fff',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+          transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+        }} />
+      </button>
+    </div>
+  )
+}
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+
+const inputStyle = {
+  width: '100%', padding: '13px 14px',
+  background: 'var(--flockr-card)',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 12, color: 'var(--flockr-text)',
+  fontSize: 14, fontFamily: 'var(--font-body)',
+  outline: 'none', boxSizing: 'border-box',
+  transition: 'border-color 0.2s',
+}
+
+const primaryBtnStyle = {
+  width: '100%', padding: '14px',
+  background: 'var(--flockr-orange)', border: 'none',
+  borderRadius: 999, color: '#fff',
+  fontSize: 15, fontWeight: 700,
+  fontFamily: 'var(--font-display)',
+  cursor: 'pointer',
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+
+function PersonIcon({ size = 20, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+    </svg>
+  )
+}
+function LockIcon({ size = 20, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+    </svg>
+  )
+}
+function CardIcon({ size = 20, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+    </svg>
+  )
+}
+function BellIcon({ size = 20, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+    </svg>
   )
 }

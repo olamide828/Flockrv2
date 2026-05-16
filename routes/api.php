@@ -6,6 +6,7 @@ use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SellerController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VideoController;
 use Illuminate\Support\Facades\Route;
@@ -22,6 +23,27 @@ Route::get('/search',  [SearchController::class, 'search']);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
+});
+
+Route::post('/debug-upload', function (\Illuminate\Http\Request $request) {
+    return response()->json([
+        'has_file'     => $request->hasFile('video'),
+        'file_valid'   => $request->file('video')?->isValid(),
+        'error_code'   => $request->file('video')?->getError(),
+        'error_msg'    => $request->file('video')?->getErrorMessage(),
+        'size'         => $request->file('video')?->getSize(),
+        'mime'         => $request->file('video')?->getMimeType(),
+        'post_max'     => ini_get('post_max_size'),
+        'upload_max'   => ini_get('upload_max_filesize'),
+    ]);
+});
+
+Route::get('/debug-ini', function () {
+    return response()->json([
+        'post_max'   => ini_get('post_max_size'),
+        'upload_max' => ini_get('upload_max_filesize'),
+        'ini_file'   => php_ini_loaded_file(),
+    ]);
 });
 
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
@@ -81,4 +103,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/videos/{video}/reject',      [AdminController::class, 'rejectVideo']);
         Route::get('/stats',                       [AdminController::class, 'stats']);
     });
+
+    Route::get('/users/search', function (\Illuminate\Http\Request $request) {
+    $q = $request->input('q', '');
+    if (strlen($q) < 2) return response()->json([]);
+ 
+    return \App\Models\User::where('id', '!=', \Illuminate\Support\Facades\Auth::id())
+        ->where(function ($query) use ($q) {
+            $query->where('name', 'ilike', "%{$q}%")
+                  ->orWhere('username', 'ilike', "%{$q}%");
+        })
+        ->where('is_active', true)
+        ->select('id', 'name', 'username', 'avatar', 'role')
+        ->limit(8)
+        ->get();
+})->middleware('auth:sanctum');
 });

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -11,18 +12,29 @@ use Inertia\Response;
 
 class UserController extends Controller
 {
+    /**
+     * GET /@{username}  — public profile page
+     * Fixed: return type is Response (Inertia), not RedirectResponse
+     */
     public function show(string $username): Response
     {
-        $user = User::where('username', $username)->firstOrFail();
+        $user = User::where('username', $username)
+            ->where('is_active', true)
+            ->firstOrFail();
 
         $videos = $user->videos()
-            ->active()
+            ->where('status', 'active')
+            ->whereNotNull('published_at')
             ->withCount(['likes', 'comments'])
             ->orderByDesc('published_at')
             ->get();
 
+        // Products visible for ALL roles (buyers can sell too in future)
+        // Show products only if user is a seller
         $products = $user->isSeller()
-            ? $user->products()->active()->inStock()
+            ? $user->products()
+                ->where('status', 'active')
+                ->where('stock_quantity', '>', 0)
                 ->with('seller:id,name,username,avatar')
                 ->orderByDesc('orders_count')
                 ->get()
@@ -32,27 +44,48 @@ class UserController extends Controller
         $isOwnProfile = Auth::id() === $user->id;
 
         return Inertia::render('User/Profile', [
-            'profileUser'   => $user,
-            'videos'        => $videos,
-            'products'      => $products,
-            'isFollowing'   => $isFollowing,
-            'isOwnProfile'  => $isOwnProfile,
+            'profileUser'  => array_merge($user->toArray(), [
+                // Make sure these are always present even if 0
+                'followers_count' => $user->followers_count ?? 0,
+                'following_count' => $user->following_count ?? 0,
+                'total_sales'     => $user->total_sales     ?? 0,
+            ]),
+            'videos'       => $videos,
+            'products'     => $products,
+            'isFollowing'  => $isFollowing,
+            'isOwnProfile' => $isOwnProfile,
         ]);
     }
 
-    public function edit(): Response
+    /**
+     * GET /profile  — redirect to own profile page
+     */
+    public function edit(): RedirectResponse
     {
         return redirect()->route('settings.profile');
     }
 
+    /**
+     * GET /api/users/{user}
+     */
     public function apiShow(User $user): JsonResponse
     {
-        return response()->json($user->only([
-            'id','name','username','avatar','bio',
-            'is_verified','followers_count','following_count','role',
-        ]));
+        return response()->json([
+            'id'              => $user->id,
+            'name'            => $user->name,
+            'username'        => $user->username,
+            'avatar_url'      => $user->avatar_url,
+            'bio'             => $user->bio,
+            'is_verified'     => $user->is_verified,
+            'followers_count' => $user->followers_count ?? 0,
+            'following_count' => $user->following_count ?? 0,
+            'role'            => $user->role,
+        ]);
     }
 
+    /**
+     * POST /api/users/{user}/follow  — toggle follow
+     */
     public function follow(User $user): JsonResponse
     {
         $me = Auth::user();
@@ -61,10 +94,11 @@ class UserController extends Controller
             return response()->json(['message' => 'You cannot follow yourself.'], 422);
         }
 
-        $following = $me->isFollowing($user);
+        $isFollowing = $me->isFollowing($user);
 
-        if ($following) {
+        if ($isFollowing) {
             $me->following()->detach($user->id);
+            // Decrement safely (never go below 0)
             $user->decrement('followers_count');
             $me->decrement('following_count');
         } else {
@@ -74,8 +108,8 @@ class UserController extends Controller
         }
 
         return response()->json([
-            'following'       => !$following,
-            'followers_count' => $user->fresh()->followers_count,
+            'following'       => !$isFollowing,
+            'followers_count' => max(0, $user->fresh()->followers_count),
         ]);
     }
 }

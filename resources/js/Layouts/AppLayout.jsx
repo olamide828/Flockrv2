@@ -1,181 +1,617 @@
-import { Link, usePage } from '@inertiajs/react'
-import { useState } from 'react'
+import { Link, router, usePage } from '@inertiajs/react';
+import { useState } from 'react';
+import {
+    // RiAddCircleLine,
+    RiBarChart2Line,
+    RiHome5Line,
+    RiLogoutBoxLine,
+    RiMessage2Line,
+    RiSearchLine,
+    RiSettings4Line,
+    RiShoppingBag2Line,
+    RiUploadCloud2Line,
+    // RiUserFill,
+    RiUserLine,
+} from 'react-icons/ri';
 
 const NAV_ITEMS = [
-  { href: '/',          icon: HomeIcon,     label: 'For You'  },
-  { href: '/explore',   icon: SearchIcon,   label: 'Explore'  },
-  { href: '/shop',      icon: ShopIcon,     label: 'Shop'     },
-  { href: '/inbox',     icon: InboxIcon,    label: 'Inbox'    },
-  { href: '/profile',   icon: ProfileIcon,  label: 'Profile'  },
-]
+    { href: '/', Icon: RiHome5Line, label: 'For You' },
+    { href: '/explore', Icon: RiSearchLine, label: 'Explore' },
+    { href: '/shop', Icon: RiShoppingBag2Line, label: 'Shop' },
+    { href: '/inbox', Icon: RiMessage2Line, label: 'Inbox' },
+];
 
 export default function AppLayout({ children }) {
-  const { auth }     = usePage().props
-  const { url }      = usePage()
-  const [search, setSearch] = useState('')
+    const { auth } = usePage().props;
+    const currentUrl = usePage().url;
+    const [search, setSearch] = useState('');
+    const [showUserMenu, setShowUserMenu] = useState(false);
 
-  return (
-    <div className="flex h-screen bg-flockr-black overflow-hidden">
+    // Feed and single video pages need full-screen (no chrome)
+    const isFeed = currentUrl === '/';
+    const isVideoPage = currentUrl.startsWith('/video/');
+    const isFullScreen = isFeed || isVideoPage;
+    const handleLogout = () => router.post('/logout');
+    const handleSearch = (e) => {
+        e.preventDefault();
+        if (search.trim()) router.get('/explore', { q: search.trim() });
+    };
 
-      {/* ── Desktop Sidebar ──────────────────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-[240px] border-r border-white/[0.06] bg-flockr-surface shrink-0 overflow-y-auto scroll-hidden">
-
-        {/* Logo */}
-        <div className="px-6 pt-7 pb-4 shrink-0">
-          <Link href="/" className="flex items-center gap-2 group">
-            <span className="text-2xl font-display font-800 tracking-tight text-white group-hover:text-flockr-orange transition-colors">
-              flockr
-            </span>
-            <span className="w-2 h-2 rounded-full bg-flockr-orange animate-pulse" />
-          </Link>
-        </div>
-
-        {/* Search */}
-        <div className="px-4 pb-4">
-          <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-flockr-muted" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && search && (window.location.href = `/explore?q=${search}`)}
-              placeholder="Search..."
-              className="input-flockr pl-9 py-2.5 text-sm"
-            />
-          </div>
-        </div>
-
-        {/* Nav links */}
-        <nav className="flex-1 px-3 space-y-0.5">
-          {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-            const active = url === href || (href !== '/' && url.startsWith(href))
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium transition-all duration-150 ${
-                  active
-                    ? 'bg-flockr-orange/10 text-flockr-orange font-semibold'
-                    : 'text-flockr-muted hover:text-flockr-text hover:bg-white/[0.04]'
-                }`}
-              >
-                <Icon className="w-5 h-5 shrink-0" />
-                {label}
-              </Link>
-            )
-          })}
-        </nav>
-
-        {/* Sell / Upload CTA */}
-        {auth?.user?.role === 'seller' && (
-          <div className="px-4 py-4 border-t border-white/[0.06]">
-            <Link href="/seller/upload" className="btn-primary w-full text-center text-sm py-2.5 block">
-              + Upload Video
-            </Link>
-          </div>
-        )}
-
-        {/* Auth / User */}
-        <div className="px-4 py-4 border-t border-white/[0.06]">
-          {auth?.user ? (
-            <Link href="/profile" className="flex items-center gap-3 group">
-              <img
-                src={auth.user.avatar_url}
-                alt={auth.user.name}
-                className="w-9 h-9 rounded-full object-cover ring-1 ring-white/10"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-flockr-text truncate leading-tight">{auth.user.name}</p>
-                <p className="text-xs text-flockr-muted truncate">@{auth.user.username}</p>
-              </div>
-            </Link>
-          ) : (
-            <div className="space-y-2">
-              <Link href="/login"    className="btn-ghost w-full text-center text-sm py-2 block">Log in</Link>
-              <Link href="/register" className="btn-primary w-full text-center text-sm py-2.5 block">Sign up</Link>
-            </div>
-          )}
-        </div>
-      </aside>
-
-      {/* ── Main Content ─────────────────────────────────────────────────── */}
-      <main className="flex-1 min-w-0 overflow-hidden">
-        {children}
-      </main>
-
-      {/* ── Mobile Top Bar ───────────────────────────────────────────────── */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 glass-dark">
-        <Link href="/" className="font-display font-800 text-xl text-white">
-          flockr<span className="text-flockr-orange">.</span>
-        </Link>
-        <div className="flex items-center gap-3">
-          <Link href="/explore" className="p-2 text-flockr-muted hover:text-flockr-text">
-            <SearchIcon className="w-5 h-5" />
-          </Link>
-          {auth?.user ? (
-            <Link href="/profile">
-              <img src={auth.user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-            </Link>
-          ) : (
-            <Link href="/login" className="btn-primary text-xs py-1.5 px-4">Log in</Link>
-          )}
-        </div>
-      </div>
-
-      {/* ── Mobile Bottom Nav ────────────────────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-dark flex items-center justify-around px-2 py-2 safe-area-pb">
-        {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-          const active = url === href || (href !== '/' && url.startsWith(href))
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-all ${
-                active ? 'text-flockr-orange' : 'text-flockr-muted'
-              }`}
+    const profileHref = auth?.user ? `/@${auth.user.username}` : '/login';
+    const profileActive = auth?.user ? currentUrl.startsWith(`/@${auth.user.username}`) : currentUrl === '/login';
+    const isActive = (href) => {
+        return currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
+    };
+    return (
+        <div
+            style={{
+                display: 'flex',
+                height: '100dvh',
+                background: 'var(--flockr-black)',
+                // KEY FIX: overflow hidden on the root so children control their own scroll
+                overflow: 'hidden',
+            }}
+        >
+            {/* ── Desktop sidebar ─────────────────────────────────────────── */}
+            <aside
+                style={{
+                    display: 'none',
+                    width: 240,
+                    flexDirection: 'column',
+                    borderRight: '1px solid rgba(255,255,255,0.06)',
+                    background: 'var(--flockr-surface)',
+                    overflowY: 'auto',
+                    flexShrink: 0,
+                }}
+                className="md-sidebar"
             >
-              <Icon className={`w-5 h-5 ${active ? '' : ''}`} />
-              <span className="text-[10px] font-medium">{label}</span>
-            </Link>
-          )
-        })}
-      </nav>
-    </div>
-  )
+                {/* Logo */}
+                <div style={{ padding: '24px 20px 16px' }}>
+                    <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 24, color: '#fff', letterSpacing: '-0.02em' }}>
+                            flockr<span style={{ color: 'var(--flockr-orange)' }}>.</span>
+                        </span>
+                    </Link>
+                </div>
+
+                {/* Search */}
+                <div style={{ padding: '0 12px 12px' }}>
+                    <form onSubmit={handleSearch} style={{ position: 'relative' }}>
+                        <RiSearchLine
+                            size={15}
+                            color="var(--flockr-muted)"
+                            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
+                        />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search..."
+                            style={{
+                                width: '100%',
+                                padding: '9px 10px 9px 32px',
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                                borderRadius: 10,
+                                color: '#fff',
+                                fontSize: 13,
+                                boxSizing: 'border-box',
+                            }}
+                        />
+                    </form>
+                </div>
+
+                {/* Nav links */}
+                <nav style={{ flex: 1, padding: '0 8px' }}>
+                    {NAV_ITEMS.map(({ href, Icon, label }) => {
+                        const active = currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
+                        return (
+                            <Link
+                                key={href}
+                                href={href}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    marginBottom: 2,
+                                    textDecoration: 'none',
+                                    fontSize: 14,
+                                    fontWeight: active ? 600 : 400,
+                                    color: active ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                                    background: active ? 'rgba(255,92,0,0.08)' : 'transparent',
+                                    transition: 'all 0.15s',
+                                }}
+                            >
+                                <Icon size={20} />
+                                {label}
+                            </Link>
+                        );
+                    })}
+
+                    {/* Profile */}
+                    <Link
+                        href={profileHref}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            marginBottom: 2,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: profileActive ? 600 : 400,
+                            color: profileActive ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                            background: profileActive ? 'rgba(255,92,0,0.08)' : 'transparent',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <RiUserLine size={20} />
+                        Profile
+                    </Link>
+
+                    {/* Seller upload */}
+                    {auth?.user?.role === 'seller' && (
+                        <Link
+                            href="/seller/upload"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                                margin: '8px 0',
+                                padding: '11px',
+                                background: 'var(--flockr-orange)',
+                                borderRadius: 999,
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                fontFamily: 'var(--font-display)',
+                                textDecoration: 'none',
+                            }}
+                        >
+                            <RiUploadCloud2Line size={16} /> Upload Video
+                        </Link>
+                    )}
+                </nav>
+
+                {/* User section */}
+                <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', position: 'relative' }}>
+                    {auth?.user ? (
+                        <>
+                            <button
+                                onClick={() => setShowUserMenu((m) => !m)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    width: '100%',
+                                    padding: 8,
+                                    borderRadius: 10,
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                }}
+                            >
+                                <AvatarImage user={auth.user} size={36} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p
+                                        style={{
+                                            color: '#fff',
+                                            fontSize: 13,
+                                            fontWeight: 600,
+                                            margin: 0,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {auth.user.name}
+                                    </p>
+                                    <p style={{ color: 'var(--flockr-muted)', fontSize: 11, margin: 0 }}>@{auth.user.username}</p>
+                                </div>
+                            </button>
+
+                            {showUserMenu && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: '110%',
+                                        left: 8,
+                                        right: 8,
+                                        background: 'var(--flockr-card)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: 12,
+                                        overflow: 'hidden',
+                                        zIndex: 100,
+                                        boxShadow: '0 16px 40px rgba(0,0,0,0.5)',
+                                    }}
+                                >
+                                    <MenuItem
+                                        Icon={RiUserLine}
+                                        label="View Profile"
+                                        onClick={() => {
+                                            router.visit(`/@${auth.user.username}`);
+                                            setShowUserMenu(false);
+                                        }}
+                                    />
+                                    <MenuItem
+                                        Icon={RiSettings4Line}
+                                        label="Settings"
+                                        onClick={() => {
+                                            router.visit('/settings/profile');
+                                            setShowUserMenu(false);
+                                        }}
+                                    />
+                                    {auth.user.role === 'seller' && (
+                                        <MenuItem
+                                            Icon={RiBarChart2Line}
+                                            label="Seller Dashboard"
+                                            onClick={() => {
+                                                router.visit('/seller/dashboard');
+                                                setShowUserMenu(false);
+                                            }}
+                                        />
+                                    )}
+                                    <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
+                                    <MenuItem Icon={RiLogoutBoxLine} label="Log Out" onClick={handleLogout} danger />
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <Link
+                                href="/login"
+                                style={{
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    padding: '10px',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    borderRadius: 999,
+                                    color: '#fff',
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    textDecoration: 'none',
+                                }}
+                            >
+                                Log in
+                            </Link>
+                            <Link
+                                href="/register"
+                                style={{
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    padding: '11px',
+                                    background: 'var(--flockr-orange)',
+                                    borderRadius: 999,
+                                    color: '#fff',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    textDecoration: 'none',
+                                }}
+                            >
+                                Sign up
+                            </Link>
+                        </div>
+                    )}
+                </div>
+            </aside>
+
+            {/* ── Main ────────────────────────────────────────────────────── */}
+            {/*
+        KEY FIX: main is flex:1, overflow:hidden.
+        Each child page controls its OWN scroll.
+        Full-screen pages (feed, video) get no padding.
+        Other pages get top padding for mobile topbar.
+      */}
+            <main
+                style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden', // ← children scroll themselves
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    // Only add top/bottom padding on mobile for non-fullscreen pages
+                }}
+                className={isFullScreen ? 'main-full' : 'main-paged'}
+            >
+                {/* Mobile top bar — only on non-fullscreen pages */}
+                {!isFullScreen && (
+                    <div
+                        className="mobile-topbar"
+                        style={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '12px 16px',
+                            background: 'rgba(10,10,10,0.94)',
+                            backdropFilter: 'blur(20px)',
+                            borderBottom: '1px solid rgba(255,255,255,0.06)',
+                            zIndex: 50,
+                        }}
+                    >
+                        <Link
+                            href="/"
+                            style={{
+                                textDecoration: 'none',
+                                fontFamily: 'var(--font-display)',
+                                fontWeight: 800,
+                                fontSize: 22,
+                                color: '#fff',
+                                letterSpacing: '-0.02em',
+                            }}
+                        >
+                            flockr<span style={{ color: '#ff5c00' }}>.</span>
+                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Link href="/explore" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+                                <RiSearchLine size={20} />
+                            </Link>
+                            {/* Upload button on mobile for sellers */}
+                            {auth?.user?.role === 'seller' && (
+                                <Link
+                                    href="/seller/upload"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                        padding: '7px 14px',
+                                        background: '#ff5c00',
+                                        borderRadius: 999,
+                                        color: '#fff',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        textDecoration: 'none',
+                                    }}
+                                >
+                                    <RiUploadCloud2Line size={14} /> Upload
+                                </Link>
+                            )}
+                            {auth?.user ? (
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        onClick={() => setShowUserMenu((m) => !m)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}
+                                    >
+                                        <AvatarImage user={auth.user} size={30} />
+                                    </button>
+                                    {showUserMenu && (
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                top: 'calc(100% + 8px)',
+                                                right: 0,
+                                                width: 210,
+                                                background: '#1a1a1a',
+                                                border: '1px solid rgba(255,255,255,0.1)',
+                                                borderRadius: 14,
+                                                overflow: 'hidden',
+                                                zIndex: 200,
+                                                boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+                                            }}
+                                        >
+                                            <MenuItem
+                                                Icon={RiUserLine}
+                                                label="View Profile"
+                                                onClick={() => {
+                                                    router.visit(`/@${auth.user.username}`);
+                                                    setShowUserMenu(false);
+                                                }}
+                                            />
+                                            <MenuItem
+                                                Icon={RiSettings4Line}
+                                                label="Settings"
+                                                onClick={() => {
+                                                    router.visit('/settings/profile');
+                                                    setShowUserMenu(false);
+                                                }}
+                                            />
+                                            <MenuItem
+                                                Icon={RiBarChart2Line}
+                                                label="Dashboard"
+                                                onClick={() => {
+                                                    router.visit('/dashboard');
+                                                    setShowUserMenu(false);
+                                                }}
+                                            />
+                                            {auth.user.role === 'seller' && (
+                                                <MenuItem
+                                                    Icon={RiBarChart2Line}
+                                                    label="Seller Dashboard"
+                                                    onClick={() => {
+                                                        router.visit('/seller/dashboard');
+                                                        setShowUserMenu(false);
+                                                    }}
+                                                />
+                                            )}
+                                            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
+                                            <MenuItem Icon={RiLogoutBoxLine} label="Log Out" onClick={handleLogout} danger />
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <Link
+                                    href="/login"
+                                    style={{
+                                        padding: '7px 16px',
+                                        background: '#ff5c00',
+                                        borderRadius: 999,
+                                        color: '#fff',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        textDecoration: 'none',
+                                    }}
+                                >
+                                    Log in
+                                </Link>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Page content — fills remaining height, scrolls itself */}
+                <div style={{ flex: 1, overflow: isFullScreen ? 'hidden' : 'auto', minHeight: 0 }} className="page-content">
+                    {children}
+                </div>
+
+                {/* Mobile bottom nav — only on non-fullscreen pages */}
+                {!isVideoPage && (
+                    <nav
+                        className="mobile-bottom-nav"
+                        style={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: 'rgba(8,8,8,0.96)',
+                            backdropFilter: 'blur(24px)',
+                            borderTop: '1px solid rgba(255,255,255,0.07)',
+                            zIndex: 50,
+                            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                        }}
+                    >
+                        {/* Regular nav items */}
+                        {NAV_ITEMS.map(({ href, label, Icon }) => {
+                            const active = isActive(href);
+
+                            return (
+                                <Link
+                                    key={href}
+                                    href={href}
+                                    style={{
+                                        flex: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        padding: '8px 4px 6px',
+                                        textDecoration: 'none',
+                                        color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
+                                        transition: 'color 0.15s',
+                                    }}
+                                >
+                                    <Icon size={23} />
+                                    <span
+                                        style={{
+                                            fontSize: 10,
+                                            fontWeight: active ? 700 : 400,
+                                            letterSpacing: '0.02em',
+                                        }}
+                                    >
+                                        {label}
+                                    </span>
+                                </Link>
+                            );
+                        })}
+
+                        {/* Upload button in middle of nav for sellers, Profile for others */}
+                        
+                            <Link
+                                href={profileHref}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                    padding: '8px 4px 6px',
+                                    textDecoration: 'none',
+                                    color: profileActive ? '#ff5c00' : 'rgba(255,255,255,0.4)',
+                                    transition: 'color 0.15s',
+                                }}
+                            >
+                                {profileActive ? <RiUserLine size={23} /> : <RiUserLine size={23} />}
+                                <span style={{ fontSize: 10, fontWeight: 400 }}>Profile</span>
+                            </Link>
+                        
+                    </nav>
+                )}
+            </main>
+
+            <style>{`
+        @media (min-width: 768px) {
+          .md-sidebar { display: flex !important; }
+          .mobile-topbar { display: none !important; }
+          .mobile-bottom-nav { display: none !important; }
+        }
+        .main-paged .page-content { padding-bottom: 0; }
+        input:focus { border-color: var(--flockr-orange) !important; outline: none; }
+        * { box-sizing: border-box; }
+        /* Remove scrollbar on webkit for clean look */
+        ::-webkit-scrollbar { display: none; }
+      `}</style>
+        </div>
+    );
 }
 
-// ── Icons ────────────────────────────────────────────────────────────────────
-function HomeIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-    </svg>
-  )
+export function AvatarImage({ user, size = 36 }) {
+    const [imgError, setImgError] = useState(false);
+    const src = user?.avatar_url;
+
+    if (src && !imgError) {
+        return (
+            <img
+                src={src}
+                alt={user?.name ?? 'User'}
+                onError={() => setImgError(true)}
+                style={{
+                    width: size,
+                    height: size,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    border: '2px solid rgba(255,255,255,0.1)',
+                    flexShrink: 0,
+                    display: 'block',
+                }}
+            />
+        );
+    }
+    return (
+        <div
+            style={{
+                width: size,
+                height: size,
+                borderRadius: '50%',
+                flexShrink: 0,
+                background: 'linear-gradient(135deg, var(--flockr-orange), #ff8c00)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: size * 0.38,
+                border: '2px solid rgba(255,255,255,0.1)',
+            }}
+        >
+            {(user?.name ?? user?.username ?? 'U')[0].toUpperCase()}
+        </div>
+    );
 }
-function SearchIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803 7.5 7.5 0 0015.803 15.803z" />
-    </svg>
-  )
-}
-function ShopIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-    </svg>
-  )
-}
-function InboxIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-    </svg>
-  )
-}
-function ProfileIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-    </svg>
-  )
+
+function MenuItem({ Icon, label, onClick, danger }) {
+    return (
+        <button
+            onClick={onClick}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '11px 16px',
+                color: danger ? 'var(--flockr-red, #ef4444)' : '#fff',
+                fontSize: 13,
+                fontWeight: 500,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+                textAlign: 'left',
+            }}
+        >
+            <Icon size={15} />
+            {label}
+        </button>
+    );
 }

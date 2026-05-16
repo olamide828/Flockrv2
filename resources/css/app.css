@@ -1,8 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
@@ -141,17 +139,15 @@ h1, h2, h3, h4, h5, h6 {
   text-shadow: 0 0 20px var(--flockr-orange-glow);
 }
 
+
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn-primary {
   background: var(--flockr-orange);
   color: white;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.01em;
   border: none;
   border-radius: var(--radius-full);
-  padding: 12px 24px;
   cursor: pointer;
   transition: all 0.2s var(--ease-out);
   position: relative;

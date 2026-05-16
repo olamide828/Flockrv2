@@ -17,8 +17,6 @@ use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
-    // ── Login ─────────────────────────────────────────────────────────────────
-
     public function loginForm(): Response
     {
         return Inertia::render('Auth/Login');
@@ -27,7 +25,7 @@ class AuthController extends Controller
     public function login(Request $request): RedirectResponse
     {
         $credentials = $request->validate([
-            'email'    => 'required|email',
+            'email' => 'required|email',
             'password' => 'required|string',
         ]);
 
@@ -38,29 +36,25 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
-
-        // Redirect based on role
         return $this->redirectByRole(Auth::user());
     }
-
-    // ── Register ──────────────────────────────────────────────────────────────
 
     public function registerForm(): Response
     {
         return Inertia::render('Auth/Register');
     }
 
-    public function register(Request $request): RedirectResponse
+ public function register(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name'                  => 'required|string|max:100',
-            'username'              => 'required|string|max:30|alpha_dash|unique:users,username',
-            'email'                 => 'required|email|unique:users,email',
-            'phone'                 => 'nullable|string|max:20',
-            'password'              => ['required', 'confirmed', Rules\Password::defaults()],
-            'role'                  => 'required|in:buyer,seller',
+            'name'     => 'required|string|max:100',
+            'username' => 'required|string|max:30|alpha_dash|unique:users,username',
+            'email'    => 'required|email|unique:users,email',
+            'phone'    => 'nullable|string|max:20',
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'role'     => 'required|in:buyer,seller',
         ]);
-
+ 
         $user = User::create([
             'name'     => $validated['name'],
             'username' => strtolower($validated['username']),
@@ -69,11 +63,66 @@ class AuthController extends Controller
             'password' => Hash::make($validated['password']),
             'role'     => $validated['role'],
         ]);
-
+ 
         Auth::login($user);
+ 
+        // IMPORTANT: regenerate session ONCE here, before any redirect
         $request->session()->regenerate();
-
-        return $this->redirectByRole($user);
+ 
+        if ($user->role === 'seller') {
+            return redirect()->route('seller.onboarding');
+        }
+ 
+        // Buyers go to interest onboarding
+        return redirect()->route('buyer.onboarding');
+    }
+ 
+    public function sellerOnboarding(): Response
+    {
+        if (!Auth::check() || Auth::user()->role !== 'seller') {
+            abort(403);
+        }
+ 
+        // Regenerate CSRF token — this is what fixes the 419
+        // The session was already regenerated on login/register,
+        // but the CSRF token can get stale on redirect chains.
+        session()->regenerateToken();
+ 
+        return Inertia::render('Auth/SellerOnboarding');
+    }
+ 
+    public function sellerOnboardingStore(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'store_name'         => 'required|string|max:100',
+            'business_type'      => 'required|in:individual,registered_business',
+            'product_categories' => 'required|array|min:1|max:3',   // ← array now
+            'product_categories.*' => 'string|max:100',
+            'description'        => 'required|string|max:500',
+            'location'           => 'required|string|max:100',
+            'whatsapp'           => 'nullable|string|max:20',
+        ]);
+ 
+        $user = Auth::user();
+        $existing = $user->preferences ?? [];
+ 
+        $user->update([
+            'name'     => $validated['store_name'],
+            'bio'      => $validated['description'],
+            'location' => $validated['location'],
+            'phone'    => $validated['whatsapp'] ?? $user->phone,
+            // Store seller store info in preferences
+            'preferences' => array_merge($existing, [
+                'store_name'           => $validated['store_name'],
+                'business_type'        => $validated['business_type'],
+                'product_categories'   => $validated['product_categories'],
+                'onboarding_completed' => true,
+                'onboarding_at'        => now()->toISOString(),
+            ]),
+        ]);
+ 
+        return redirect()->route('seller.dashboard')
+            ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -86,7 +135,7 @@ class AuthController extends Controller
         return redirect('/');
     }
 
-    // ── Forgot Password ───────────────────────────────────────────────────────
+    // ── Password Reset ────────────────────────────────────────────────────────
 
     public function forgotForm(): Response
     {
@@ -96,15 +145,12 @@ class AuthController extends Controller
     public function forgotPassword(Request $request): RedirectResponse
     {
         $request->validate(['email' => 'required|email']);
-
         $status = Password::sendResetLink($request->only('email'));
 
         return $status === Password::RESET_LINK_SENT
             ? back()->with('status', __($status))
             : back()->withErrors(['email' => __($status)]);
     }
-
-    // ── Reset Password ────────────────────────────────────────────────────────
 
     public function resetForm(Request $request, string $token): Response
     {
@@ -117,16 +163,16 @@ class AuthController extends Controller
     public function resetPassword(Request $request): RedirectResponse
     {
         $request->validate([
-            'token'                 => 'required',
-            'email'                 => 'required|email',
-            'password'              => ['required', 'confirmed', Rules\Password::defaults()],
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function (User $user, string $password) {
                 $user->forceFill([
-                    'password'       => Hash::make($password),
+                    'password' => Hash::make($password),
                     'remember_token' => Str::random(60),
                 ])->save();
                 event(new PasswordReset($user));
@@ -152,20 +198,20 @@ class AuthController extends Controller
 
         try {
             $socialUser = Socialite::driver($provider)->user();
-        } catch (\Exception $e) {
-            return redirect()->route('login')->withErrors(['email' => 'Social login failed. Please try again.']);
+        } catch (\Exception) {
+            return redirect()->route('login')
+                ->withErrors(['email' => 'Social login failed. Please try again.']);
         }
 
-        // Find existing user by email or create new one
         $user = User::firstOrCreate(
             ['email' => $socialUser->getEmail()],
             [
-                'name'              => $socialUser->getName(),
-                'username'          => $this->generateUsername($socialUser->getName()),
-                'password'          => Hash::make(Str::random(32)),
-                'avatar'            => $socialUser->getAvatar(),
+                'name' => $socialUser->getName(),
+                'username' => $this->generateUsername($socialUser->getName()),
+                'password' => Hash::make(Str::random(32)),
+                'avatar' => $socialUser->getAvatar(),
                 'email_verified_at' => now(),
-                'role'              => 'buyer',
+                'role' => 'buyer',
             ]
         );
 
@@ -173,27 +219,23 @@ class AuthController extends Controller
         return $this->redirectByRole($user);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
     private function redirectByRole(User $user): RedirectResponse
     {
         return match ($user->role) {
-            'admin'  => redirect()->route('admin.dashboard'),
+            'admin' => redirect()->route('admin.dashboard'),
             'seller' => redirect()->route('seller.dashboard'),
-            default  => redirect()->route('home'),
+            default => redirect()->route('home'),
         };
     }
 
     private function generateUsername(string $name): string
     {
-        $base     = strtolower(Str::slug($name, ''));
+        $base = strtolower(Str::slug($name, ''));
         $username = $base;
-        $i        = 1;
-
+        $i = 1;
         while (User::where('username', $username)->exists()) {
             $username = $base . $i++;
         }
-
         return $username;
     }
 }

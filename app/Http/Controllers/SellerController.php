@@ -41,7 +41,7 @@ class SellerController extends Controller
             ->get();
 
         $topProducts = $seller->products()
-            ->withCount('orders')
+            ->withCount('orderItems')
             ->orderByDesc('orders_count')
             ->limit(5)
             ->get();
@@ -68,7 +68,7 @@ class SellerController extends Controller
     {
         $products = Auth::user()->products()
             ->with('category:id,name')
-            ->withCount('orders')
+            ->withCount('orderItems')
             ->orderByDesc('created_at')
             ->paginate(20);
 

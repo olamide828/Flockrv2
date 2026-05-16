@@ -12,7 +12,7 @@ class StorageService
 
     public function __construct()
     {
-        $this->disk = config('filesystems.default', 'r2');
+        $this->disk = config('filesystems.default', 'public');
     }
 
     /**

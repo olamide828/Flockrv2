@@ -28,6 +28,12 @@ class Video extends Model
         'published_at'     => 'datetime',
     ];
 
+    protected $appends = [
+        'video_stream_url',
+        'thumbnail_url_full',
+        'is_processing',
+    ];
+
     // ─── Relationships ────────────────────────────────────────────────────────
 
     public function user(): BelongsTo
@@ -78,21 +84,54 @@ class Video extends Model
     public function scopeForFeed($query)
     {
         return $query->active()
-            ->with(['user:id,name,username,avatar,is_verified', 'products'])
+            ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
             ->withCount(['likes', 'comments']);
     }
 
     // ─── Accessors ────────────────────────────────────────────────────────────
 
-    public function getVideoStreamUrlAttribute(): string
+    /**
+     * Build a full URL from a storage path.
+     *
+     * Logic:
+     *  - Already a full URL (starts with http) → return as-is
+     *  - Using R2/S3 disk → prepend R2 CDN URL
+     *  - Using local/public disk → prepend /storage/ (symlinked)
+     */
+    private function buildUrl(?string $path): ?string
     {
-        return $this->hls_url ?? $this->video_url;
+        if (!$path) return null;
+
+        // Already absolute
+        if (str_starts_with($path, 'http')) return $path;
+
+        $disk = config('filesystems.default', 'public');
+
+        if ($disk === 'r2' || $disk === 's3') {
+            $base = rtrim(config('filesystems.disks.' . $disk . '.url', ''), '/');
+            return $base . '/' . ltrim($path, '/');
+        }
+
+        // Local / public disk — files live in storage/app/public, served via /storage symlink
+        return '/storage/' . ltrim($path, '/');
     }
 
+    /**
+     * Full playable video URL.
+     * Frontend VideoCard uses this as <video src>.
+     */
+    public function getVideoStreamUrlAttribute(): ?string
+    {
+        return $this->buildUrl($this->hls_url ?? $this->video_url);
+    }
+
+    /**
+     * Full thumbnail URL.
+     * Returns null if no thumbnail (local dev without ffmpeg).
+     */
     public function getThumbnailUrlFullAttribute(): ?string
     {
-        if (!$this->thumbnail_url) return null;
-        return config('filesystems.disks.r2.url') . '/' . $this->thumbnail_url;
+        return $this->buildUrl($this->thumbnail_url);
     }
 
     public function getIsProcessingAttribute(): bool
@@ -102,12 +141,7 @@ class Video extends Model
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    public function isLikedBy(User $user): bool
-    {
-        return $this->likes()->where('user_id', $user->id)->exists();
-    }
-
-    public function recordView(int $userId = null, string $sessionId = null, int $watchSeconds = 0): void
+    public function recordView(?int $userId, ?string $sessionId, int $watchSeconds): void
     {
         $percent = $this->duration_seconds > 0
             ? min(100, ($watchSeconds / $this->duration_seconds) * 100)
@@ -126,9 +160,7 @@ class Video extends Model
 
     public function tagProduct(Product $product, array $pivot = []): void
     {
-        $this->products()->syncWithoutDetaching([
-            $product->id => $pivot,
-        ]);
+        $this->products()->syncWithoutDetaching([$product->id => $pivot]);
         if (!$this->is_for_sale) {
             $this->update(['is_for_sale' => true]);
         }

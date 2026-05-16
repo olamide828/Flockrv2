@@ -1,4 +1,8 @@
 <?php
+ini_set('upload_max_filesize', '512M');
+ini_set('post_max_size', '512M');
+ini_set('max_execution_time', '300');
+ini_set('max_input_time', '300');
 
 use Illuminate\Http\Request;
 
@@ -15,3 +19,4 @@ require __DIR__.'/../vendor/autoload.php';
 // Bootstrap Laravel and handle the request...
 (require_once __DIR__.'/../bootstrap/app.php')
     ->handleRequest(Request::capture());
+

@@ -4,8 +4,7 @@ import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
 
 const MAX_SIZE_MB    = 500
-const ALLOWED_TYPES  = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v']
-
+const ALLOWED_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/x-matroska', 'video/mkv']
 export default function VideoUpload({ products = [] }) {
   const fileRef       = useRef(null)
   const [file,        setFile]        = useState(null)
@@ -29,7 +28,7 @@ export default function VideoUpload({ products = [] }) {
     setError(null)
 
     if (!ALLOWED_TYPES.includes(f.type)) {
-      setError('Please upload an MP4, MOV, or WebM file.')
+      setError('Please upload an MP4, MOV, AVI, MKV or WebM file.')
       return
     }
     if (f.size > MAX_SIZE_MB * 1024 * 1024) {
@@ -50,45 +49,56 @@ export default function VideoUpload({ products = [] }) {
 
   // ── Upload ───────────────────────────────────────────────────────────────
   const handleUpload = async () => {
-    if (!file) return
-    setUploading(true)
-    setStage('uploading')
-    setError(null)
+  if (!file) return
+  setUploading(true)
+  setStage('uploading')
+  setError(null)
 
-    const formData = new FormData()
-    formData.append('video',       file)
-    formData.append('title',       title)
-    formData.append('description', description)
-    formData.append('hashtags',    JSON.stringify(
-      hashtags.split(' ').filter(t => t.startsWith('#')).slice(0, 10)
-    ))
+  const formData = new FormData()
+  formData.append('video',       file)
+  formData.append('title',       title)
+  formData.append('description', description)
+  formData.append(
+  'hashtags',
+  JSON.stringify(
+    hashtags
+      .split(' ')
+      .filter(t => t.startsWith('#'))
+      .slice(0, 10)
+  )
+)
 
-    try {
-      const { data } = await axios.post('/api/videos/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (e) => {
-          setProgress(Math.round((e.loaded / e.total) * 100))
-        },
-      })
-
-      setVideoId(data.video_id)
-      setStage('processing')
-
-      // Tag products if any selected
-      if (selectedProducts.length > 0) {
-        await axios.post(`/api/videos/${data.video_id}/tag-products`, {
-          product_ids: selectedProducts,
-        })
-      }
-
-      setStage('done')
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'Upload failed. Please try again.')
-      setStage('error')
-    } finally {
-      setUploading(false)
-    }
+  if (selectedProducts.length > 0) {
+    formData.append('product_ids', JSON.stringify(selectedProducts));  // Backend expects this
   }
+
+  try {
+    // Get Sanctum CSRF cookie first (sets XSRF-TOKEN)
+    await axios.get('/sanctum/csrf-cookie');
+    
+    const { data } = await axios.post('/api/videos/upload', formData, {
+      headers: { 
+        // Let browser set boundary automatically
+        // 'Content-Type': 'multipart/form-data',  // Remove this line
+      },
+      withCredentials: true,  // Critical: sends auth cookies
+      onUploadProgress: (e) => {
+        setProgress(Math.round((e.loaded * 100) / e.total));
+      },
+    });
+
+    setVideoId(data.video_id);
+    setStage('processing');
+    setStage('done');  // Skip processing UI if no job
+  } catch (err) {
+    console.error(err);  // Debug
+    console.error('Full error:', err.response?.data.errors)
+    setError(err.response?.data?.message ?? 'Upload failed.');
+    setStage('error');
+  } finally {
+    setUploading(false);
+  }
+};
 
   const toggleProduct = (id) => {
     setSelectedProducts(prev =>
@@ -158,7 +168,7 @@ export default function VideoUpload({ products = [] }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept="video/mp4,video/quicktime,video/webm"
+                accept="video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv,.avi"
                 onChange={e => handleFile(e.target.files[0])}
                 className="hidden"
               />
@@ -172,7 +182,7 @@ export default function VideoUpload({ products = [] }) {
                   {dragging ? 'Drop it here!' : 'Drag & drop your video'}
                 </p>
                 <p className="text-flockr-muted text-sm mt-1">or <span className="text-flockr-orange">click to browse</span></p>
-                <p className="text-flockr-subtle text-xs mt-2">MP4, MOV, WebM · Max {MAX_SIZE_MB}MB · Up to 3 minutes</p>
+                <p className="text-flockr-subtle text-xs mt-2">MP4, MOV, WebM, AVI, MKV · Max {MAX_SIZE_MB}MB · Up to 3 minutes</p>
               </div>
             </div>
           ) : (
