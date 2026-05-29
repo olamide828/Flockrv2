@@ -19,20 +19,11 @@ export default function ProductCard({ product, layout = 'grid' }) {
         await axios.post(`/api/products/${product.id}/save`).catch(() => setSaved((s) => !s));
     };
 
-    const handleBuy = async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!auth?.user) {
-            router.visit('/login');
-            return;
-        }
-        try {
-            const { data } = await axios.post('/api/orders/checkout', { product_id: product.id, quantity: 1 });
-            window.location.href = data.authorization_url;
-        } catch (err) {
-            alert(err.response?.data?.message ?? 'Checkout failed.');
-        }
-    };
+    const handleBuy = (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  router.visit(`/@${product.seller?.username}/products/${product.slug}`)
+}
 
     // Primary image — use accessor (full URL) or fall back
     const imgSrc = !imgErr && product.primary_image ? product.primary_image : null;
@@ -46,8 +37,8 @@ export default function ProductCard({ product, layout = 'grid' }) {
     if (layout === 'list') {
         return (
             <Link
-                href={`/products/${product.slug}`}
-                className="bg-flockr-card rounded-flockr group flex gap-4 border border-white/[0.06] p-3 transition-all hover:border-white/[0.12]"
+                href={`/@${product.seller?.username}/products/${product.slug}`}
+                className="bg-flockr-card rounded-flockr relative group flex gap-4 border border-white/[0.06] p-3 transition-all hover:border-white/[0.12]"
             >
                 <div className="bg-flockr-surface relative h-20 w-20 shrink-0 overflow-hidden rounded-xl">
                     {imgSrc ? (
@@ -55,23 +46,30 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     ) : (
                         <Placeholder />
                     )}
+                    
+
                 </div>
                 <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 text-sm leading-snug font-medium text-white">{product.name}</p>
                     {sellerHandle && <p className="text-flockr-muted mt-0.5 text-xs">{sellerHandle}</p>}
                     <div className="mt-2 flex items-center justify-between">
                         <span className="text-flockr-orange font-bold">₦{Number(product.price).toLocaleString()}</span>
-                        <button onClick={handleBuy} className="btn-primary px-3 py-1.5 text-xs">
+                        {product.is_in_stock && <button onClick={handleBuy} className="btn-primary px-3 py-1.5 text-xs">
                             Buy
-                        </button>
+                        </button>}
                     </div>
                 </div>
+                {!product.is_in_stock && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                        <span className="font-display text-sm font-bold tracking-widest text-white uppercase">Sold Out</span>
+                    </div>
+                )}
             </Link>
         );
     }
 
     return (
-        <Link href={`/products/${product.slug}`} className="product-card group block">
+        <Link href={`/@${product.seller?.username}/products/${product.slug}`} className="product-card group block">
             {/* Image */}
             <div className="bg-flockr-surface relative aspect-square overflow-hidden">
                 {imgSrc ? (

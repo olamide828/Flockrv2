@@ -4,7 +4,9 @@ import axios from 'axios'
 export function useInfiniteScroll(initialData = [], endpoint = '/api/feed') {
   const [items,   setItems]   = useState(Array.isArray(initialData) ? initialData : [])
   const [loading, setLoading] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
+  // Start as false — only set true if server confirms more exist
+  const [hasMore, setHasMore] = useState(false)
+  const loadingRef = useRef(false)
 
   const cursorRef = useRef(
     Array.isArray(initialData) && initialData.length > 0
@@ -12,28 +14,45 @@ export function useInfiniteScroll(initialData = [], endpoint = '/api/feed') {
       : 0
   )
 
-  const loadMore = useCallback(async (params = {}) => {
-    if (loading || !hasMore) return
+  const loadMore = useCallback(async (params = {}, replace = false) => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     setLoading(true)
+
     try {
+      const cursor = replace ? 0 : cursorRef.current
       const { data } = await axios.get(endpoint, {
-        params: { cursor: cursorRef.current, ...params },
+        params: { cursor, ...params },
+        withCredentials: true,
       })
+
       const incoming = Array.isArray(data.data) ? data.data : []
-      setItems(prev => [...prev, ...incoming])
       setHasMore(data.has_more ?? false)
       cursorRef.current = data.next_cursor ?? 0
+
+      if (replace) {
+        setItems(incoming)
+      } else {
+        // Deduplicate by ID to prevent double entries
+        setItems(prev => {
+          const existingIds = new Set(prev.map(v => v.id))
+          const fresh = incoming.filter(v => !existingIds.has(v.id))
+          return [...prev, ...fresh]
+        })
+      }
     } catch (err) {
       console.error('Feed load error:', err)
     } finally {
+      loadingRef.current = false
       setLoading(false)
     }
-  }, [loading, hasMore, endpoint])
+  }, [endpoint])
 
-  const reset = useCallback(() => {
-    setItems([])
-    setHasMore(true)
-    cursorRef.current = 0
+  const reset = useCallback((newItems = []) => {
+    setItems(newItems)
+    setHasMore(false)
+    cursorRef.current = newItems.length > 0 ? (newItems[newItems.length - 1]?.id ?? 0) : 0
+    loadingRef.current = false
   }, [])
 
   return { items, loading, hasMore, loadMore, setItems, reset }

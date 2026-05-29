@@ -36,6 +36,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'following_count',
         'total_sales',
         'preferences',
+        'paystack_recipient_code',
+        'bank_name',
+        'bank_code',
+        'account_name',
+        'account_last4',
     ];
 
     protected $hidden = ['password', 'remember_token'];

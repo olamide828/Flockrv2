@@ -163,7 +163,7 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
             </div>
 
             <div className=" flex justify-between items-center flex-1 gap-4">
-              <h1>Shop</h1>
+              <h1 className='lg:flex hidden'>Shop</h1>
               {/* Custom Dropdown to support Icons */}
               <div className="relative">
                 <button 

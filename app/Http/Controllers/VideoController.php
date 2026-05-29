@@ -9,6 +9,7 @@ use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -22,9 +23,6 @@ class VideoController extends Controller
 
     // ── Inertia Pages ─────────────────────────────────────────────────────────
 
-    /**
-     * GET /  — TikTok-style feed
-     */
     public function index(): Response
     {
         return Inertia::render('Feed/Index', [
@@ -36,9 +34,6 @@ class VideoController extends Controller
         ]);
     }
 
-    /**
-     * GET /seller/upload
-     */
     public function create(): Response
     {
         if (!Auth::check() || Auth::user()->role !== 'seller') {
@@ -55,19 +50,21 @@ class VideoController extends Controller
         ]);
     }
 
-    /**
-     * GET /video/{video}
-     */
-    public function show(Video $video): Response
+    public function show(string $username, Video $video): Response
     {
-        if ($video->status === 'processing' || $video->status === 'pending') {
+        $video->loadMissing('user:id,name,username,avatar,is_verified,followers_count');
+
+        if (!$video->user || $video->user->username !== $username) {
+            abort(404);
+        }
+
+        if (in_array($video->status, ['processing', 'pending'])) {
             return Inertia::render('Video/Processing', ['video' => $video]);
         }
 
-        abort_if(!in_array($video->status, ['active']), 404);
+        abort_if($video->status !== 'active', 404);
 
         $video->load([
-            'user:id,name,username,avatar,is_verified,followers_count',
             'products' => fn($q) => $q->where('status', 'active')
                 ->with('seller:id,name,username'),
         ]);
@@ -88,29 +85,11 @@ class VideoController extends Controller
 
     // ── API ───────────────────────────────────────────────────────────────────
 
-    /**
-     * POST /api/videos/upload
-     */
     public function store(Request $request): JsonResponse
     {
-        \Log::info('Upload request', [
-            'user_id' => Auth::id(),
-            'auth_check' => Auth::check(),
-            'sanctum_user' => auth('sanctum')->user()?->id,
-            'headers' => $request->headers->all(),
-        ]);
-
         if (!Auth::check() || Auth::user()->role !== 'seller') {
             return response()->json(['message' => 'Only sellers can upload videos.'], 403);
         }
-
-        \Log::info('Upload attempt', [
-    'files'      => $request->allFiles(),
-    'post_max'   => ini_get('post_max_size'),
-    'upload_max' => ini_get('upload_max_filesize'),
-    'content_length' => $request->header('Content-Length'),
-    'content_type'   => $request->header('Content-Type'),
-]);
 
         $request->validate([
             'video' => 'required|file|mimes:mp4,mov,webm,avi,mkv|max:512000',
@@ -119,31 +98,34 @@ class VideoController extends Controller
             'hashtags' => 'nullable|json',
         ], [
             'video.max' => 'Video must be under 500MB.',
-            'video.mimes' => 'Only MP4, MOV, WebM, and AVI files are allowed.',
+            'video.mimes' => 'Only MP4, MOV, WebM, AVI and MKV files are allowed.',
             'video.file' => 'Please select a valid video file.',
         ]);
 
-        $hashtags = json_decode($request->hashtags, true);
-
+        $hashtags = json_decode($request->hashtags ?? '[]', true);
         $file = $request->file('video');
         $path = $this->storageService->uploadVideo($file);
 
+        // ── Mark ACTIVE immediately so seller sees it right away ──────────────
+        // ProcessVideoJob runs in background to generate thumbnail + duration.
+        // If job fails the video stays active — just without a thumbnail.
         $video = Video::create([
             'user_id' => Auth::id(),
-            'title' => $request->input('title'),                            
+            'title' => $request->input('title'),
             'description' => $request->input('description'),
             'hashtags' => $hashtags,
             'video_url' => $path,
             'file_size_bytes' => $file->getSize(),
-            'status' => 'pending',
+            'status' => 'active',       // ← active immediately
+            'published_at' => now(),           // ← visible in feed now
         ]);
 
+        // Dispatch background job to generate thumbnail + duration (non-blocking)
         if (class_exists(ProcessVideoJob::class)) {
             ProcessVideoJob::dispatch($video);
-        } else {
-            $video->update(['status' => 'active', 'published_at' => now()]);
         }
 
+        // Tag products
         if ($request->filled('product_ids')) {
             $ids = json_decode($request->input('product_ids'), true) ?? [];
             if (!empty($ids)) {
@@ -157,13 +139,11 @@ class VideoController extends Controller
         return response()->json([
             'message' => 'Video uploaded successfully.',
             'video_id' => $video->id,
+            'video_ulid' => $video->ulid,
             'status' => $video->status,
         ], 201);
     }
 
-    /**
-     * GET /api/feed
-     */
     public function feed(Request $request): JsonResponse
     {
         $type = $request->input('type', 'for_you');
@@ -180,16 +160,16 @@ class VideoController extends Controller
             ->values()
             ->toArray();
 
+        $totalActive = Video::active()->count();
+        $hasMore = $videos->count() === $limit && $totalActive > $limit;
+
         return response()->json([
             'data' => $serialized,
             'next_cursor' => $videos->last()?->id,
-            'has_more' => $videos->count() === $limit,
+            'has_more' => $hasMore,
         ]);
     }
 
-    /**
-     * POST /api/videos/{video}/like
-     */
     public function like(Video $video): JsonResponse
     {
         $user = Auth::user();
@@ -209,9 +189,6 @@ class VideoController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/videos/{video}/view
-     */
     public function recordView(Request $request, Video $video): JsonResponse
     {
         $validated = $request->validate([
@@ -228,9 +205,6 @@ class VideoController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * POST /api/videos/{video}/save
-     */
     public function save(Video $video): JsonResponse
     {
         $user = Auth::user();
@@ -250,9 +224,6 @@ class VideoController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/videos/{video}/tag-products
-     */
     public function tagProducts(Request $request, Video $video): JsonResponse
     {
         if (Auth::id() !== $video->user_id) {
@@ -272,12 +243,9 @@ class VideoController extends Controller
 
         $video->update(['is_for_sale' => true]);
 
-        return response()->json(['message' => 'Products tagged.']);
+        return response()->json(['message' => 'Products tagged.', 'products' => $video->products]);
     }
 
-    /**
-     * DELETE /api/videos/{video}
-     */
     public function destroy(Video $video): JsonResponse
     {
         if (Auth::id() !== $video->user_id && !Auth::user()->isAdmin()) {
@@ -291,5 +259,41 @@ class VideoController extends Controller
         $video->delete();
 
         return response()->json(['message' => 'Video deleted.']);
+    }
+
+    public function generateSummary(Video $video): JsonResponse
+    {
+        try {
+            $hashtags = is_array($video->hashtags)
+                ? $video->hashtags
+                : json_decode($video->hashtags ?? '[]', true);
+
+            $prompt = "Create an engaging summary for this video not more or less 150 words.
+CRITICAL INSTRUCTION: Return ONLY the summary itself. No introductory phrases.
+
+Title: {$video->title}
+Description: {$video->description}
+Hashtags: " . implode(', ', $hashtags);
+
+            $response = Http::timeout(60)->post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' . env('GEMINI_API_KEY'),
+                ['contents' => [['parts' => [['text' => $prompt]]]]]
+            );
+
+            if ($response->status() === 429) {
+                return response()->json(['message' => 'AI limit reached. Try again in a minute.'], 429);
+            }
+
+            $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
+
+            if (!$content) {
+                return response()->json(['message' => 'Gemini request failed.'], 500);
+            }
+
+            return response()->json(['summary' => trim($content)]);
+
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
     }
 }

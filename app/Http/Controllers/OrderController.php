@@ -17,7 +17,9 @@ use Inertia\Response;
 
 class OrderController extends Controller
 {
-    public function __construct(private readonly PaystackService $paystack) {}
+    public function __construct(private readonly PaystackService $paystack)
+    {
+    }
 
     // ── Inertia pages ─────────────────────────────────────────────────────────
 
@@ -27,7 +29,7 @@ class OrderController extends Controller
             ->orders()
             ->with([
                 'seller:id,name,username,avatar',
-                'items.product:id,images',
+                'items.product:id,name,images,price,compare_price,stock_quantity,slug',
             ])
             ->latest()
             ->paginate(20);
@@ -37,7 +39,9 @@ class OrderController extends Controller
 
     public function show(Order $order): Response
     {
-        $this->authorize('view', $order);
+        $userId = Auth::id();
+        abort_unless($order->buyer_id === $userId || $order->seller_id === $userId, 403);
+
         $order->load(['seller', 'buyer', 'items.product', 'video:id,thumbnail_url']);
         return Inertia::render('Order/Show', ['order' => $order]);
     }
@@ -62,50 +66,60 @@ class OrderController extends Controller
     {
         $validated = $request->validate([
             'product_id' => 'required|integer|exists:products,id',
-            'quantity'   => 'required|integer|min:1|max:100',
+            'quantity' => 'required|integer|min:1|max:100',
         ]);
 
         $product = Product::active()->inStock()->findOrFail($validated['product_id']);
-        $qty     = $validated['quantity'];
+        $qty = $validated['quantity'];
 
         if ($product->stock_quantity < $qty) {
             return response()->json(['message' => 'Not enough stock available.'], 422);
         }
 
-        $subtotal    = $product->price * $qty;
-        $shipping    = $product->shipping_fee;
+        $subtotal = $product->price * $qty;
+        $shipping = $product->shipping_fee;
         $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
-        $total       = $subtotal + $shipping;
+        $total = $subtotal + $shipping;
 
         $order = DB::transaction(function () use ($product, $qty, $subtotal, $shipping, $platformFee, $total, $request) {
             $order = Order::create([
-                'buyer_id'       => Auth::id(),
-                'seller_id'      => $product->seller_id,
-                'video_id'       => $request->input('video_id'),
-                'subtotal'       => $subtotal,
-                'shipping_fee'   => $shipping,
-                'platform_fee'   => $platformFee,
-                'total'          => $total,
+                'buyer_id' => Auth::id(),
+                'seller_id' => $product->seller_id,
+                'video_id' => $request->input('video_id'),
+                'subtotal' => $subtotal,
+                'shipping_fee' => $shipping,
+                'platform_fee' => $platformFee,
+                'total' => $total,
                 'shipping_address' => $request->input('shipping_address'),
             ]);
 
             OrderItem::create([
-                'order_id'      => $order->id,
-                'product_id'    => $product->id,
-                'product_name'  => $product->name,
-                'unit_price'    => $product->price,
-                'quantity'      => $qty,
-                'total'         => $subtotal,
+                'order_id' => $order->id,
+                'product_id' => $product->id,
+                'product_name' => $product->name,
+                'unit_price' => $product->price,
+                'quantity' => $qty,
+                'total' => $subtotal,
             ]);
 
             return $order;
         });
 
-        $payment = $this->paystack->initializeTransaction($order->load(['buyer', 'seller']));
+        // Replace from line 108 onwards:
+        try {
+            $payment = $this->paystack->initializeTransaction($order->load(['buyer', 'seller']));
+        } catch (\Throwable $e) {
+            // Paystack failed — delete the order so it doesn't sit as pending
+            $order->forceDelete();
+            Log::error('Paystack initialization failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Payment initialization failed. Please check your connection and try again.',
+            ], 503);
+        }
 
         return response()->json([
-            'order_id'          => $order->id,
-            'reference'         => $order->reference,
+            'order_id' => $order->id,
+            'reference' => $order->reference,
             'authorization_url' => $payment['authorization_url'],
         ]);
     }
@@ -116,10 +130,11 @@ class OrderController extends Controller
     public function paystackCallback(Request $request): \Illuminate\Http\RedirectResponse
     {
         $reference = $request->query('reference') ?? $request->query('trxref');
-        if (!$reference) return redirect()->route('home')->with('error', 'Invalid payment reference.');
+        if (!$reference)
+            return redirect()->route('home')->with('error', 'Invalid payment reference.');
 
         try {
-            $data  = $this->paystack->verifyTransaction($reference);
+            $data = $this->paystack->verifyTransaction($reference);
             $order = Order::where('reference', $reference)->firstOrFail();
 
             if ($data['status'] === 'success' && $order->status === 'pending') {
@@ -139,7 +154,7 @@ class OrderController extends Controller
      */
     public function paystackWebhook(Request $request): JsonResponse
     {
-        $payload   = $request->getContent();
+        $payload = $request->getContent();
         $signature = $request->header('x-paystack-signature', '');
 
         if (!$this->paystack->verifyWebhook($payload, $signature)) {
@@ -148,7 +163,7 @@ class OrderController extends Controller
         }
 
         $event = $request->json('event');
-        $data  = $request->json('data');
+        $data = $request->json('data');
 
         if ($event === 'charge.success') {
             $order = Order::where('reference', $data['reference'])->first();
@@ -165,15 +180,15 @@ class OrderController extends Controller
      */
     public function cancel(Order $order, Request $request): JsonResponse
     {
-        $this->authorize('cancel', $order);
+        abort_unless($order->buyer_id === Auth::id(), 403);
 
         if (!$order->canBeCancelled()) {
             return response()->json(['message' => 'This order cannot be cancelled.'], 422);
         }
 
         $order->update([
-            'status'               => 'cancelled',
-            'cancellation_reason'  => $request->input('reason', 'Cancelled by buyer'),
+            'status' => 'cancelled',
+            'cancellation_reason' => $request->input('reason', 'Cancelled by buyer'),
         ]);
 
         return response()->json(['message' => 'Order cancelled.']);
@@ -181,7 +196,25 @@ class OrderController extends Controller
 
     public function apiShow(Order $order): JsonResponse
     {
-        $this->authorize('view', $order);
+        $userId = Auth::id();
+        abort_unless($order->buyer_id === $userId || $order->seller_id === $userId, 403);
+
         return response()->json($order->load(['items.product', 'seller', 'buyer']));
+    }
+
+    public function updateStatus(Request $request, Order $order): JsonResponse
+    {
+        // Only the seller of this order can update it
+        if (Auth::id() !== $order->seller_id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $validated = $request->validate([
+            'status' => 'required|in:processing,shipped,delivered,cancelled',
+        ]);
+
+        $order->update(['status' => $validated['status']]);
+
+        return response()->json(['status' => $order->status]);
     }
 }

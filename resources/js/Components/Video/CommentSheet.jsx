@@ -135,7 +135,7 @@ function CommentItem({ comment, onReply }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Link href={`/@${comment.user?.username}`} className="text-white text-xs font-semibold hover:text-flockr-orange transition-colors">
-            {comment.user?.username}
+            {comment.user?.name}
           </Link>
           {comment.is_pinned && (
             <span className="badge badge-orange" style={{ fontSize: '10px', padding: '1px 6px' }}>Pinned</span>

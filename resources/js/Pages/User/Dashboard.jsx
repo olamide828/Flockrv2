@@ -214,7 +214,7 @@ export default function UserDashboard({ orders = [], savedProducts = [], savedVi
             savedProducts.length === 0 ? (
               <Empty emoji="❤️" title="Your wishlist is empty" sub="Save products you love and they'll appear here." cta={{ label: 'Browse Shop', href: '/shop' }} />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+              <div style={{ display: 'grid', gap: 10 }} className='lg:grid-cols-6 grid-cols-2 lg:w-full w-100'>
                 {savedProducts.map(p => <ProductCard key={p.id} product={p} />)}
               </div>
             )
@@ -225,7 +225,7 @@ export default function UserDashboard({ orders = [], savedProducts = [], savedVi
             savedVideos.length === 0 ? (
               <Empty emoji="🔖" title="No saved videos" sub="Bookmark videos you want to watch again." cta={{ label: 'Explore Videos', href: '/' }} />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+              <div style={{ display: 'grid', gap: 4 }} className='grid-cols-3 lg:grid-cols-6'>
                 {savedVideos.map(video => (
                   <Link key={video.id} href={`/video/${video.id}`} style={{
                     position: 'relative', aspectRatio: '9/16', display: 'block',
@@ -236,8 +236,11 @@ export default function UserDashboard({ orders = [], savedProducts = [], savedVi
                     )}
                     <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }} />
                     <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6 }}>
+                       <img src={video.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(video.name)}&background=1a1a1a`}
+                            alt={video.name} style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                      <p className='text-[12px] truncate'>{video.user?.name}</p>
                       <p style={{ color: '#fff', fontSize: 10, fontWeight: 500, margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {video.title ?? video.description}
+                        {video.title ?? video.description ?? 'no-title'}
                       </p>
                     </div>
                   </Link>

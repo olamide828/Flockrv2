@@ -1,4 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
+import axios from 'axios';
 import { useState } from 'react';
 import {
     RiArrowLeftLine,
@@ -76,10 +77,13 @@ export default function BuyerOnboarding() {
         });
     };
 
-    const submit = (e) => {
-        e.preventDefault();
-        post('/onboarding');
-    };
+       const submit = async (e) => {
+        e.preventDefault()
+        // Refresh CSRF cookie before submitting
+        await axios.get('/sanctum/csrf-cookie')
+        post('/onboarding')
+    }
+    
 
     const skip = () => post('/onboarding/skip');
 

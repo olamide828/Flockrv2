@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Head, Link, router, usePage } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
+import { RiVerifiedBadgeLine } from 'react-icons/ri'
 
 export default function FollowList({ profileUser, followers = [], following = [], activeTab: initTab = 'followers' }) {
   const { auth } = usePage().props
@@ -112,9 +113,7 @@ export default function FollowList({ profileUser, followers = [], following = []
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       <p style={{ color: '#fff', fontWeight: 700, fontSize: 14, margin: 0 }}>{user.name}</p>
                       {user.is_verified && (
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="#ff5c00">
-                          <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
+                        <RiVerifiedBadgeLine size={15} color="#FF6B35" />
                       )}
                     </div>
                     <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{user.username}</p>

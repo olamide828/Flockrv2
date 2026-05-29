@@ -44,83 +44,83 @@ class AuthController extends Controller
         return Inertia::render('Auth/Register');
     }
 
- public function register(Request $request): RedirectResponse
+    public function register(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name'     => 'required|string|max:100',
+            'name' => 'required|string|max:100',
             'username' => 'required|string|max:30|alpha_dash|unique:users,username',
-            'email'    => 'required|email|unique:users,email',
-            'phone'    => 'nullable|string|max:20',
+            'email' => 'required|email|unique:users,email',
+            'phone' => 'nullable|string|max:20',
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
-            'role'     => 'required|in:buyer,seller',
+            'role' => 'required|in:buyer,seller',
         ]);
- 
+
         $user = User::create([
-            'name'     => $validated['name'],
+            'name' => $validated['name'],
             'username' => strtolower($validated['username']),
-            'email'    => $validated['email'],
-            'phone'    => $validated['phone'] ?? null,
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
             'password' => Hash::make($validated['password']),
-            'role'     => $validated['role'],
+            'role' => $validated['role'],
         ]);
- 
+
         Auth::login($user);
- 
+
         // IMPORTANT: regenerate session ONCE here, before any redirect
         $request->session()->regenerate();
- 
+
         if ($user->role === 'seller') {
             return redirect()->route('seller.onboarding');
         }
- 
+
         // Buyers go to interest onboarding
         return redirect()->route('buyer.onboarding');
     }
- 
+
     public function sellerOnboarding(): Response
     {
         if (!Auth::check() || Auth::user()->role !== 'seller') {
             abort(403);
         }
- 
+
         // Regenerate CSRF token — this is what fixes the 419
         // The session was already regenerated on login/register,
         // but the CSRF token can get stale on redirect chains.
         session()->regenerateToken();
- 
+
         return Inertia::render('Auth/SellerOnboarding');
     }
- 
+
     public function sellerOnboardingStore(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'store_name'         => 'required|string|max:100',
-            'business_type'      => 'required|in:individual,registered_business',
+            'store_name' => 'required|string|max:100',
+            'business_type' => 'required|in:individual,registered_business',
             'product_categories' => 'required|array|min:1|max:3',   // ← array now
             'product_categories.*' => 'string|max:100',
-            'description'        => 'required|string|max:500',
-            'location'           => 'required|string|max:100',
-            'whatsapp'           => 'nullable|string|max:20',
+            'description' => 'required|string|max:500',
+            'location' => 'required|string|max:100',
+            'whatsapp' => 'nullable|string|max:20',
         ]);
- 
+
         $user = Auth::user();
         $existing = $user->preferences ?? [];
- 
+
         $user->update([
-            'name'     => $validated['store_name'],
-            'bio'      => $validated['description'],
+            'name' => $validated['store_name'],
+            'bio' => $validated['description'],
             'location' => $validated['location'],
-            'phone'    => $validated['whatsapp'] ?? $user->phone,
+            'phone' => $validated['whatsapp'] ?? $user->phone,
             // Store seller store info in preferences
             'preferences' => array_merge($existing, [
-                'store_name'           => $validated['store_name'],
-                'business_type'        => $validated['business_type'],
-                'product_categories'   => $validated['product_categories'],
+                'store_name' => $validated['store_name'],
+                'business_type' => $validated['business_type'],
+                'product_categories' => $validated['product_categories'],
                 'onboarding_completed' => true,
-                'onboarding_at'        => now()->toISOString(),
+                'onboarding_at' => now()->toISOString(),
             ]),
         ]);
- 
+
         return redirect()->route('seller.dashboard')
             ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }
@@ -148,7 +148,7 @@ class AuthController extends Controller
         $status = Password::sendResetLink($request->only('email'));
 
         return $status === Password::RESET_LINK_SENT
-            ? back()->with('status', __($status))
+            ? back()->with('status', 'We\'ve sent a password reset link to your email!')
             : back()->withErrors(['email' => __($status)]);
     }
 
@@ -239,3 +239,4 @@ class AuthController extends Controller
         return $username;
     }
 }
+

@@ -3,11 +3,13 @@ import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
+import { FiLink } from 'react-icons/fi';
 import {
     RiMapPinLine,
     RiMessage2Line,
     RiMoreLine,
     RiPlayFill,
+    RiPlayLine,
     RiSettings4Line,
     RiShareForwardLine,
     RiStoreLine,
@@ -23,6 +25,9 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
     const [following, setFollowing] = useState(initFollowing);
     const [followersCount, setFollowersCount] = useState(profileUser.followers_count ?? 0);
     const [activeTab, setActiveTab] = useState('videos');
+
+    const [toast, setToast] = useState(false);
+    const [toastMessage, setToastMessage] = useState("");
 
     const handleFollow = async () => {
         if (!auth?.user) {
@@ -46,8 +51,12 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
 
     const copyUsername = () => {
         navigator.clipboard.writeText(`${profileUser.username}`);
-        // toast.info('Link copied to clipboard');
-        alert(`${profileUser.username} copied successfully`);
+        setToast(true)
+        setToastMessage(`Username copied successfully`);
+
+        setTimeout(() => {
+            setToast(false)
+        }, 3000);
     };
 
     const tabs = [
@@ -68,7 +77,7 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 180px));
   justify-content: center;
-  gap: 12px;
+//   gap: 12px;
   padding: 12px;
 }
         @media (max-width: 640px)  { .vgrid { grid-template-columns: repeat(3,1fr); } }
@@ -92,10 +101,14 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
           </button>
+          {toast && <div className='flex flex-row min-h-full justify-center items-center'>
+                        <p className='bg-black text-white py-2 px-4 text-xs lg:text-sm rounded-sm flex flex-row items-center gap-2'><FiLink /> {toastMessage}</p>
+                    </div>}
           {/* ═══════════════════════════════════════════════════════════════
             DESKTOP HEADER (TikTok style — horizontal, no cover image)
         ═══════════════════════════════════════════════════════════════ */}
                 <div className="hidden md:block" style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 32px 0' }}>
+                    
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 32, marginBottom: 24 }}>
                         {/* Avatar */}
                         <div style={{ flexShrink: 0 }}>
@@ -110,20 +123,27 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                         <div style={{ flex: 1, minWidth: 0 }}>
                             {/* Username + verified row */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                                <h1
+                               <div>
+                                <div className='flex flex-row gap-2 items-center'>
+                                                                  {profileUser.name && (
+                                <p style={{ color: '#fff', fontSize: 28, fontWeight: 600, margin: '0 0 4px' }}>{profileUser.name}</p>
+                            )} {profileUser.is_verified && <RiVerifiedBadgeLine size={20} color="#FF6B35" />}
+  
+                                </div>
+                                <div className='flex flex-row items-center gap-2'>
+                                    <h1
+                                    className='text-gray-400'
                                     onClick={copyUsername}
                                     style={{
-                                        fontSize: 28,
+                                        fontSize: 14,
                                         fontWeight: 700,
-                                        color: '#fff',
                                         margin: 0,
                                         letterSpacing: '-0.3px',
                                         fontFamily: 'var(--font-display)',
                                     }}
                                 >
-                                    {profileUser.username}
+                                    @{profileUser.username}
                                 </h1>
-                                {profileUser.is_verified && <RiVerifiedBadgeLine size={20} color="#FF6B35" />}
                                 {profileUser.role === 'seller' && (
                                     <span
                                         style={{
@@ -141,6 +161,10 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                                         Seller
                                     </span>
                                 )}
+                                </div>
+                               </div>
+                                
+                                
                             </div>
 
                             {/* Action buttons */}
@@ -161,7 +185,9 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                                     </>
                                 ) : (
                                     <>
-                                        <button onClick={handleFollow} style={following ? followingBtn : primaryBtn}>
+                                       {auth.user?.role !== "admin" &&
+                                       <>
+                                       <button onClick={handleFollow} style={following ? followingBtn : primaryBtn}>
                                             {following ? (
                                                 <>
                                                     <RiUserFollowLine size={14} /> Following
@@ -181,6 +207,8 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                                         <button style={iconBtn}>
                                             <RiMoreLine size={16} color="#fff" />
                                         </button>
+                                        </>
+                                        }
                                     </>
                                 )}
                             </div>
@@ -213,9 +241,7 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                             </div>
 
                             {/* Bio */}
-                            {profileUser.name && (
-                                <p style={{ color: '#fff', fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{profileUser.name}</p>
-                            )}
+                            
                             {profileUser.bio && (
                                 <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, lineHeight: 1.6, margin: '0 0 6px', maxWidth: 500 }}>
                                     {profileUser.bio}
@@ -276,7 +302,7 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                             </p>
                             {profileUser.is_verified && <RiVerifiedBadgeLine size={14} color="#FF6B35" />}
                         </div>
-                        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 6px' }}>@{profileUser.username}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 6px' }} onClick={copyUsername}>@{profileUser.username}</p>
                         {profileUser.bio && (
                             <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>{profileUser.bio}</p>
                         )}
@@ -374,8 +400,8 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
                                 {videos.map((video) => (
                                     <Link
                                         key={video.id}
-                                        href={`/video/${video.id}`}
-                                        className="vthumb rounded-lg"
+                                        href={`/@${video.user?.username}/video/${video.ulid}`}
+                                        className="vthumb"
                                         style={{
                                             position: 'relative',
                                             aspectRatio: '9/16',
@@ -437,8 +463,8 @@ export default function UserProfile({ profileUser, videos, products, isFollowing
 
                                         {/* View count */}
                                         <div style={{ position: 'absolute', bottom: 7, left: 7, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                            <RiPlayFill size={11} color="rgba(255,255,255,0.9)" />
-                                            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 700 }}>
+                                            <RiPlayLine size={24} color="rgba(255,255,255,0.9)" />
+                                            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: 700 }}>
                                                 {fmtCount(video.views_count)}
                                             </span>
                                         </div>

@@ -19,8 +19,8 @@ use App\Http\Controllers\FollowController;
 Route::get('/', [VideoController::class, 'index'])->name('home');
 Route::get('/explore', [SearchController::class, 'index'])->name('explore');
 Route::get('/shop', [ProductController::class, 'shop'])->name('shop');
-Route::get('/video/{video}', [VideoController::class, 'show'])->name('videos.show');
-Route::get('/products/{product:slug}', [ProductController::class, 'show'])->name('products.show');
+Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])->name('videos.show');
+Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

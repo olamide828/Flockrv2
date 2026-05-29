@@ -1,18 +1,21 @@
 // ─── ForgotPassword.jsx ───────────────────────────────────────────────────────
-import { Head, Link, useForm } from '@inertiajs/react'
+import { Head, Link, useForm, usePage } from '@inertiajs/react'
 
 export function ForgotPassword({ status }) {
+    const { flash } = usePage().props  
   const { data, setData, post, processing, errors } = useForm({ email: '' })
+
+  const successMessage = status || flash?.success || flash?.status
 
   return (
     <>
       <Head title="Forgot Password" />
       <AuthShell title="Forgot password?" subtitle="Enter your email and we'll send a reset link">
-        {status && (
+        {successMessage && (  // ← use successMessage instead of status
           <div className="bg-flockr-green/10 border border-flockr-green/30 rounded-flockr px-4 py-3 mb-4">
-            <p className="text-flockr-green text-sm">{status}</p>
+            <p className="text-flockr-green text-sm">{successMessage}</p>
           </div>
-        )}
+            )}
         <form onSubmit={e => { e.preventDefault(); post('/forgot-password') }} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-flockr-muted uppercase tracking-wider">Email</label>

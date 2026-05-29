@@ -334,8 +334,8 @@ export default function Inbox({ conversations: initialConvs = [] }) {
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <Avatar user={other} size={48} />
                     {unread > 0 && (
-                      <div style={{
-                        position: 'absolute', top: -2, right: -2,
+                      <div className='top-7 left-[357px] lg:left-[1069px]' style={{
+                        position: 'absolute', 
                         minWidth: 18, height: 18, borderRadius: 999,
                         background: '#ff5c00', border: '2px solid #0d0d0d',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',

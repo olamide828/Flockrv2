@@ -2,6 +2,7 @@ import VideoCard from '@/Components/Feed/VideoCard';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, usePage } from '@inertiajs/react';
+import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RiFilmLine, RiUserAddLine, RiVideoLine } from 'react-icons/ri';
 
@@ -110,11 +111,11 @@ export default function FeedIndex({ initialVideos }) {
                             key={type}
                             onClick={() => setFeedType(type)}
                             style={{
-                                padding: '6px 20px',
+                                padding: '4px 18px',
                                 borderRadius: 999,
                                 border: 'none',
                                 cursor: 'pointer',
-                                fontSize: 14,
+                                fontSize: 12,
                                 fontWeight: 700,
                                 transition: 'all 0.2s',
                                 background: feedType === type ? '#fff' : 'transparent',
@@ -132,34 +133,36 @@ export default function FeedIndex({ initialVideos }) {
                 ref={containerRef}
                 style={{
                     width: '100%',
-                    height: 'calc(100dvh - 58px)',
+                    height: '100%',
                     overflowY: 'scroll',
                     scrollSnapType: 'y mandatory',
                     scrollbarWidth: 'none',
                     msOverflowStyle: 'none',
                     background: '#000',
+                    minHeight: 0,
                 }}
             >
                 <style>{`
           .feed-scroll::-webkit-scrollbar { display: none; }
           .feed-item-wrap {
-            width: 100%;
-            height: calc(100dvh - 58px);
-            scroll-snap-align: start;
-            scroll-snap-stop: always;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: stretch;
-            background: #000;
-          }
-          .feed-item-inner {
-            width: 100%;
-            height: calc(100dvh - 58px);
-            position: relative;
-            overflow: hidden;
-          }
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background: #000;
+}
+
+.feed-item-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
           @media (min-width: 768px) {
             .feed-item-inner {
               width: auto !important;
@@ -249,7 +252,26 @@ export default function FeedIndex({ initialVideos }) {
                         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
                             <RiFilmLine size={48} color="rgba(255,255,255,0.3)" />
                             <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>You're all caught up!</p>
-                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: 0 }}>Follow more sellers for fresh content.</p>
+                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: 0 }}>You've seen all available videos.</p>
+                            <button
+                                onClick={async () => {
+                                    await axios.post('/api/feed/reset', {}, { withCredentials: true });
+                                    window.location.reload();
+                                }}
+                                style={{
+                                    marginTop: 8,
+                                    padding: '10px 24px',
+                                    background: 'rgba(255,255,255,0.08)',
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    borderRadius: 999,
+                                    color: '#fff',
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Watch again
+                            </button>
                         </div>
                     </div>
                 )}

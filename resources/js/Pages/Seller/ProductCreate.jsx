@@ -122,7 +122,7 @@ export default function ProductCreate({ categories = [] }) {
 
         {/* Top bar */}
         <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(10,10,10,0.95)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => router.back()} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', width: 34, height: 34, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>
+          <button onClick={() => window.history.back()} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', width: 34, height: 34, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>
             <RiArrowLeftLine size={18} />
           </button>
           <h1 style={{ color: '#fff', fontWeight: 700, fontSize: 17, margin: 0, flex: 1 }}>New Product</h1>

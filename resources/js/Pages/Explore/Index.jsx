@@ -96,7 +96,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
         const { data } = await axios.get('/api/search', { params: { q: inputVal, limit: 5 } })
         const items = [
           ...(data.sellers  ?? []).slice(0, 3).map(s => ({ label: s.name, sub: `@${s.username}`, href: `/@${s.username}`, verified: s.is_verified })),
-          ...(data.products ?? []).slice(0, 2).map(p => ({ label: p.name, sub: 'Product', href: `/products/${p.slug}` })),
+          ...(data.products ?? []).slice(0, 2).map(p => ({ label: p.name, sub: 'Product', href: `/@${p.seller?.username}/products/${p.slug}` })),
         ]
         setSuggestions(items)
         setShowSug(items.length > 0)
@@ -190,7 +190,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
           </div>
 
           {/* Filter row */}
-          {isSearching && (
+           
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px 10px', overflowX: 'auto', scrollbarWidth: 'none' }}>
               <NativeSelect value={sort} onChange={setSort} options={SORT_OPTIONS} />
               <NativeSelect value={condition} onChange={setCondition} options={CONDITION_OPTIONS} />
@@ -208,7 +208,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
                 ))}
               </div>
             </div>
-          )}
+          
         </div>
 
         {/* ── SCROLLABLE BODY ────────────────────────────────────────── */}
@@ -260,7 +260,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
                 {results.length > 0 ? (
                   <section>
                     <Label>Products · {results.length}</Label>
-                    <div style={grid(viewMode)}>
+                    <div style={grid(viewMode)} className={`${viewMode === "list" ? "w-full" : "w-100"}`}>
                       {results.map(p => <ProductCard key={p.id} product={p} layout={viewMode === 'list' ? 'list' : 'grid'} />)}
                     </div>
                   </section>
@@ -275,7 +275,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
                 {videos.length > 0 && (
                   <section>
                     <Label>Videos · {videos.length}</Label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                    <div style={{ display: 'grid', gap: 4 }} className='grid-cols-3 lg:grid-cols-6'>
                       {videos.map(v => <VideoThumb key={v.id} video={v} />)}
                     </div>
                   </section>
@@ -293,7 +293,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
                       <RiFireLine size={15} color="#FF6B35" />
                       <h2 style={{ color: '#fff', fontWeight: 700, fontSize: 14, margin: 0 }}>Trending Videos</h2>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }} className='lg:w-[400px]'>
+                    <div style={{ display: 'grid', gap: 4 }} className='lg:grid-cols-6 grid-cols-3'>
                       {trendingVideos.slice(0, 9).map(v => <VideoThumb key={v.id} video={v} />)}
                     </div>
                   </section>
@@ -305,7 +305,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [] }) 
                       <RiFlashlightLine size={15} color="#FF6B35" />
                       <h2 style={{ color: '#fff', fontWeight: 700, fontSize: 14, margin: 0 }}>Popular Right Now</h2>
                     </div>
-                    <div style={grid('grid')} className='w-full'>
+                    <div style={grid('grid')} className='w-100'>
                       {trendingProducts.map(p => <ProductCard key={p.id} product={p} />)}
                     </div>
                   </section>
@@ -344,19 +344,20 @@ function NativeSelect({ value, onChange, options }) {
 
 function VideoThumb({ video }) {
   return (
-    <Link href={`/video/${video.id}`}
+    <Link href={`/@${video.user?.username}/video/${video.ulid}`}
       style={{ position: 'relative', aspectRatio: '9/16', display: 'block', borderRadius: 8, overflow: 'hidden', background: '#111', textDecoration: 'none' }}>
       {video.thumbnail_url_full
         ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         : <div style={{ width: '100%', height: '100%', background: '#1a1a1a' }} />
       }
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 55%)' }} />
-      <div style={{ position: 'absolute', bottom: 5, left: 5, right: 5, display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div style={{ position: 'absolute', bottom: 13, left: 13, right: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
         <img src={video.user?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name ?? 'U')}&background=111&size=32`}
-          style={{ width: 15, height: 15, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-        <span style={{ color: '#fff', fontSize: 10, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          @{video.user?.username}
+          style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+        <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {video.user?.name}
         </span>
+        <p>{video.user?.hashtags}</p>
       </div>
     </Link>
   )

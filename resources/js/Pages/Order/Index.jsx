@@ -1,19 +1,34 @@
 import { useState } from 'react'
 import { Head, Link } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
+import {
+  RiShoppingBagLine,
+  RiTimeLine,
+  RiCheckboxCircleLine,
+  RiRefreshLine,
+  RiArchiveDrawerLine,
+  RiTruckLine,
+  RiGiftLine,
+  RiCloseCircleLine,
+  RiArrowGoBackLine,
+  RiStoreLine,
+  RiArrowRightSLine,
+} from 'react-icons/ri'
 
 const STATUS_CONFIG = {
-  pending:    { label: 'Pending',    color: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20', emoji: '⏳' },
-  paid:       { label: 'Paid',       color: 'badge-green',                                            emoji: '✅' },
-  confirmed:  { label: 'Confirmed',  color: 'bg-blue-500/10 text-blue-400 border-blue-500/20',        emoji: '🔄' },
-  processing: { label: 'Processing', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20',        emoji: '📦' },
-  shipped:    { label: 'Shipped',    color: 'bg-purple-500/10 text-purple-400 border-purple-500/20',  emoji: '🚚' },
-  delivered:  { label: 'Delivered',  color: 'badge-green',                                            emoji: '🎉' },
-  cancelled:  { label: 'Cancelled',  color: 'bg-red-500/10 text-red-400 border-red-500/20',           emoji: '❌' },
-  refunded:   { label: 'Refunded',   color: 'bg-gray-500/10 text-gray-400 border-gray-500/20',        emoji: '↩️' },
+  pending:    { label: 'Pending',    color: 'rgba(234,179,8,0.12)',   text: '#EAB308', Icon: RiTimeLine           },
+  paid:       { label: 'Paid',       color: 'rgba(16,185,129,0.12)',  text: '#10B981', Icon: RiCheckboxCircleLine },
+  confirmed:  { label: 'Confirmed',  color: 'rgba(59,130,246,0.12)',  text: '#3B82F6', Icon: RiRefreshLine        },
+  processing: { label: 'Processing', color: 'rgba(59,130,246,0.12)',  text: '#3B82F6', Icon: RiArchiveDrawerLine  },
+  shipped:    { label: 'Shipped',    color: 'rgba(139,92,246,0.12)',  text: '#8B5CF6', Icon: RiTruckLine          },
+  delivered:  { label: 'Delivered',  color: 'rgba(16,185,129,0.12)', text: '#10B981', Icon: RiGiftLine           },
+  cancelled:  { label: 'Cancelled',  color: 'rgba(239,68,68,0.12)',   text: '#EF4444', Icon: RiCloseCircleLine    },
+  refunded:   { label: 'Refunded',   color: 'rgba(156,163,175,0.12)',text: '#9CA3AF', Icon: RiArrowGoBackLine    },
 }
 
-export default function OrdersList({ orders }) {
+const TRACKING_STEPS = ['confirmed', 'processing', 'shipped', 'delivered']
+
+export default function OrdersList({ orders = [] }) {
   const [filter, setFilter] = useState('all')
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter)
@@ -21,107 +36,150 @@ export default function OrdersList({ orders }) {
   return (
     <>
       <Head title="My Orders" />
-      <div className="h-screen overflow-y-auto scroll-hidden bg-flockr-black">
+      <div style={{ height: '100%', overflowY: 'auto', background: '#0A0A0A', color: '#fff', fontFamily: '"DM Sans", sans-serif' }}>
 
         {/* Header */}
-        <div className="sticky top-0 z-20 bg-flockr-black/90 backdrop-blur-md border-b border-white/[0.06] px-5 py-4">
-          <h1 className="font-display font-bold text-white text-xl">My Orders</h1>
+        <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(10,10,10,0.92)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px' }}>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>My Orders</h1>
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-2 px-5 py-3 overflow-x-auto scroll-hidden border-b border-white/[0.06]">
-          {['all', 'paid', 'shipped', 'delivered', 'cancelled'].map(s => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${
-                filter === s ? 'bg-flockr-orange text-white' : 'bg-flockr-card text-flockr-muted border border-white/[0.06] hover:text-white'
-              }`}
-            >
-              {s === 'all' ? 'All Orders' : STATUS_CONFIG[s]?.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 8, padding: '12px 20px', overflowX: 'auto', scrollbarWidth: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {['all', 'paid', 'shipped', 'delivered', 'cancelled'].map(s => {
+            const cfg = STATUS_CONFIG[s]
+            const active = filter === s
+            return (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '7px 14px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0,
+                  background: active ? '#FF6B35' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${active ? '#FF6B35' : 'rgba(255,255,255,0.08)'}`,
+                  color: active ? '#fff' : 'rgba(255,255,255,0.5)',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                }}
+              >
+                {cfg && <cfg.Icon size={12} />}
+                {s === 'all' ? 'All Orders' : cfg?.label}
+              </button>
+            )
+          })}
         </div>
 
-        <div className="px-5 py-4 pb-28 md:pb-8 space-y-3">
+        {/* List */}
+        <div style={{ padding: '16px 20px 100px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filtered.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <span className="text-5xl">📦</span>
-              <p className="text-white font-display font-bold text-lg">No orders yet</p>
-              <p className="text-flockr-muted text-sm">Your purchases will appear here.</p>
-              <Link href="/shop" className="btn-primary text-sm py-2.5 px-6 mt-2">Start Shopping</Link>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 14, textAlign: 'center' }}>
+              <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <RiShoppingBagLine size={32} color="rgba(255,255,255,0.2)" />
+              </div>
+              <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>No orders yet</p>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0 }}>Your purchases will appear here.</p>
+              <Link href="/shop" style={{ marginTop: 8, padding: '11px 28px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+                Start Shopping
+              </Link>
             </div>
           )}
+
           {filtered.map(order => {
             const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
+            const StatusIcon = cfg.Icon
+            const currentIdx = TRACKING_STEPS.indexOf(order.status)
+            const showTracking = currentIdx !== -1
+
             return (
               <Link
                 key={order.id}
                 href={`/orders/${order.id}`}
-                className="block bg-flockr-card rounded-flockr-lg border border-white/[0.06] hover:border-white/[0.12] transition-all overflow-hidden"
+                style={{ display: 'block', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden', textDecoration: 'none', transition: 'border-color 0.15s' }}
               >
-                {/* Order header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
+                {/* Order header row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <div>
-                    <p className="text-white font-mono text-sm font-bold">{order.reference}</p>
-                    <p className="text-flockr-muted text-xs mt-0.5">
+                    <p style={{ margin: 0, color: '#fff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>{order.reference}</p>
+                    <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>
                       {new Date(order.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
                   </div>
-                  <span className={`badge ${cfg.color}`}>{cfg.emoji} {cfg.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 999, background: cfg.color }}>
+                    <StatusIcon size={12} color={cfg.text} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: cfg.text }}>{cfg.label}</span>
+                  </div>
                 </div>
 
                 {/* Items preview */}
-                <div className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex -space-x-2">
+                <div style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* Product image stack */}
+                    <div style={{ display: 'flex', position: 'relative', flexShrink: 0 }}>
                       {order.items?.slice(0, 3).map((item, i) => (
-                        <div key={i} className="w-10 h-10 rounded-lg bg-flockr-surface border border-flockr-card overflow-hidden">
+                        <div key={i} style={{
+                          width: 44, height: 44, borderRadius: 12,
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '2px solid #111',
+                          overflow: 'hidden', flexShrink: 0,
+                          marginLeft: i > 0 ? -10 : 0,
+                          position: 'relative', zIndex: 3 - i,
+                        }}>
                           {item.product?.primary_image
-                            ? <img src={item.product.primary_image} alt="" className="w-full h-full object-cover" />
-                            : <div className="w-full h-full flex items-center justify-center text-xs">📦</div>
+                            ? <img src={item.product.primary_image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <RiShoppingBagLine size={16} color="rgba(255,255,255,0.25)" />
+                              </div>
                           }
                         </div>
                       ))}
                       {order.items?.length > 3 && (
-                        <div className="w-10 h-10 rounded-lg bg-flockr-surface border border-flockr-card flex items-center justify-center">
-                          <span className="text-flockr-muted text-xs">+{order.items.length - 3}</span>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.08)', border: '2px solid #111', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: -10, zIndex: 0, flexShrink: 0 }}>
+                          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700 }}>+{order.items.length - 3}</span>
                         </div>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium line-clamp-1">
+
+                    {/* Order meta */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {order.items?.[0]?.product_name}
                         {order.items?.length > 1 && ` + ${order.items.length - 1} more`}
                       </p>
-                      <p className="text-flockr-muted text-xs">from @{order.seller?.username}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                        <RiStoreLine size={11} color="rgba(255,255,255,0.35)" />
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>@{order.seller?.username}</span>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-white font-bold naira">₦{Number(order.total).toLocaleString()}</p>
-                      <p className="text-flockr-muted text-xs">{order.items?.length} item{order.items?.length !== 1 ? 's' : ''}</p>
+
+                    {/* Price + arrow */}
+                    <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div>
+                        <p style={{ margin: 0, color: '#fff', fontWeight: 800, fontSize: 15 }}>₦{Number(order.total).toLocaleString()}</p>
+                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>{order.items?.length} item{order.items?.length !== 1 ? 's' : ''}</p>
+                      </div>
+                      <RiArrowRightSLine size={18} color="rgba(255,255,255,0.2)" />
                     </div>
                   </div>
                 </div>
 
-                {/* Tracking bar for shipped orders */}
-                {['confirmed', 'processing', 'shipped', 'delivered'].includes(order.status) && (
-                  <div className="px-4 pb-3">
-                    <div className="flex items-center gap-1">
-                      {['confirmed', 'processing', 'shipped', 'delivered'].map((step, i) => {
-                        const steps = ['confirmed', 'processing', 'shipped', 'delivered']
-                        const currentIdx = steps.indexOf(order.status)
+                {/* Tracking progress bar */}
+                {showTracking && (
+                  <div style={{ padding: '0 16px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                      {TRACKING_STEPS.map((step, i) => {
                         const done = i <= currentIdx
                         return (
-                          <div key={step} className="flex items-center flex-1">
-                            <div className={`w-2 h-2 rounded-full shrink-0 ${done ? 'bg-flockr-green' : 'bg-flockr-subtle'}`} />
-                            {i < 3 && <div className={`h-px flex-1 ${done && i < currentIdx ? 'bg-flockr-green' : 'bg-flockr-subtle'}`} />}
+                          <div key={step} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: done ? '#10B981' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s' }} />
+                            {i < TRACKING_STEPS.length - 1 && (
+                              <div style={{ flex: 1, height: 2, background: done && i < currentIdx ? '#10B981' : 'rgba(255,255,255,0.08)', transition: 'background 0.2s' }} />
+                            )}
                           </div>
                         )
                       })}
                     </div>
-                    <div className="flex justify-between mt-1">
-                      {['Confirmed', 'Processing', 'Shipped', 'Delivered'].map(l => (
-                        <span key={l} className="text-[9px] text-flockr-subtle">{l}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                      {['Confirmed', 'Processing', 'Shipped', 'Delivered'].map((l, i) => (
+                        <span key={l} style={{ fontSize: 9, color: i <= currentIdx ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', fontWeight: i === currentIdx ? 700 : 400 }}>{l}</span>
                       ))}
                     </div>
                   </div>

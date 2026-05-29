@@ -3,76 +3,209 @@
 namespace App\Jobs;
 
 use App\Models\Video;
-use App\Services\StorageService;
-use FFMpeg\FFMpeg;
-use FFMpeg\Coordinate\TimeCode;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ProcessVideoJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public Video $video)
+    public int $timeout = 120; // reduced — we no longer download the whole file
+    public int $tries   = 2;
+
+    public function __construct(public Video $video) {}
+
+    public function handle(): void
     {
+        try {
+            $this->video->update(['status' => 'processing']);
+
+            $disk = config('filesystems.default', 'public');
+
+            // ── Get the video source URL/path for FFmpeg ──────────────────────
+            // KEY FIX: For R2/S3, pass the full public URL directly to FFmpeg.
+            // FFmpeg can read from HTTP URLs — no download needed.
+            // This is what makes thumbnails fast.
+            $videoSource = $this->getVideoSource($disk);
+
+            if (!$videoSource) {
+                Log::warning("ProcessVideoJob: could not resolve video source for #{$this->video->id}");
+                $this->activateVideo();
+                return;
+            }
+
+            // ── Generate thumbnail ────────────────────────────────────────────
+            $thumbnailKey = $this->generateThumbnail($videoSource, $disk);
+
+            // ── Get duration ──────────────────────────────────────────────────
+            $duration = $this->getDuration($videoSource);
+
+            // ── Activate video ────────────────────────────────────────────────
+            $this->video->update(array_filter([
+                'status'           => 'active',
+                'published_at'     => now(),
+                'thumbnail_url'    => $thumbnailKey,
+                'duration_seconds' => $duration,
+            ], fn($v) => $v !== null));
+
+            Log::info("ProcessVideoJob: video #{$this->video->id} done", [
+                'thumbnail' => $thumbnailKey,
+                'duration'  => $duration,
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error("ProcessVideoJob failed for #{$this->video->id}: " . $e->getMessage());
+            $this->activateVideo(); // always activate so video isn't stuck
+        }
     }
 
-    public function handle(StorageService $storageService): void
+    /**
+     * Get the video source for FFmpeg.
+     *
+     * For R2/S3: returns the full public CDN URL — FFmpeg reads it over HTTP.
+     * No downloading. This is the key performance fix.
+     *
+     * For local storage: returns the absolute file path.
+     */
+    private function getVideoSource(string $disk): ?string
     {
-        $videoPath = storage_path("app/{$this->video->video_url}");
+        $key = $this->video->video_url;
+        if (!$key) return null;
 
-        if (!file_exists($videoPath)) {
-            $this->video->update(['status' => 'failed']);
-            return;
+        if (in_array($disk, ['public', 'local'])) {
+            // Local — return file path
+            $path = storage_path('app/public/' . ltrim($key, '/'));
+            return file_exists($path) ? $path : null;
         }
 
-        $ffmpeg = FFMpeg::create();
+        // R2/S3 — build the public CDN URL
+        // FFmpeg reads HTTP URLs natively, no download needed
+        $baseUrl = rtrim(config("filesystems.disks.{$disk}.url", ''), '/');
+        if (!$baseUrl) {
+            // No public URL configured — fall back to downloading
+            return $this->downloadToTemp($disk, $key);
+        }
 
-        $movie = $ffmpeg->open($videoPath);
+        return $baseUrl . '/' . ltrim($key, '/');
+    }
 
-        // ─────────────────────────────────────────
-        // 1. Generate thumbnail (at 1 second mark)
-        // ─────────────────────────────────────────
-        $thumbnailName = "thumbnails/{$this->video->id}.jpg";
-        $thumbnailPath = storage_path("app/public/{$thumbnailName}");
+    /**
+     * Fallback: download video to a temp file if no public URL is available.
+     * Only used when R2/S3 bucket is private with no CDN URL.
+     */
+    private function downloadToTemp(string $disk, string $key): ?string
+    {
+        try {
+            Log::info("ProcessVideoJob: downloading video to temp (no CDN URL configured)");
+            $contents = Storage::disk($disk)->get($key);
+            if (!$contents) return null;
 
-        $movie
-            ->frame(TimeCode::fromSeconds(1))
-            ->save($thumbnailPath);
+            $ext     = pathinfo($key, PATHINFO_EXTENSION) ?: 'mp4';
+            $tmpPath = sys_get_temp_dir() . '/' . Str::uuid() . '.' . $ext;
+            file_put_contents($tmpPath, $contents);
+            return $tmpPath;
+        } catch (\Throwable $e) {
+            Log::error("ProcessVideoJob: download failed: " . $e->getMessage());
+            return null;
+        }
+    }
 
-        $thumbnailUrl = $storageService->uploadFilePublic($thumbnailPath, $thumbnailName);
+    /**
+     * Generate thumbnail using FFmpeg.
+     *
+     * Extracts frame at 1 second. Works with both local paths and HTTP URLs.
+     * Returns the storage key on success, null if FFmpeg is unavailable.
+     */
+    private function generateThumbnail(string $videoSource, string $disk): ?string
+    {
+        // Check FFmpeg is installed
+        exec('ffmpeg -version 2>&1', $out, $code);
+        if ($code !== 0) {
+            Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail');
+            return null;
+        }
 
-        // ─────────────────────────────────────────
-        // 2. OPTIONAL: simple MP4 re-save (fallback instead of HLS)
-        // ─────────────────────────────────────────
-        $processedName = "processed/{$this->video->id}.mp4";
-        $processedPath = storage_path("app/public/{$processedName}");
+        $tmpThumb = sys_get_temp_dir() . '/' . Str::uuid() . '.jpg';
 
-        $movie
-            ->filters()
-            ->resize(new \FFMpeg\Coordinate\Dimension(1080, 1920))
-            ->synchronize();
+        // -ss before -i = fast seek (doesn't decode entire video first)
+        // scale=720:-2 = 720px wide, height auto-calculated keeping aspect ratio
+        // -q:v 3 = good quality JPEG (1=best, 31=worst)
+        $cmd = sprintf(
+            'ffmpeg -ss 00:00:01 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+            escapeshellarg($videoSource),
+            escapeshellarg($tmpThumb)
+        );
 
-        $movie->save(new \FFMpeg\Format\Video\X264(), $processedPath);
+        exec($cmd, $output, $returnCode);
 
-        $processedUrl = $storageService->uploadFilePublic($processedPath, $processedName);
+        if ($returnCode !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
+            // Try at 0 seconds as fallback (some videos are < 1 second)
+            $cmdFallback = sprintf(
+                'ffmpeg -ss 00:00:00 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+                escapeshellarg($videoSource),
+                escapeshellarg($tmpThumb)
+            );
+            exec($cmdFallback, $output2, $returnCode2);
 
-        // ─────────────────────────────────────────
-        // 3. Update DB (THIS IS THE IMPORTANT PART)
-        // ─────────────────────────────────────────
+            if ($returnCode2 !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
+                Log::warning('ProcessVideoJob: thumbnail generation failed', [
+                    'source' => $videoSource,
+                    'output' => implode("\n", array_merge($output, $output2)),
+                ]);
+                return null;
+            }
+        }
+
+        // Upload thumbnail to storage
+        $key = 'thumbnails/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.jpg';
+
+        Storage::disk($disk)->put(
+            $key,
+            file_get_contents($tmpThumb),
+            ['ContentType' => 'image/jpeg', 'visibility' => 'public']
+        );
+
+        @unlink($tmpThumb);
+
+        Log::info("ProcessVideoJob: thumbnail uploaded → {$key}");
+
+        return $key;
+    }
+
+    /**
+     * Get video duration in seconds using ffprobe.
+     * Works with both local paths and HTTP URLs.
+     */
+    private function getDuration(string $videoSource): ?int
+    {
+        exec('ffprobe -version 2>&1', $out, $code);
+        if ($code !== 0) return null;
+
+        $cmd = sprintf(
+            'ffprobe -v quiet -show_entries format=duration -of csv=p=0 %s 2>&1',
+            escapeshellarg($videoSource)
+        );
+
+        exec($cmd, $output, $returnCode);
+        $duration = floatval(trim(implode('', $output)));
+
+        return $duration > 0 ? (int) $duration : null;
+    }
+
+    private function activateVideo(): void
+    {
         $this->video->update([
-            'thumbnail_url' => $thumbnailUrl,
-            'video_url' => $processedUrl,
-            'status' => 'active',
+            'status'       => 'active',
             'published_at' => now(),
         ]);
-
-        // cleanup local temp files
-        @unlink($thumbnailPath);
-        @unlink($processedPath);
     }
 }
+
+
+

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { Head, router } from '@inertiajs/react'
+import { Head, router, usePage } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
 
@@ -21,6 +21,8 @@ export default function VideoUpload({ products = [] }) {
   const [hashtags,    setHashtags]    = useState('')
   const [tagInput,    setTagInput]    = useState('')
   const [selectedProducts, setSelectedProducts] = useState([])
+
+  const { auth } = usePage().props;
 
   // ── File selection ───────────────────────────────────────────────────────
   const handleFile = useCallback((f) => {
@@ -87,8 +89,8 @@ export default function VideoUpload({ products = [] }) {
       },
     });
 
-    setVideoId(data.video_id);
-    setStage('processing');
+    setVideoId(data.video_ulid);
+    // setStage('processing');
     setStage('done');  // Skip processing UI if no job
   } catch (err) {
     console.error(err);  // Debug
@@ -123,7 +125,7 @@ export default function VideoUpload({ products = [] }) {
               Your video is being processed — captions and AI embeddings are being generated in the background. It will go live shortly.
             </p>
             <div className="flex flex-col gap-3 pt-2">
-              <button onClick={() => router.visit(`/video/${videoId}`)} className="btn-primary py-3">
+              <button onClick={() => router.visit(`/@${auth.user?.username}/video/${videoId}`)} className="btn-primary py-3">
                 View Video
               </button>
               <button onClick={() => { setStage('idle'); setFile(null); setPreview(null); setProgress(0) }} className="btn-ghost py-3">
@@ -142,7 +144,7 @@ export default function VideoUpload({ products = [] }) {
 
       <div className="h-screen overflow-y-auto scroll-hidden bg-flockr-black">
         <div className="sticky top-0 z-20 bg-flockr-black/90 backdrop-blur-md border-b border-white/[0.06] px-6 py-4 flex items-center gap-3">
-          <button onClick={() => router.back()} className="p-2 rounded-full hover:bg-white/[0.06] text-flockr-muted hover:text-white transition-colors">
+          <button onClick={() => window.history.back()} className="p-2 rounded-full hover:bg-white/[0.06] text-flockr-muted hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>

@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class Order extends Model
@@ -81,31 +83,69 @@ class Order extends Model
 
     public function markAsPaid(string $paystackReference, string $transactionId): void
     {
-        $this->update([
-            'status'                  => 'paid',
-            'paystack_reference'      => $paystackReference,
-            'paystack_transaction_id' => $transactionId,
-            'paid_at'                 => now(),
-        ]);
+        // Guard against double-processing (webhook + callback race condition)
+        if ($this->status !== 'pending') {
+            Log::info("Order #{$this->id} already processed, skipping markAsPaid.");
+            return;
+        }
 
-        // Credit seller wallet (minus platform fee)
-        $sellerAmount = $this->total - $this->platform_fee;
-        $lastTx = WalletTransaction::where('user_id', $this->seller_id)->latest()->first();
-        $balanceBefore = $lastTx?->balance_after ?? 0;
+        DB::transaction(function () use ($paystackReference, $transactionId) {
 
-        WalletTransaction::create([
-            'user_id'       => $this->seller_id,
-            'amount'        => $sellerAmount,
-            'type'          => 'credit',
-            'source'        => 'sale',
-            'order_id'      => $this->id,
-            'description'   => "Sale from order {$this->reference}",
-            'balance_after' => $balanceBefore + $sellerAmount,
-        ]);
+            // 1. Mark order as paid
+            $this->update([
+                'status'                  => 'paid',
+                'paystack_reference'      => $paystackReference,
+                'paystack_transaction_id' => $transactionId,
+                'paid_at'                 => now(),
+            ]);
 
-        // Update seller stats
-        $this->seller->increment('total_sales');
-        $this->seller->increment('revenue_total', $sellerAmount);
+            // 2. Decrement stock for each item in the order
+            //    Uses DB-level decrement with a floor of 0 to prevent negative stock
+            $this->load('items.product');
+
+            foreach ($this->items as $item) {
+                if (!$item->product) continue;
+
+                // Atomic decrement — safe against race conditions
+                Product::where('id', $item->product_id)
+                    ->where('stock_quantity', '>=', $item->quantity)
+                    ->update([
+                        'stock_quantity' => DB::raw("GREATEST(stock_quantity - {$item->quantity}, 0)"),
+                        'orders_count'   => DB::raw('orders_count + 1'),
+                    ]);
+
+                // Reload to check if now out of stock
+                $item->product->refresh();
+
+                Log::info("Stock decremented", [
+                    'product_id'    => $item->product_id,
+                    'qty_sold'      => $item->quantity,
+                    'stock_left'    => $item->product->stock_quantity,
+                ]);
+            }
+
+            // 3. Credit seller wallet (minus platform fee)
+            $sellerAmount  = $this->total - $this->platform_fee;
+            $lastTx        = WalletTransaction::where('user_id', $this->seller_id)->latest()->first();
+            $balanceBefore = $lastTx?->balance_after ?? 0;
+
+            WalletTransaction::create([
+                'user_id'       => $this->seller_id,
+                'amount'        => $sellerAmount,
+                'type'          => 'credit',
+                'source'        => 'sale',
+                'order_id'      => $this->id,
+                'description'   => "Sale from order {$this->reference}",
+                'balance_after' => $balanceBefore + $sellerAmount,
+            ]);
+
+            // 4. Update seller stats
+            $this->seller->increment('total_sales');
+
+            if (in_array('revenue_total', $this->seller->getFillable())) {
+                $this->seller->increment('revenue_total', $sellerAmount);
+            }
+        });
     }
 
     public function getFormattedTotalAttribute(): string

@@ -9,171 +9,230 @@ use Illuminate\Support\Facades\Log;
 
 class PaystackService
 {
-    private const BASE_URL = 'https://api.paystack.co';
+    private string $secretKey;
+    private string $baseUrl = 'https://api.paystack.co';
 
-    private function client()
+    public function __construct()
     {
-        return Http::withToken(config('services.paystack.secret_key'))
-            ->baseUrl(self::BASE_URL)
-            ->timeout(30)
-            ->retry(2, 500);
+        $this->secretKey = config('services.paystack.secret_key');
     }
 
-    // ─── Checkout ─────────────────────────────────────────────────────────────
-
-    /**
-     * Initialise a payment transaction.
-     * Returns ['authorization_url', 'reference'] to redirect the buyer.
-     */
-    public function initializeTransaction(Order $order): array
+    private function headers(): array
     {
-        $response = $this->client()->post('/transaction/initialize', [
-            'email'      => $order->buyer->email,
-            'amount'     => (int) ($order->total * 100),   // Paystack uses kobo
-            'currency'   => 'NGN',
-            'reference'  => $order->reference,
-            'callback_url' => route('orders.callback'),
-            'metadata'   => [
-                'order_id'   => $order->id,
-                'buyer_id'   => $order->buyer_id,
-                'seller_id'  => $order->seller_id,
-                'cancel_action' => route('orders.show', $order),
-            ],
-            // Split payment — seller's subaccount gets their share automatically
-            'split'      => $this->buildSplit($order),
-        ]);
-
-        if ($response->failed() || !$response->json('status')) {
-            Log::error('Paystack init failed', ['order' => $order->reference, 'resp' => $response->json()]);
-            throw new \RuntimeException('Payment initialization failed. Please try again.');
-        }
-
         return [
-            'authorization_url' => $response->json('data.authorization_url'),
-            'reference'         => $response->json('data.reference'),
-            'access_code'       => $response->json('data.access_code'),
+            'Authorization' => 'Bearer ' . $this->secretKey,
+            'Content-Type'  => 'application/json',
         ];
     }
 
-    /**
-     * Verify a transaction after callback.
-     */
-    public function verifyTransaction(string $reference): array
-    {
-        $response = $this->client()->get("/transaction/verify/{$reference}");
+    // ─── Banks ────────────────────────────────────────────────────────────────
 
-        if ($response->failed()) {
-            throw new \RuntimeException('Transaction verification failed.');
-        }
-
-        return $response->json('data');
-    }
-
-    /**
-     * Webhook signature verification.
-     * Call from PaystackWebhookController before processing.
-     */
-    public function verifyWebhook(string $payload, string $signature): bool
-    {
-        $expected = hash_hmac('sha512', $payload, config('services.paystack.secret_key'));
-        return hash_equals($expected, $signature);
-    }
-
-    // ─── Seller onboarding ────────────────────────────────────────────────────
-
-    /**
-     * Create a Paystack subaccount for a seller so splits work automatically.
-     */
-    public function createSubaccount(User $seller, string $bankCode, string $accountNumber): array
-    {
-        $response = $this->client()->post('/subaccount', [
-            'business_name'       => $seller->name,
-            'settlement_bank'     => $bankCode,
-            'account_number'      => $accountNumber,
-            'percentage_charge'   => config('flockr.platform_fee_percent', 5), // Flockr takes 5%
-            'description'         => "Flockr seller: {$seller->username}",
-            'primary_contact_email' => $seller->email,
-            'primary_contact_phone' => $seller->phone,
-        ]);
-
-        if ($response->failed() || !$response->json('status')) {
-            throw new \RuntimeException('Could not create seller payout account: ' . $response->json('message'));
-        }
-
-        $subaccount = $response->json('data');
-
-        $seller->update([
-            'paystack_subaccount_code' => $subaccount['subaccount_code'],
-        ]);
-
-        return $subaccount;
-    }
-
-    /**
-     * List Nigerian banks (for seller bank setup form).
-     */
     public function listBanks(): array
     {
-        $response = $this->client()->get('/bank', ['country' => 'nigeria']);
-        return $response->json('data', []);
+        $response = Http::withHeaders($this->headers())
+            ->get("{$this->baseUrl}/bank", ['country' => 'nigeria', 'perPage' => 100]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException('Failed to fetch banks from Paystack.');
+        }
+
+        return $response->json('data') ?? [];
     }
 
+    // ─── Account resolution ───────────────────────────────────────────────────
+
     /**
-     * Validate a bank account number before creating subaccount.
+     * Resolve a NUBAN account number to get the account name.
+     * This is what verifies the seller's bank details are correct.
      */
     public function resolveAccount(string $accountNumber, string $bankCode): array
     {
-        $response = $this->client()->get('/bank/resolve', [
-            'account_number' => $accountNumber,
-            'bank_code'      => $bankCode,
-        ]);
+        $response = Http::withHeaders($this->headers())
+            ->get("{$this->baseUrl}/bank/resolve", [
+                'account_number' => $accountNumber,
+                'bank_code'      => $bankCode,
+            ]);
 
         if ($response->failed()) {
-            throw new \RuntimeException('Could not verify bank account. Check details and try again.');
+            $message = $response->json('message') ?? 'Could not resolve account. Check your account number and bank.';
+            throw new \RuntimeException($message);
         }
 
         return $response->json('data');
     }
 
-    // ─── Transfers (manual payouts) ───────────────────────────────────────────
+    // ─── Transfer Recipient ───────────────────────────────────────────────────
 
     /**
-     * Initiate a bulk transfer to multiple sellers.
-     * Used by the admin payout cron.
+     * Create a Transfer Recipient on Paystack.
+     * This is REQUIRED before you can send money to a seller.
+     * Save the returned recipient_code on the user.
      */
-    public function initiateTransfer(string $recipientCode, int $amountKobo, string $reason): array
-    {
-        $response = $this->client()->post('/transfer', [
-            'source'    => 'balance',
-            'amount'    => $amountKobo,
-            'recipient' => $recipientCode,
-            'reason'    => $reason,
-        ]);
+    public function createTransferRecipient(
+        string $name,
+        string $accountNumber,
+        string $bankCode,
+    ): string {
+        $response = Http::withHeaders($this->headers())
+            ->post("{$this->baseUrl}/transferrecipient", [
+                'type'           => 'nuban',
+                'name'           => $name,
+                'account_number' => $accountNumber,
+                'bank_code'      => $bankCode,
+                'currency'       => 'NGN',
+            ]);
 
-        if ($response->failed() || !$response->json('status')) {
-            throw new \RuntimeException('Transfer failed: ' . $response->json('message'));
+        if ($response->failed()) {
+            $message = $response->json('message') ?? 'Failed to create transfer recipient.';
+            throw new \RuntimeException($message);
+        }
+
+        return $response->json('data.recipient_code');
+    }
+
+    // ─── Subaccount ───────────────────────────────────────────────────────────
+
+    /**
+     * Create a Paystack Subaccount for split payments.
+     * This allows Paystack to automatically split payments between
+     * your account and the seller's account on each transaction.
+     * Returns the subaccount_code.
+     */
+    public function createSubaccount(User $user, string $bankCode, string $accountNumber): string
+    {
+        $platformFeePercent = config('flockr.platform_fee_percent', 5);
+        $sellerPercent      = 100 - $platformFeePercent;
+
+        $response = Http::withHeaders($this->headers())
+            ->post("{$this->baseUrl}/subaccount", [
+                'business_name'      => $user->name,
+                'settlement_bank'    => $bankCode,
+                'account_number'     => $accountNumber,
+                'percentage_charge'  => $sellerPercent,
+                'description'        => "Flockr seller: @{$user->username}",
+            ]);
+
+        if ($response->failed()) {
+            $message = $response->json('message') ?? 'Failed to create subaccount.';
+            throw new \RuntimeException($message);
+        }
+
+        return $response->json('data.subaccount_code');
+    }
+
+    // ─── Transfers (Payouts) ──────────────────────────────────────────────────
+
+    /**
+     * Initiate a bank transfer to a seller.
+     *
+     * Prerequisites:
+     *  - Seller must have paystack_recipient_code saved (from createTransferRecipient)
+     *  - Your Paystack account must have Transfers enabled
+     *  - Your Paystack balance must have sufficient funds
+     *
+     * In TEST MODE: use test secret key, transfers are simulated.
+     * In LIVE MODE: real money is sent to the seller's bank account.
+     *
+     * Returns the Paystack transfer reference.
+     */
+    public function initiateTransfer(
+        string $recipientCode,
+        float  $amount,         // in Naira (we convert to kobo)
+        string $reason = 'Flockr seller payout',
+        string $reference = '',
+    ): array {
+        $amountKobo = (int) round($amount * 100);
+        $ref        = $reference ?: 'FLK-PAY-' . now()->format('YmdHis') . '-' . strtoupper(substr(md5(uniqid()), 0, 6));
+
+        $response = Http::withHeaders($this->headers())
+            ->post("{$this->baseUrl}/transfer", [
+                'source'    => 'balance',
+                'amount'    => $amountKobo,
+                'recipient' => $recipientCode,
+                'reason'    => $reason,
+                'reference' => $ref,
+            ]);
+
+        if ($response->failed()) {
+            $message = $response->json('message') ?? 'Transfer initiation failed.';
+            Log::error('Paystack transfer failed', [
+                'recipient' => $recipientCode,
+                'amount'    => $amount,
+                'response'  => $response->json(),
+            ]);
+            throw new \RuntimeException($message);
         }
 
         return $response->json('data');
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Transactions ─────────────────────────────────────────────────────────
 
-    private function buildSplit(Order $order): ?array
+    /**
+     * Initialize a payment transaction.
+     * Returns authorization_url, access_code, reference.
+     */
+    public function initializeTransaction(Order $order): array
     {
-        if (!$order->seller->paystack_subaccount_code) return null;
+        $amountKobo  = (int) round($order->total * 100);
+        $callbackUrl = route('orders.callback');
 
-        $platformFeePercent = config('flockr.platform_fee_percent', 5);
-
-        return [
-            'type'         => 'percentage',
-            'bearer_type'  => 'account',
-            'subaccounts'  => [
-                [
-                    'subaccount' => $order->seller->paystack_subaccount_code,
-                    'share'      => 100 - $platformFeePercent,
+        $payload = [
+            'email'     => $order->buyer->email,
+            'amount'    => $amountKobo,
+            'reference' => $order->reference,
+            'callback_url' => $callbackUrl,
+            'metadata'  => [
+                'order_id'   => $order->id,
+                'buyer_id'   => $order->buyer_id,
+                'seller_id'  => $order->seller_id,
+                'custom_fields' => [
+                    ['display_name' => 'Order Reference', 'variable_name' => 'order_reference', 'value' => $order->reference],
+                    ['display_name' => 'Seller',          'variable_name' => 'seller',          'value' => "@{$order->seller->username}"],
                 ],
             ],
         ];
+
+        // If seller has a subaccount, split the payment automatically
+        if ($order->seller?->paystack_subaccount_code) {
+            $platformFeeKobo = (int) round($order->platform_fee * 100);
+            $payload['subaccount']   = $order->seller->paystack_subaccount_code;
+            $payload['bearer']       = 'account';          // platform bears Paystack fees
+            $payload['transaction_charge'] = $platformFeeKobo; // platform keeps this
+        }
+
+        $response = Http::withHeaders($this->headers())
+            ->post("{$this->baseUrl}/transaction/initialize", $payload);
+
+        if ($response->failed()) {
+            $message = $response->json('message') ?? 'Failed to initialize payment.';
+            throw new \RuntimeException($message);
+        }
+
+        return $response->json('data');
+    }
+
+    /**
+     * Verify a transaction by reference.
+     */
+    public function verifyTransaction(string $reference): array
+    {
+        $response = Http::withHeaders($this->headers())
+            ->get("{$this->baseUrl}/transaction/verify/{$reference}");
+
+        if ($response->failed()) {
+            throw new \RuntimeException('Failed to verify transaction.');
+        }
+
+        return $response->json('data');
+    }
+
+    /**
+     * Verify Paystack webhook signature.
+     */
+    public function verifyWebhook(string $payload, string $signature): bool
+    {
+        $expected = hash_hmac('sha512', $payload, $this->secretKey);
+        return hash_equals($expected, $signature);
     }
 }

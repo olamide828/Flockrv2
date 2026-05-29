@@ -26,6 +26,7 @@ class UserController extends Controller
             ->where('status', 'active')
             ->whereNotNull('published_at')
             ->withCount(['likes', 'comments'])
+            ->with('user:id,name,username,avatar,is_verified') 
             ->orderByDesc('published_at')
             ->get();
 

@@ -381,6 +381,7 @@ export default function AppLayout({ children }) {
                                     </button>
                                     {showUserMenu && (
                                         <div
+                                        className='z-[999px]'
                                             style={{
                                                 position: 'absolute',
                                                 top: 'calc(100% + 8px)',
@@ -390,7 +391,7 @@ export default function AppLayout({ children }) {
                                                 border: '1px solid rgba(255,255,255,0.1)',
                                                 borderRadius: 14,
                                                 overflow: 'hidden',
-                                                zIndex: 200,
+                                                // zIndex: 999,
                                                 boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
                                             }}
                                         >

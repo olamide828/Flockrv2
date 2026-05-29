@@ -14,6 +14,8 @@ class VideoView extends Model
 
     protected $casts = ['watch_percent' => 'decimal:2'];
 
-    public function video(): BelongsTo { return $this->belongsTo(Video::class); }
-    public function user(): BelongsTo  { return $this->belongsTo(User::class); }
+    public function video(): BelongsTo
+{
+    return $this->belongsTo(Video::class, 'video_id', 'id');
+}    public function user(): BelongsTo  { return $this->belongsTo(User::class); }
 }

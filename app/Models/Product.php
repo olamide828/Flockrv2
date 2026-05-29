@@ -14,11 +14,28 @@ class Product extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'seller_id', 'category_id', 'name', 'slug', 'description', 'ai_description',
-        'price', 'compare_price', 'stock_quantity', 'status', 'condition',
-        'images', 'tags', 'attributes', 'ships_nationwide', 'shipping_fee',
-        'location', 'saves_count', 'views_count', 'orders_count',
-        'is_for_sale', 'is_in_stock',
+        'seller_id',
+        'category_id',
+        'name',
+        'slug',
+        'description',
+        'ai_description',
+        'price',
+        'compare_price',
+        'stock_quantity',
+        'status',
+        'condition',
+        'images',
+        'tags',
+        'attributes',
+        'ships_nationwide',
+        'shipping_fee',
+        'location',
+        'saves_count',
+        'views_count',
+        'orders_count',
+        'is_for_sale',
+        'is_in_stock',
     ];
 
     protected $casts = [
@@ -32,8 +49,10 @@ class Product extends Model
         'shipping_fee'     => 'decimal:2',
     ];
 
-    // Always append these computed fields so frontend always gets full URLs
-    protected $appends = ['primary_image', 'discount_percent', 'is_in_stock'];
+    // primary_image, is_in_stock, and discount_percent are safe to append:
+    // all three are guarded against MissingAttributeException.
+    // is_in_stock MUST be in $appends so ProductCard always receives it.
+    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -81,55 +100,96 @@ class Product extends Model
         return $query->where('stock_quantity', '>', 0);
     }
 
+    // ─── URL builder ─────────────────────────────────────────────────────────
+
+    /**
+     * Build a full URL from a storage key.
+     * Works for both local (public disk) and R2/S3.
+     */
+    private function storageUrl(?string $path): ?string
+    {
+        if (!$path) return null;
+
+        // Already a full URL — return as-is
+        if (str_starts_with($path, 'http')) return $path;
+
+        $disk = config('filesystems.default', 'public');
+
+        // For R2/S3 — use the configured URL
+        $base = config("filesystems.disks.{$disk}.url");
+
+        // For local public disk — use app URL + /storage
+        if (!$base) {
+            $base = rtrim(config('app.url'), '/') . '/storage';
+        }
+
+        return rtrim($base, '/') . '/' . ltrim($path, '/');
+    }
+
     // ─── Accessors ────────────────────────────────────────────────────────────
 
     /**
-     * Convert a raw storage key to a full CDN URL.
-     * Returns null if path is empty.
-     */
-    private function r2Url(?string $path): ?string
-    {
-        if (!$path) return null;
-        if (str_starts_with($path, 'http')) return $path;
-        $base = rtrim(config('filesystems.disks.r2.url', ''), '/');
-        return $base . '/' . ltrim($path, '/');
-    }
-
-    /**
-     * First image as a full URL — used by ProductCard as `product.primary_image`.
+     * First image as full URL.
+     * Safe in $appends: $this->images returns [] when not selected.
      */
     public function getPrimaryImageAttribute(): ?string
     {
-        $images = $this->images ?? [];
-        if (empty($images)) return null;
-        return $this->r2Url($images[0]);
+        try {
+            $images = $this->getAttributes()['images'] ?? null;
+            $images = is_string($images) ? json_decode($images, true) : $images;
+            if (empty($images) || !is_array($images)) return null;
+            return $this->storageUrl($images[0]);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
      * All images as full URLs.
+     * Used by ProductShow to display the image gallery.
      */
     public function getImageUrlsAttribute(): array
     {
-        return array_filter(array_map(
-            fn ($img) => $this->r2Url($img),
-            $this->images ?? []
-        ));
+        try {
+            $images = $this->getAttributes()['images'] ?? null;
+            $images = is_string($images) ? json_decode($images, true) : $images;
+            if (empty($images) || !is_array($images)) return [];
+            return array_values(array_filter(array_map(
+                fn($img) => $this->storageUrl($img),
+                $images
+            )));
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**
-     * Discount percentage compared to compare_price.
+     * Discount percent.
+     * Guarded against partial selects.
      */
     public function getDiscountPercentAttribute(): ?int
     {
-        if (!$this->compare_price || $this->compare_price <= $this->price) return null;
-        return (int) round((($this->compare_price - $this->price) / $this->compare_price) * 100);
+        try {
+            $compare = (float) ($this->getAttributes()['compare_price'] ?? 0);
+            $price   = (float) ($this->getAttributes()['price']         ?? 0);
+            if (!$compare || !$price || $compare <= $price) return null;
+            return (int) round((($compare - $price) / $compare) * 100);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
-     * Is the product in stock? (computed from stock_quantity)
+     * In-stock flag.
+     * MUST be in $appends so ProductCard.jsx always receives it.
+     * Guarded against partial selects.
      */
     public function getIsInStockAttribute(): bool
     {
-        return ($this->stock_quantity ?? 0) > 0;
+        try {
+            return ((int) ($this->getAttributes()['stock_quantity'] ?? 0)) > 0;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

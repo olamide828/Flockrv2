@@ -1,418 +1,369 @@
-import { useState } from "react"
-import { Head, Link } from "@inertiajs/react"
-import AppLayout from "@/Layouts/AppLayout"
+import AppLayout from '@/Layouts/AppLayout';
+import { Head, Link } from '@inertiajs/react';
+import { useState } from 'react';
 
 import {
-  RiMoneyDollarCircleLine,
-  RiShoppingBagLine,
-  RiEyeLine,
-  RiUserFollowLine,
-  RiArrowUpLine,
-  RiArrowDownLine,
-  RiUploadCloud2Line,
-  RiVideoLine,
-  RiStoreLine,
-  RiBankCardLine,
-  RiSettings4Line,
-  RiAddLine,
-  RiArrowRightLine,
-  RiCheckboxCircleLine,
-  RiTimeLine,
-  RiTruckLine,
-  RiGiftLine,
-  RiCloseCircleLine,
-  RiRefreshLine,
-  RiPlayCircleLine,
-  RiHeartLine,
-  RiLoader4Line,
-} from "react-icons/ri"
+    RiAddLine,
+    RiArrowDownLine,
+    RiArrowRightLine,
+    RiArrowUpLine,
+    RiBankCardLine,
+    RiCheckboxCircleLine,
+    RiCloseCircleLine,
+    RiEyeLine,
+    RiGiftLine,
+    RiHeartLine,
+    RiLoader4Line,
+    RiMoneyDollarCircleLine,
+    RiPlayCircleLine,
+    RiRefreshLine,
+    RiSettings4Line,
+    RiShoppingBagLine,
+    RiStoreLine,
+    RiTimeLine,
+    RiTruckLine,
+    RiUploadCloud2Line,
+    RiUserFollowLine,
+    RiVideoLine,
+} from 'react-icons/ri';
 
-import { MdOutlineStorefront } from "react-icons/md"
+import { MdOutlineStorefront } from 'react-icons/md';
 
-export default function SellerDashboard({
-  stats,
-  recentOrders,
-  topProducts,
-  recentVideos,
-}) {
-  const [period, setPeriod] = useState("30d")
+export default function SellerDashboard({ stats, recentOrders, topProducts, recentVideos }) {
+    const [period, setPeriod] = useState('30d');
 
-  const kpis = [
-    {
-      label: "Revenue",
-      value: `₦${Number(stats?.revenue ?? 0).toLocaleString()}`,
-      icon: RiMoneyDollarCircleLine,
-      change: stats?.revenue_change,
-      highlight: true,
-    },
-    {
-      label: "Orders",
-      value: stats?.orders_count ?? 0,
-      icon: RiShoppingBagLine,
-      change: stats?.orders_change,
-    },
-    {
-      label: "Views",
-      value: formatCount(stats?.views_count ?? 0),
-      icon: RiEyeLine,
-      change: stats?.views_change,
-    },
-    {
-      label: "Followers",
-      value: formatCount(stats?.followers_count ?? 0),
-      icon: RiUserFollowLine,
-      change: stats?.followers_change,
-    },
-  ]
+    const kpis = [
+        {
+            label: 'Revenue',
+            value: `₦${Number(stats?.revenue ?? 0).toLocaleString()}`,
+            icon: RiMoneyDollarCircleLine,
+            change: stats?.revenue_change,
+            highlight: true,
+        },
+        {
+            label: 'Orders',
+            value: stats?.orders_count ?? 0,
+            icon: RiShoppingBagLine,
+            change: stats?.orders_change,
+        },
+        {
+            label: 'Views',
+            value: formatCount(stats?.views_count ?? 0),
+            icon: RiEyeLine,
+            change: stats?.views_change,
+        },
+        {
+            label: 'Followers',
+            value: formatCount(stats?.followers_count ?? 0),
+            icon: RiUserFollowLine,
+            change: stats?.followers_change,
+        },
+    ];
 
-  const quickActions = [
-    {
-      href: "/seller/products/create",
-      icon: RiAddLine,
-      label: "Add Product",
-    },
-    {
-      href: "/seller/upload",
-      icon: RiUploadCloud2Line,
-      label: "Upload Video",
-    },
-    {
-      href: "/seller/payouts",
-      icon: RiBankCardLine,
-      label: "Payouts",
-    },
-    {
-      href: "/seller/settings",
-      icon: RiSettings4Line,
-      label: "Settings",
-    },
-  ]
+    const quickActions = [
+        {
+            href: '/seller/products/create',
+            icon: RiAddLine,
+            label: 'Add Product',
+        },
+        {
+            href: '/seller/upload',
+            icon: RiUploadCloud2Line,
+            label: 'Upload Video',
+        },
+        {
+            href: '/seller/payouts',
+            icon: RiBankCardLine,
+            label: 'Payouts',
+        },
+        {
+            href: '/seller/settings',
+            icon: RiSettings4Line,
+            label: 'Settings',
+        },
+    ];
 
-  return (
-    <>
-      <Head title="Seller Dashboard" />
+    return (
+        <>
+            <Head title="Seller Dashboard" />
 
-      <div className="seller-dashboard">
+            <div className="seller-dashboard">
+                {/* HEADER */}
+                <header className="dashboard-header">
+                    <div className="dashboard-header-inner">
+                        <div className="dashboard-brand">
+                            <div className="dashboard-logo">
+                                <MdOutlineStorefront size={18} />
+                            </div>
 
-        {/* HEADER */}
-        <header className="dashboard-header">
-          <div className="dashboard-header-inner">
+                            <div>
+                                <h1>Dashboard</h1>
+                                <p>Seller Studio</p>
+                            </div>
+                        </div>
 
-            <div className="dashboard-brand">
-              <div className="dashboard-logo">
-                <MdOutlineStorefront size={18} />
-              </div>
+                        <div className="dashboard-header-actions">
+                            <div className="period-switcher">
+                                {['7d', '30d', '90d'].map((p) => (
+                                    <button key={p} onClick={() => setPeriod(p)} className={period === p ? 'active' : ''}>
+                                        {p.toUpperCase()}
+                                    </button>
+                                ))}
+                            </div>
 
-              <div>
-                <h1>Dashboard</h1>
-                <p>Seller Studio</p>
-              </div>
-            </div>
-
-            <div className="dashboard-header-actions">
-
-              <div className="period-switcher">
-                {["7d", "30d", "90d"].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPeriod(p)}
-                    className={period === p ? "active" : ""}
-                  >
-                    {p.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-
-              <Link href="/seller/upload" className="upload-btn">
-                <RiUploadCloud2Line size={16} />
-                Upload
-              </Link>
-            </div>
-          </div>
-        </header>
-
-        {/* CONTENT */}
-        <main className="dashboard-content">
-
-          {/* HERO */}
-          <section className="hero-section">
-            <div>
-              <p className="hero-subtitle">Welcome back</p>
-              <h2>Your store is growing</h2>
-            </div>
-
-            <div className="hero-stat-card">
-              <span>This Month</span>
-              <strong>+24% Sales</strong>
-            </div>
-          </section>
-
-          {/* KPI GRID */}
-          <section className="kpi-grid">
-            {kpis.map((kpi) => {
-              const Icon = kpi.icon
-              const up = (kpi.change ?? 0) >= 0
-
-              return (
-                <div className="kpi-card" key={kpi.label}>
-
-                  <div className="kpi-top">
-                    <div className="kpi-icon">
-                      <Icon size={20} />
+                            <Link href="/seller/upload" className="upload-btn">
+                                <RiUploadCloud2Line size={16} />
+                                Upload
+                            </Link>
+                        </div>
                     </div>
+                </header>
 
-                    {kpi.change != null && (
-                      <div className={`kpi-change ${up ? "up" : "down"}`}>
-                        {up ? (
-                          <RiArrowUpLine size={12} />
-                        ) : (
-                          <RiArrowDownLine size={12} />
+                {/* CONTENT */}
+                <main className="dashboard-content">
+                    {/* HERO */}
+                    <section className="hero-section">
+                        <div>
+                            <p className="hero-subtitle">Welcome back</p>
+                            <h2>Your store is growing</h2>
+                        </div>
+
+                        {stats?.revenue_change != null && (
+                            <div className="hero-stat-card">
+                                <span>This Month</span>
+                                <strong style={{ color: stats.revenue_change >= 0 ? '#22c55e' : '#ef4444' }}>
+                                    {stats.revenue_change >= 0 ? '+' : ''}
+                                    {stats.revenue_change}% Sales
+                                </strong>
+                            </div>
                         )}
+                    </section>
 
-                        <span>{Math.abs(kpi.change)}%</span>
-                      </div>
-                    )}
-                  </div>
+                    {/* KPI GRID */}
+                    <section className="kpi-grid">
+                        {kpis.map((kpi) => {
+                            const Icon = kpi.icon;
+                            const up = (kpi.change ?? 0) >= 0;
 
-                  <h3 className={kpi.highlight ? "highlight" : ""}>
-                    {kpi.value}
-                  </h3>
+                            return (
+                                <div className="kpi-card" key={kpi.label}>
+                                    <div className="kpi-top">
+                                        <div className="kpi-icon">
+                                            <Icon size={20} />
+                                        </div>
 
-                  <p>{kpi.label}</p>
-                </div>
-              )
-            })}
-          </section>
+                                        {kpi.change != null && (
+                                            <div className={`kpi-change ${up ? 'up' : 'down'}`}>
+                                                {up ? <RiArrowUpLine size={12} /> : <RiArrowDownLine size={12} />}
 
-          {/* MAIN GRID */}
-          <section className="main-grid">
+                                                <span>{Math.abs(kpi.change)}%</span>
+                                            </div>
+                                        )}
+                                    </div>
 
-            {/* RECENT ORDERS */}
-            <div className="dashboard-card">
+                                    <h3 className={kpi.highlight ? 'highlight' : ''}>{kpi.value}</h3>
 
-              <div className="card-header">
-                <div className="card-title">
-                  <RiShoppingBagLine />
-                  <h3>Recent Orders</h3>
-                </div>
+                                    <p>{kpi.label}</p>
+                                </div>
+                            );
+                        })}
+                    </section>
 
-                <Link href="/seller/orders">
-                  View all
-                  <RiArrowRightLine />
-                </Link>
-              </div>
+                    {/* MAIN GRID */}
+                    <section className="main-grid">
+                        {/* RECENT ORDERS */}
+                        <div className="dashboard-card">
+                            <div className="card-header">
+                                <div className="card-title">
+                                    <RiShoppingBagLine />
+                                    <h3>Recent Orders</h3>
+                                </div>
 
-              {!recentOrders?.length ? (
-                <div className="empty-state">
-                  <RiShoppingBagLine size={34} />
-                  <h4>No orders yet</h4>
-                  <p>Share your videos to drive sales.</p>
-                </div>
-              ) : (
-                <div className="orders-list">
-                  {recentOrders.map((order) => (
-                    <div className="order-row" key={order.id}>
+                                <Link href="/seller/orders">
+                                    View all
+                                    <RiArrowRightLine />
+                                </Link>
+                            </div>
 
-                      <div
-                        className="order-icon"
-                        style={{
-                          background: statusColor(order.status).bg,
-                          color: statusColor(order.status).text,
-                        }}
-                      >
-                        {statusIcon(order.status)}
-                      </div>
+                            {!recentOrders?.length ? (
+                                <div className="empty-state">
+                                    <RiShoppingBagLine size={34} />
+                                    <h4>No orders yet</h4>
+                                    <p>Share your videos to drive sales.</p>
+                                </div>
+                            ) : (
+                                <div className="orders-list">
+                                    {recentOrders.map((order) => (
+                                        <div className="order-row" key={order.id}>
+                                            <div
+                                                className="order-icon"
+                                                style={{
+                                                    background: statusColor(order.status).bg,
+                                                    color: statusColor(order.status).text,
+                                                }}
+                                            >
+                                                {statusIcon(order.status)}
+                                            </div>
 
-                      <div className="order-meta">
-                        <h4>{order.reference}</h4>
+                                            <div className="order-meta">
+                                                <h4>{order.reference}</h4>
 
-                        <p>
-                          {order.buyer?.name} • {order.items_count} item
-                          {order.items_count !== 1 ? "s" : ""}
-                        </p>
-                      </div>
+                                                <p>
+                                                    {order.buyer?.name} • {order.items_count} item
+                                                    {order.items_count !== 1 ? 's' : ''}
+                                                </p>
+                                            </div>
 
-                      <div className="order-right">
-                        <strong>
-                          ₦{Number(order.total).toLocaleString()}
-                        </strong>
+                                            <div className="order-right">
+                                                <strong>₦{Number(order.total).toLocaleString()}</strong>
 
-                        <span
-                          className="status-pill"
-                          style={{
-                            background: statusColor(order.status).bg,
-                            color: statusColor(order.status).text,
-                          }}
-                        >
-                          {order.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                                                <span
+                                                    className="status-pill"
+                                                    style={{
+                                                        background: statusColor(order.status).bg,
+                                                        color: statusColor(order.status).text,
+                                                    }}
+                                                >
+                                                    {order.status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* TOP PRODUCTS */}
+                        <div className="dashboard-card">
+                            <div className="card-header">
+                                <div className="card-title">
+                                    <RiStoreLine />
+                                    <h3>Top Products</h3>
+                                </div>
+
+                                <Link href="/seller/products">
+                                    Manage
+                                    <RiArrowRightLine />
+                                </Link>
+                            </div>
+
+                            {!topProducts?.length ? (
+                                <div className="empty-state">
+                                    <RiStoreLine size={34} />
+
+                                    <h4>No products yet</h4>
+
+                                    <Link href="/seller/products/create" className="empty-btn">
+                                        <RiAddLine />
+                                        Add Product
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="products-list">
+                                    {topProducts.map((product, index) => (
+                                        <div className="product-row" key={product.id}>
+                                            <span className="product-rank">{index + 1}</span>
+
+                                            <div className="product-thumb">
+                                                {product.primary_image ? <img src={product.primary_image} alt={product.name} /> : <RiStoreLine />}
+                                            </div>
+
+                                            <div className="product-meta">
+                                                <h4>{product.name}</h4>
+                                                <p>{product.orders_count} sold</p>
+                                            </div>
+
+                                            <strong className="product-price">₦{Number(product.price).toLocaleString()}</strong>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </section>
+
+                    {/* VIDEOS */}
+                    <section className="dashboard-card">
+                        <div className="card-header">
+                            <div className="card-title">
+                                <RiVideoLine />
+                                <h3>Your Videos</h3>
+                            </div>
+
+                            <Link href="/seller/videos">
+                                View all
+                                <RiArrowRightLine />
+                            </Link>
+                        </div>
+
+                        <div className="video-grid">
+                            {/* Upload Tile */}
+                            <Link href="/seller/upload" className="upload-tile">
+                                <div>
+                                    <div className="upload-circle">
+                                        <RiAddLine size={22} />
+                                    </div>
+
+                                    <span>New Video</span>
+                                </div>
+                            </Link>
+
+                            {recentVideos?.slice(0, 3).map((video) => (
+                                <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="video-tile">
+                                    {video.thumbnail_url_full ? (
+                                        <img src={video.thumbnail_url_full} alt={video.title} />
+                                    ) : (
+                                        <div className="video-empty">
+                                            <RiPlayCircleLine size={28} />
+                                        </div>
+                                    )}
+
+                                    <div className="video-overlay">
+                                        <div className="video-stats">
+                                            <span>
+                                                <RiEyeLine />
+                                                {formatCount(video.views_count)}
+                                            </span>
+
+                                            <span>
+                                                <RiHeartLine />
+                                                {formatCount(video.likes_count)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {video.status !== 'active' && (
+                                        <div className="video-badge">
+                                            {video.status === 'processing' && <RiLoader4Line size={10} />}
+
+                                            <span>{video.status}</span>
+                                        </div>
+                                    )}
+                                </Link>
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* QUICK ACTIONS */}
+                    <section className="quick-grid">
+                        {quickActions.map((action) => {
+                            const Icon = action.icon;
+
+                            return (
+                                <Link href={action.href} key={action.href} className="quick-card">
+                                    <div className="quick-icon">
+                                        <Icon size={22} />
+                                    </div>
+
+                                    <span>{action.label}</span>
+                                </Link>
+                            );
+                        })}
+                    </section>
+                </main>
             </div>
 
-            {/* TOP PRODUCTS */}
-            <div className="dashboard-card">
-
-              <div className="card-header">
-                <div className="card-title">
-                  <RiStoreLine />
-                  <h3>Top Products</h3>
-                </div>
-
-                <Link href="/seller/products">
-                  Manage
-                  <RiArrowRightLine />
-                </Link>
-              </div>
-
-              {!topProducts?.length ? (
-                <div className="empty-state">
-                  <RiStoreLine size={34} />
-
-                  <h4>No products yet</h4>
-
-                  <Link href="/seller/products/create" className="empty-btn">
-                    <RiAddLine />
-                    Add Product
-                  </Link>
-                </div>
-              ) : (
-                <div className="products-list">
-                  {topProducts.map((product, index) => (
-                    <div className="product-row" key={product.id}>
-
-                      <span className="product-rank">
-                        {index + 1}
-                      </span>
-
-                      <div className="product-thumb">
-                        {product.primary_image ? (
-                          <img
-                            src={product.primary_image}
-                            alt={product.name}
-                          />
-                        ) : (
-                          <RiStoreLine />
-                        )}
-                      </div>
-
-                      <div className="product-meta">
-                        <h4>{product.name}</h4>
-                        <p>{product.orders_count} sold</p>
-                      </div>
-
-                      <strong className="product-price">
-                        ₦{Number(product.price).toLocaleString()}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* VIDEOS */}
-          <section className="dashboard-card">
-
-            <div className="card-header">
-              <div className="card-title">
-                <RiVideoLine />
-                <h3>Your Videos</h3>
-              </div>
-
-              <Link href="/seller/videos">
-                View all
-                <RiArrowRightLine />
-              </Link>
-            </div>
-
-            <div className="video-grid">
-
-              {/* Upload Tile */}
-              <Link href="/seller/upload" className="upload-tile">
-                <div>
-                  <div className="upload-circle">
-                    <RiAddLine size={22} />
-                  </div>
-
-                  <span>New Video</span>
-                </div>
-              </Link>
-
-              {recentVideos?.map((video) => (
-                <Link
-                  key={video.id}
-                  href={`/video/${video.id}`}
-                  className="video-tile"
-                >
-                  {video.thumbnail_url_full ? (
-                    <img
-                      src={video.thumbnail_url_full}
-                      alt={video.title}
-                    />
-                  ) : (
-                    <div className="video-empty">
-                      <RiPlayCircleLine size={28} />
-                    </div>
-                  )}
-
-                  <div className="video-overlay">
-                    <div className="video-stats">
-                      <span>
-                        <RiEyeLine />
-                        {formatCount(video.views_count)}
-                      </span>
-
-                      <span>
-                        <RiHeartLine />
-                        {formatCount(video.likes_count)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {video.status !== "active" && (
-                    <div className="video-badge">
-                      {video.status === "processing" && (
-                        <RiLoader4Line size={10} />
-                      )}
-
-                      <span>{video.status}</span>
-                    </div>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          {/* QUICK ACTIONS */}
-          <section className="quick-grid">
-            {quickActions.map((action) => {
-              const Icon = action.icon
-
-              return (
-                <Link
-                  href={action.href}
-                  key={action.href}
-                  className="quick-card"
-                >
-                  <div className="quick-icon">
-                    <Icon size={22} />
-                  </div>
-
-                  <span>{action.label}</span>
-                </Link>
-              )
-            })}
-          </section>
-
-        </main>
-      </div>
-
-      {/* VANILLA CSS */}
-      <style>{`
+            {/* VANILLA CSS */}
+            <style>{`
         * {
           box-sizing: border-box;
         }
@@ -949,82 +900,82 @@ export default function SellerDashboard({
           }
         }
       `}</style>
-    </>
-  )
+        </>
+    );
 }
 
-SellerDashboard.layout = (page) => <AppLayout>{page}</AppLayout>
+SellerDashboard.layout = (page) => <AppLayout>{page}</AppLayout>;
 
 function formatCount(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M"
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K"
-  return String(n)
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return String(n);
 }
 
 function statusColor(status) {
-  const map = {
-    pending: {
-      bg: "rgba(234,179,8,0.12)",
-      text: "#EAB308",
-    },
+    const map = {
+        pending: {
+            bg: 'rgba(234,179,8,0.12)',
+            text: '#EAB308',
+        },
 
-    paid: {
-      bg: "rgba(16,185,129,0.12)",
-      text: "#10B981",
-    },
+        paid: {
+            bg: 'rgba(16,185,129,0.12)',
+            text: '#10B981',
+        },
 
-    confirmed: {
-      bg: "rgba(59,130,246,0.12)",
-      text: "#3B82F6",
-    },
+        confirmed: {
+            bg: 'rgba(59,130,246,0.12)',
+            text: '#3B82F6',
+        },
 
-    processing: {
-      bg: "rgba(139,92,246,0.12)",
-      text: "#8B5CF6",
-    },
+        processing: {
+            bg: 'rgba(139,92,246,0.12)',
+            text: '#8B5CF6',
+        },
 
-    shipped: {
-      bg: "rgba(59,130,246,0.12)",
-      text: "#3B82F6",
-    },
+        shipped: {
+            bg: 'rgba(59,130,246,0.12)',
+            text: '#3B82F6',
+        },
 
-    delivered: {
-      bg: "rgba(16,185,129,0.12)",
-      text: "#10B981",
-    },
+        delivered: {
+            bg: 'rgba(16,185,129,0.12)',
+            text: '#10B981',
+        },
 
-    cancelled: {
-      bg: "rgba(239,68,68,0.12)",
-      text: "#EF4444",
-    },
+        cancelled: {
+            bg: 'rgba(239,68,68,0.12)',
+            text: '#EF4444',
+        },
 
-    refunded: {
-      bg: "rgba(156,163,175,0.12)",
-      text: "#9CA3AF",
-    },
-  }
+        refunded: {
+            bg: 'rgba(156,163,175,0.12)',
+            text: '#9CA3AF',
+        },
+    };
 
-  return (
-    map[status] ?? {
-      bg: "rgba(255,255,255,0.08)",
-      text: "#fff",
-    }
-  )
+    return (
+        map[status] ?? {
+            bg: 'rgba(255,255,255,0.08)',
+            text: '#fff',
+        }
+    );
 }
 
 function statusIcon(status) {
-  const size = 14
+    const size = 14;
 
-  const map = {
-    pending: <RiTimeLine size={size} />,
-    paid: <RiCheckboxCircleLine size={size} />,
-    confirmed: <RiCheckboxCircleLine size={size} />,
-    processing: <RiLoader4Line size={size} />,
-    shipped: <RiTruckLine size={size} />,
-    delivered: <RiGiftLine size={size} />,
-    cancelled: <RiCloseCircleLine size={size} />,
-    refunded: <RiRefreshLine size={size} />,
-  }
+    const map = {
+        pending: <RiTimeLine size={size} />,
+        paid: <RiCheckboxCircleLine size={size} />,
+        confirmed: <RiCheckboxCircleLine size={size} />,
+        processing: <RiLoader4Line size={size} />,
+        shipped: <RiTruckLine size={size} />,
+        delivered: <RiGiftLine size={size} />,
+        cancelled: <RiCloseCircleLine size={size} />,
+        refunded: <RiRefreshLine size={size} />,
+    };
 
-  return map[status] ?? <RiShoppingBagLine size={size} />
+    return map[status] ?? <RiShoppingBagLine size={size} />;
 }

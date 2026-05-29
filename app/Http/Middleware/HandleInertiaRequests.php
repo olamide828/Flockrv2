@@ -15,38 +15,49 @@ class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Shared data available in ALL Inertia pages via usePage().props
+     * Shared props available on every Inertia page.
+     * Adding bank fields here means after updateBank() redirects back,
+     * the frontend immediately sees the updated auth.user with the new
+     * bank details — so the ATM card renders without a manual page refresh.
      */
     public function share(Request $request): array
     {
-        return [
-            ...parent::share($request),
+        $user = $request->user();
 
+        return array_merge(parent::share($request), [
             'auth' => [
-                'user' => $request->user() ? [
-                    'id'                 => $request->user()->id,
-                    'name'               => $request->user()->name,
-                    'username'           => $request->user()->username,
-                    'email'              => $request->user()->email,
-                    'role'               => $request->user()->role,
-                    'avatar_url'         => $request->user()->avatar_url,
-                    'is_verified'        => $request->user()->is_verified,
-                    'followers_count'    => $request->user()->followers_count,
-                    'following_count'    => $request->user()->following_count,
-                    'total_sales'        => $request->user()->total_sales,
-                    'wallet_balance'     => $request->user()->wallet_balance,
-                    'notification_preferences' => $request->user()->notification_preferences,
+                'user' => $user ? [
+                    'id'                       => $user->id,
+                    'name'                     => $user->name,
+                    'username'                 => $user->username,
+                    'email'                    => $user->email,
+                    'phone'                    => $user->phone,
+                    'role'                     => $user->role,
+                    'bio'                      => $user->bio,
+                    'location'                 => $user->location,
+                    'avatar_url'               => $user->avatar_url,   // computed accessor
+                    'is_verified'              => $user->is_verified,
+                    'is_active'                => $user->is_active,
+                    'followers_count'          => $user->followers_count ?? 0,
+                    'following_count'          => $user->following_count ?? 0,
+                    'total_sales'              => $user->total_sales ?? 0,
+                    'wallet_balance'           => $user->wallet_balance,  // computed accessor
+                    'notification_preferences' => $user->notification_preferences ?? [],
+
+                    // Bank / payout fields — required for ATM card display
+                    'paystack_subaccount_code' => $user->paystack_subaccount_code,
+                    'paystack_recipient_code'  => $user->paystack_recipient_code,
+                    'bank_name'                => $user->bank_name,
+                    'bank_code'                => $user->bank_code,
+                    'account_name'             => $user->account_name,
+                    'account_last4'            => $user->account_last4,
+                    // Never expose full account_number to frontend
                 ] : null,
             ],
-
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error'   => $request->session()->get('error'),
             ],
-
-            'unread_notifications' => fn () => $request->user()
-                ? $request->user()->unreadNotifications()->count()
-                : 0,
-        ];
+        ]);
     }
 }

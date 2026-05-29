@@ -217,7 +217,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .badge-orange {
-  background: rgba(255,92,0,0.15);
+  background: rgb(12, 5, 1);
   color: var(--flockr-orange);
   border: 1px solid rgba(255,92,0,0.3);
 }

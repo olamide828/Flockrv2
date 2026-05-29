@@ -28,12 +28,15 @@ export default function VideoCard({ video, isActive }) {
     const [playing, setPlaying] = useState(false);
     const [muted, setMuted] = useState(true);
     const [progress, setProgress] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [tapFlash, setTapFlash] = useState(false);
 
-    // ── Optimistic state — never reset to server values after user action ──────
+    // ── Optimistic counts — update instantly on action ────────────────────────
     const [liked, setLiked] = useState(video.is_liked ?? false);
     const [likesCount, setLikesCount] = useState(Number(video.likes_count ?? 0));
     const [saved, setSaved] = useState(video.is_saved ?? false);
-    const [followed, setFollowed] = useState(false); // local follow state for this card
+    const [commentsCount, setCommentsCount] = useState(Number(video.comments_count ?? 0));
+    const [followed, setFollowed] = useState(false);
 
     const [showComments, setShowComments] = useState(false);
     const [showProducts, setShowProducts] = useState(false);
@@ -41,27 +44,22 @@ export default function VideoCard({ video, isActive }) {
     const [commentBody, setCommentBody] = useState('');
     const [sending, setSending] = useState(false);
     const [loadingCmts, setLoadingCmts] = useState(false);
-    const [tapFlash, setTapFlash] = useState(false);
-    const [loading, setLoading] = useState(true);
 
     // ── Autoplay / pause on scroll ─────────────────────────────────────────────
     useEffect(() => {
         const el = videoRef.current;
         if (!el) return;
         if (isActive) {
-            el.muted = true; // required for autoplay unlock
+            el.muted = true;
             setMuted(true);
-
             el.play()
                 .then(() => {
-                    // try enabling sound AFTER playback starts
                     setTimeout(() => {
                         el.muted = false;
                         setMuted(false);
                     }, 300);
                 })
                 .catch(() => {});
-
             watchStartRef.current = Date.now();
         } else {
             el.pause();
@@ -71,7 +69,9 @@ export default function VideoCard({ video, isActive }) {
             if (watchStartRef.current) {
                 const secs = Math.round((Date.now() - watchStartRef.current) / 1000);
                 if (secs > 1) {
-                    axios.post(`/api/videos/${video.id}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {});
+                    axios
+                        .post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true })
+                        .catch(() => {});
                 }
                 watchStartRef.current = null;
             }
@@ -94,11 +94,27 @@ export default function VideoCard({ video, isActive }) {
         if (!showComments) return;
         setLoadingCmts(true);
         axios
-            .get(`/api/videos/${video.id}/comments`)
+            .get(`/api/videos/${video.ulid}/comments`)
             .then((r) => setComments(r.data.data ?? r.data))
             .catch(() => {})
             .finally(() => setLoadingCmts(false));
-        setTimeout(() => commentInputRef.current?.focus(), 400);
+    }, [showComments]);
+
+    // ── Focus comment input when sheet opens ──────────────────────────────────
+    // Use a ref flag to avoid the focus-unfocus loop caused by re-renders
+    const commentSheetJustOpened = useRef(false);
+    useEffect(() => {
+        if (showComments) {
+            commentSheetJustOpened.current = true;
+            // Delay focus until sheet animation completes
+            const t = setTimeout(() => {
+                if (commentInputRef.current && commentSheetJustOpened.current) {
+                    commentInputRef.current.focus();
+                    commentSheetJustOpened.current = false;
+                }
+            }, 350);
+            return () => clearTimeout(t);
+        }
     }, [showComments]);
 
     // ── Double-tap to like ────────────────────────────────────────────────────
@@ -107,7 +123,7 @@ export default function VideoCard({ video, isActive }) {
         if (showComments || showProducts) return;
         const now = Date.now();
         if (now - lastTap.current < 300) {
-            if (!liked) handleLike(); // only like on double-tap, not unlike
+            if (!liked) handleLike();
             setTapFlash(true);
             setTimeout(() => setTapFlash(false), 700);
         } else {
@@ -116,7 +132,7 @@ export default function VideoCard({ video, isActive }) {
         lastTap.current = now;
     }, [liked, showComments, showProducts]);
 
-    // ── Like — fully optimistic, no rollback flicker ──────────────────────────
+    // ── Like — instant UI update ──────────────────────────────────────────────
     const handleLike = useCallback(async () => {
         if (!auth?.user) {
             router.visit('/login');
@@ -124,21 +140,21 @@ export default function VideoCard({ video, isActive }) {
         }
         const wasLiked = liked;
         const newLiked = !wasLiked;
-        // Update UI immediately and keep it
+        // Update instantly
         setLiked(newLiked);
         setLikesCount((c) => Math.max(0, c + (newLiked ? 1 : -1)));
         try {
-            const { data } = await axios.post(`/api/videos/${video.id}/like`, {}, { withCredentials: true });
-            // Only sync count from server, keep liked state as user set it
+            const { data } = await axios.post(`/api/videos/${video.ulid}/like`, {}, { withCredentials: true });
+            setLiked(data.liked);
             setLikesCount(Number(data.likes_count ?? 0));
         } catch {
-            // Revert only on actual failure
+            // Revert on failure
             setLiked(wasLiked);
             setLikesCount((c) => Math.max(0, c + (wasLiked ? 1 : -1)));
         }
-    }, [liked, auth, video.id]);
+    }, [liked, auth, video.ulid]);
 
-    // ── Save ──────────────────────────────────────────────────────────────────
+    // ── Save — instant UI update ──────────────────────────────────────────────
     const handleSave = useCallback(async () => {
         if (!auth?.user) {
             router.visit('/login');
@@ -147,19 +163,19 @@ export default function VideoCard({ video, isActive }) {
         const wasSaved = saved;
         setSaved(!wasSaved);
         try {
-            await axios.post(`/api/videos/${video.id}/save`, {}, { withCredentials: true });
+            await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true });
         } catch {
             setSaved(wasSaved);
         }
-    }, [saved, auth, video.id]);
+    }, [saved, auth, video.ulid]);
 
-    // ── Follow — optimistic, icon disappears immediately ─────────────────────
+    // ── Follow ────────────────────────────────────────────────────────────────
     const handleFollow = useCallback(async () => {
         if (!auth?.user) {
             router.visit('/login');
             return;
         }
-        if (followed) return; // already followed from this session
+        if (followed) return;
         setFollowed(true);
         try {
             await axios.post(`/api/users/${video.user?.id}/follow`, {}, { withCredentials: true });
@@ -172,22 +188,21 @@ export default function VideoCard({ video, isActive }) {
     const toggleMute = useCallback(() => {
         const el = videoRef.current;
         if (!el) return;
-
         el.muted = !el.muted;
         setMuted(el.muted);
     }, []);
 
     // ── Share ─────────────────────────────────────────────────────────────────
     const handleShare = useCallback(() => {
-        const url = `${window.location.origin}/video/${video.id}`;
+        const url = `${window.location.origin}/@${video.user?.username}/video/${video.ulid}`;
         if (navigator.share) navigator.share({ title: video.title, url }).catch(() => {});
         else navigator.clipboard?.writeText(url);
     }, [video]);
 
-    // ── Send comment ──────────────────────────────────────────────────────────
+    // ── Send comment — instant count update ───────────────────────────────────
     const sendComment = useCallback(
         async (e) => {
-            e.preventDefault();
+            e?.preventDefault();
             if (!commentBody.trim() || !auth?.user || sending) return;
             setSending(true);
             const text = commentBody.trim();
@@ -199,18 +214,20 @@ export default function VideoCard({ video, isActive }) {
                 _opt: true,
             };
             setComments((prev) => [optimistic, ...prev]);
+            setCommentsCount((c) => c + 1); // ← instant count update
             setCommentBody('');
             try {
-                const { data } = await axios.post(`/api/videos/${video.id}/comments`, { body: text }, { withCredentials: true });
+                const { data } = await axios.post(`/api/videos/${video.ulid}/comments`, { body: text }, { withCredentials: true });
                 setComments((prev) => prev.map((c) => (c.id === optimistic.id ? data : c)));
             } catch {
                 setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
+                setCommentsCount((c) => Math.max(0, c - 1)); // revert on failure
                 setCommentBody(text);
             } finally {
                 setSending(false);
             }
         },
-        [commentBody, auth, sending, video.id],
+        [commentBody, auth, sending, video.ulid],
     );
 
     const videoSrc = video.video_stream_url ?? video.hls_url ?? video.video_url;
@@ -227,36 +244,23 @@ export default function VideoCard({ video, isActive }) {
                 preload="metadata"
                 onCanPlay={() => setLoading(false)}
                 onWaiting={() => {
-                    if (!videoRef.current?.ended) {
-                        setLoading(true);
-                    }
+                    if (!videoRef.current?.ended) setLoading(true);
                 }}
                 onPlay={() => setPlaying(true)}
                 onPause={() => {
-                    if (!videoRef.current?.ended) {
-                        setPlaying(false);
-                    }
+                    if (!videoRef.current?.ended) setPlaying(false);
                 }}
                 onEnded={() => {
                     const el = videoRef.current;
                     if (!el) return;
-
                     el.currentTime = 0;
                     el.play().catch(() => {});
                 }}
                 onClick={handleVideoTap}
-                style={{
-                    position: 'absolute',
-                    inset: 0,
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    cursor: 'pointer',
-                }}
-                className="rounded-lg"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
             />
 
-            {/* Gradient overlays */}
+            {/* Gradients */}
             <div
                 style={{
                     position: 'absolute',
@@ -273,8 +277,6 @@ export default function VideoCard({ video, isActive }) {
                     pointerEvents: 'none',
                 }}
             />
-
-            {/* Ah no vex baami! I just dey see ur message ni! How E be nau? How market? */}
 
             {/* Spinner */}
             {loading && (
@@ -356,11 +358,25 @@ export default function VideoCard({ video, isActive }) {
             )}
 
             {/* Progress bar */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, background: 'rgba(255,255,255,0.12)', zIndex: 10 }}>
-                <div
-                    className="rounded-b-lg"
-                    style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }}
-                />
+            <div
+                onClick={(e) => {
+                    const el = videoRef.current;
+                    if (!el?.duration) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    el.currentTime = ((e.clientX - rect.left) / rect.width) * el.duration;
+                }}
+                style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: 'rgba(255,255,255,0.12)',
+                    zIndex: 10,
+                    cursor: 'pointer',
+                }}
+            >
+                <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
             </div>
 
             {/* ── Right action buttons ───────────────────────────────────────── */}
@@ -376,7 +392,7 @@ export default function VideoCard({ video, isActive }) {
                     zIndex: 10,
                 }}
             >
-                {/* Avatar + follow button — follow disappears once followed */}
+                {/* Avatar + follow */}
                 <div style={{ position: 'relative', marginBottom: 4 }}>
                     <Link href={`/@${video.user?.username}`}>
                         <img
@@ -388,7 +404,6 @@ export default function VideoCard({ video, isActive }) {
                             style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }}
                         />
                     </Link>
-                    {/* Only show follow button if not already following and not own video */}
                     {!followed && auth?.user?.id !== video.user?.id && (
                         <button
                             onClick={handleFollow}
@@ -407,13 +422,11 @@ export default function VideoCard({ video, isActive }) {
                                 justifyContent: 'center',
                                 cursor: 'pointer',
                                 zIndex: 2,
-                                transition: 'opacity 0.2s',
                             }}
                         >
                             <RiUserAddLine size={11} color="#fff" />
                         </button>
                     )}
-                    {/* Show checkmark when followed */}
                     {followed && (
                         <div
                             style={{
@@ -451,13 +464,13 @@ export default function VideoCard({ video, isActive }) {
                         setShowComments((s) => !s);
                         setShowProducts(false);
                     }}
-                    label={fmtCount(video.comments_count)}
+                    label={fmtCount(commentsCount)}
                 >
                     <RiChat1Line size={28} color={showComments ? '#FF6B35' : '#fff'} />
                 </SideBtn>
 
                 {/* Save */}
-                <SideBtn onClick={handleSave} label={fmtCount(video.saves_count)}>
+                <SideBtn onClick={handleSave} label="">
                     {saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}
                 </SideBtn>
 
@@ -486,19 +499,7 @@ export default function VideoCard({ video, isActive }) {
             </div>
 
             {/* ── Bottom info overlay ────────────────────────────────────────── */}
-            <div
-                style={{
-                    position: 'absolute',
-                    bottom: 12,
-                    left: 12,
-                    right: 68,
-                    zIndex: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 5,
-                }}
-            >
-                {/* Username */}
+            <div style={{ position: 'absolute', bottom: 12, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
                 <Link
                     href={`/@${video.user?.username}`}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', width: 'fit-content' }}
@@ -507,7 +508,6 @@ export default function VideoCard({ video, isActive }) {
                     {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
                 </Link>
 
-                {/* Title */}
                 {video.title && (
                     <p
                         style={{
@@ -527,7 +527,6 @@ export default function VideoCard({ video, isActive }) {
                     </p>
                 )}
 
-                {/* Description */}
                 {video.description && (
                     <p
                         style={{
@@ -545,7 +544,6 @@ export default function VideoCard({ video, isActive }) {
                     </p>
                 )}
 
-                {/* Hashtags — always show under description */}
                 {video.hashtags?.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {video.hashtags.slice(0, 5).map((tag, i) => (
@@ -556,7 +554,6 @@ export default function VideoCard({ video, isActive }) {
                     </div>
                 )}
 
-                {/* Location */}
                 {video.user?.location && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         <RiMapPinLine size={11} color="rgba(255,255,255,0.55)" />
@@ -564,7 +561,6 @@ export default function VideoCard({ video, isActive }) {
                     </div>
                 )}
 
-                {/* Shop pill */}
                 {video.is_for_sale && video.products?.length > 0 && (
                     <button
                         onClick={() => {
@@ -593,7 +589,7 @@ export default function VideoCard({ video, isActive }) {
                 )}
             </div>
 
-            {/* ── Comments bottom sheet ─────────────────────────────────────── */}
+            {/* ── Comments sheet ─────────────────────────────────────────────── */}
             {showComments && (
                 <>
                     <div
@@ -617,15 +613,11 @@ export default function VideoCard({ video, isActive }) {
                             animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
                         }}
                     >
-                        {/* Handle */}
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
                             <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
                         </div>
-                        {/* Header */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 10px' }}>
-                            <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
-                                Comments{video.comments_count > 0 ? ` (${fmtCount(video.comments_count)})` : ''}
-                            </span>
+                            <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Comments ({fmtCount(commentsCount)})</span>
                             <button
                                 onClick={() => setShowComments(false)}
                                 style={{
@@ -644,7 +636,7 @@ export default function VideoCard({ video, isActive }) {
                                 <RiCloseLine size={18} />
                             </button>
                         </div>
-                        {/* List */}
+
                         <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
                             {loadingCmts && (
                                 <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
@@ -670,7 +662,7 @@ export default function VideoCard({ video, isActive }) {
                                     <img
                                         src={
                                             c.user?.avatar_url ??
-                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(c.user?.name ?? 'U')}&background=222&color=fff`
+                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(c.user?.name ?? 'U')}&background=222`
                                         }
                                         alt=""
                                         style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
@@ -685,14 +677,14 @@ export default function VideoCard({ video, isActive }) {
                                 </div>
                             ))}
                         </div>
-                        {/* Input */}
+
                         <div style={{ padding: '10px 14px 18px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                             {auth?.user ? (
                                 <form onSubmit={sendComment} style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
                                     <img
                                         src={
                                             auth.user.avatar_url ??
-                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(auth.user.name)}&background=222&color=fff`
+                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(auth.user.name)}&background=222`
                                         }
                                         alt=""
                                         style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
@@ -703,6 +695,9 @@ export default function VideoCard({ video, isActive }) {
                                         onChange={(e) => setCommentBody(e.target.value)}
                                         placeholder="Add a comment..."
                                         maxLength={500}
+                                        // KEY FIX: stop tap events from closing the sheet
+                                        onTouchStart={(e) => e.stopPropagation()}
+                                        onClick={(e) => e.stopPropagation()}
                                         style={{
                                             flex: 1,
                                             background: 'rgba(255,255,255,0.08)',
@@ -757,7 +752,7 @@ export default function VideoCard({ video, isActive }) {
                 </>
             )}
 
-            {/* ── Products bottom sheet ──────────────────────────────────────── */}
+            {/* ── Products sheet ─────────────────────────────────────────────── */}
             {showProducts && video.products?.length > 0 && (
                 <>
                     <div
@@ -807,7 +802,7 @@ export default function VideoCard({ video, isActive }) {
                             {video.products.map((p) => (
                                 <Link
                                     key={p.id}
-                                    href={`/products/${p.slug ?? p.id}`}
+                                    href={p.seller?.username ? `/@${p.seller.username}/products/${p.slug ?? p.id}` : `/shop`}
                                     style={{ display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none' }}
                                 >
                                     <div
@@ -863,10 +858,10 @@ export default function VideoCard({ video, isActive }) {
             )}
 
             <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes heartPop { 0%{transform:scale(0);opacity:1} 50%{transform:scale(1.2)} 100%{transform:scale(1);opacity:0} }
-        @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
-      `}</style>
+                @keyframes spin { to { transform: rotate(360deg); } }
+                @keyframes heartPop { 0%{transform:scale(0);opacity:1} 50%{transform:scale(1.2)} 100%{transform:scale(1);opacity:0} }
+                @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+            `}</style>
         </div>
     );
 }
@@ -889,7 +884,7 @@ function SideBtn({ onClick, children, label }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.7))' }}>
                 {children}
             </div>
-            {label !== undefined && (
+            {label !== undefined && label !== '' && (
                 <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.9)', marginTop: 1 }}>{label}</span>
             )}
         </button>
