@@ -558,20 +558,19 @@ export default function ProfileSettings({ banks = [] }) {
                                     Once you delete your account, there is no going back.
                                 </p>
                                 <button
-                                    style={{
-                                        width: '100%',
-                                        padding: '13px',
-                                        borderRadius: 999,
-                                        background: 'rgba(255,59,92,0.1)',
-                                        border: '1px solid rgba(255,59,92,0.3)',
-                                        color: 'var(--flockr-red)',
-                                        fontSize: 14,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    Delete Account
-                                </button>
+    onClick={async () => {
+        if (!confirm('Are you sure? This permanently deletes your account and cannot be undone.')) return
+        try {
+            await axios.delete('/api/users/me')
+            window.location.href = '/'
+        } catch {
+            alert('Failed to delete account. Please try again.')
+        }
+    }}
+    style={{ width: '100%', padding: '13px', borderRadius: 999, background: 'rgba(255,59,92,0.1)', border: '1px solid rgba(255,59,92,0.3)', color: 'var(--flockr-red)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+>
+    Delete Account
+</button>
                             </SectionCard>
                         </div>
                     )}

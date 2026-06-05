@@ -21,16 +21,57 @@ class VideoController extends Controller
     ) {
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Serialize a collection of videos for API responses.
+     * Normalises comments_count to include replies (all_comments_count).
+     */
+
+    private function serializeVideos($videos): array
+    {
+        return $videos
+            ->map(function ($v) {
+                // Guard: if somehow a non-object sneaks in, skip it
+                if (!is_object($v)) return null;
+
+                // Always convert via Eloquent if it's a model
+                $arr = ($v instanceof \Illuminate\Database\Eloquent\Model)
+                    ? $v->toArray()
+                    : (array) $v;
+
+                // Add computed URL accessors directly (safe — no ->append() needed)
+                $arr['video_stream_url']   = ($v instanceof \Illuminate\Database\Eloquent\Model)
+                    ? $v->video_stream_url
+                    : ($arr['video_stream_url'] ?? null);
+
+                $arr['thumbnail_url_full'] = ($v instanceof \Illuminate\Database\Eloquent\Model)
+                    ? $v->thumbnail_url_full
+                    : ($arr['thumbnail_url_full'] ?? null);
+
+                // Normalise comments_count to include replies
+                $arr['comments_count'] = $v->all_comments_count ?? $v->comments_count ?? 0;
+
+                // Per-user flags — default false, FeedService sets them when available
+                $arr['is_liked']     = $arr['is_liked']     ?? false;
+                $arr['is_saved']     = $arr['is_saved']     ?? false;
+                $arr['is_following'] = $arr['is_following'] ?? false;
+
+                return $arr;
+            })
+            ->filter() // remove any nulls from the guard above
+            ->values()
+            ->toArray();
+    }
+
     // ── Inertia Pages ─────────────────────────────────────────────────────────
 
     public function index(): Response
     {
         return Inertia::render('Feed/Index', [
-            'initialVideos' => $this->feedService
-                ->getForYouPage(userId: Auth::id(), limit: 5)
-                ->each(fn($v) => $v->append(['video_stream_url', 'thumbnail_url_full']))
-                ->values()
-                ->toArray(),
+            'initialVideos' => $this->serializeVideos(
+                $this->feedService->getForYouPage(userId: Auth::id(), limit: 5)
+            ),
         ]);
     }
 
@@ -45,9 +86,7 @@ class VideoController extends Controller
             ->where('status', 'active')
             ->get(['id', 'name', 'price', 'compare_price', 'stock_quantity', 'images']);
 
-        return Inertia::render('Seller/Upload', [
-            'products' => $products,
-        ]);
+        return Inertia::render('Seller/Upload', ['products' => $products]);
     }
 
     public function show(string $username, Video $video): Response
@@ -69,17 +108,32 @@ class VideoController extends Controller
                 ->with('seller:id,name,username'),
         ]);
 
-        $video->loadCount(['likes', 'comments']);
+        // Use allComments to count replies too
+        $video->loadCount(['allComments']);
 
         $isLiked = Auth::check() && $video->likes()->where('user_id', Auth::id())->exists();
         $isSaved = Auth::check() && $video->savedByUsers()->where('user_id', Auth::id())->exists();
         $isFollowing = Auth::check() && Auth::user()->isFollowing($video->user);
 
+        // Initial batch of seller's other videos
+        $sellerVideos = Video::active()
+            ->where('user_id', $video->user_id)
+            ->where('id', '!=', $video->id)
+            ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
+            ->withCount(['allComments'])
+            ->latest()
+            ->limit(10)
+            ->get();
+
         return Inertia::render('Video/Show', [
-            'video' => $video,
+            'video' => array_merge($video->toArray(), [
+                // Normalise: always send comments_count = all comments including replies
+                'comments_count' => $video->all_comments_count ?? 0,
+            ]),
             'isLiked' => $isLiked,
             'isSaved' => $isSaved,
             'isFollowing' => $isFollowing,
+            'initialSellerVideos' => $this->serializeVideos($sellerVideos),
         ]);
     }
 
@@ -106,9 +160,6 @@ class VideoController extends Controller
         $file = $request->file('video');
         $path = $this->storageService->uploadVideo($file);
 
-        // ── Mark ACTIVE immediately so seller sees it right away ──────────────
-        // ProcessVideoJob runs in background to generate thumbnail + duration.
-        // If job fails the video stays active — just without a thumbnail.
         $video = Video::create([
             'user_id' => Auth::id(),
             'title' => $request->input('title'),
@@ -116,16 +167,22 @@ class VideoController extends Controller
             'hashtags' => $hashtags,
             'video_url' => $path,
             'file_size_bytes' => $file->getSize(),
-            'status' => 'active',       // ← active immediately
-            'published_at' => now(),           // ← visible in feed now
+            'status' => 'active',
+            'published_at' => now(),
         ]);
 
-        // Dispatch background job to generate thumbnail + duration (non-blocking)
+        // After video is activated — notify followers
+        $seller = Auth::user();
+        $seller->followers()->chunk(100, function ($followers) use ($video) {
+            foreach ($followers as $follower) {
+                $follower->notify(new \App\Notifications\NewVideoNotification($video));
+            }
+        });
+
         if (class_exists(ProcessVideoJob::class)) {
             ProcessVideoJob::dispatch($video);
         }
 
-        // Tag products
         if ($request->filled('product_ids')) {
             $ids = json_decode($request->input('product_ids'), true) ?? [];
             if (!empty($ids)) {
@@ -146,28 +203,79 @@ class VideoController extends Controller
 
     public function feed(Request $request): JsonResponse
     {
-        $type = $request->input('type', 'for_you');
-        $cursor = (int) $request->input('cursor', 0);
-        $limit = min((int) $request->input('limit', 10), 20);
+        $type      = $request->input('type', 'for_you');
+        $cursor    = (int) $request->input('cursor', 0);
+        $limit     = min((int) $request->input('limit', 10), 20);
+        $sessionId = $request->cookie('flockr_sid') ?? $request->header('X-Session-ID');
+ 
+        // Seller feed
+        if ($type === 'seller') {
+            $sellerId    = (int) $request->input('seller_id');
+            $excludeUlid = $request->input('exclude_ulid');
+            if (!$sellerId) return response()->json(['data' => [], 'has_more' => false]);
+ 
+            $query = Video::active()
+                ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
+                ->withCount(['allComments']);
+            if ($excludeUlid) $query->where('ulid', '!=', $excludeUlid);
+ 
+            $sellerVideos = $query->where('user_id', $sellerId)->latest()->skip($cursor)->limit($limit)->get();
+            $hasMore      = Video::active()->where('user_id', $sellerId)->when($excludeUlid, fn ($q) => $q->where('ulid', '!=', $excludeUlid))->count() > ($cursor + $sellerVideos->count());
+ 
+            $needed = $limit - $sellerVideos->count();
+            $random = collect();
+            if ($needed > 0) {
+                $excludeIds = $sellerVideos->pluck('id')->toArray();
+                if ($excludeUlid) {
+                    $mainId = Video::where('ulid', $excludeUlid)->value('id');
+                    if ($mainId) $excludeIds[] = $mainId;
+                }
+                $random = Video::active()
+                    ->where('user_id', '!=', $sellerId)
+                    ->whereNotIn('id', array_filter($excludeIds))
+                    ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
+                    ->withCount(['allComments'])
+                    ->inRandomOrder()
+                    ->limit($needed)
+                    ->get();
+            }
+ 
+            return response()->json([
+                'data'     => $this->serializeVideos($sellerVideos->concat($random)),
+                'has_more' => $hasMore,
+            ]);
+        }
+ 
+        // Explore feed
+        if ($type === 'explore') {
+            $q     = trim($request->input('q', ''));
+            $query = Video::active()
+                ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
+                ->withCount(['allComments']);
+            if ($q) {
+                $query->where(fn ($qb) =>
+                    $qb->where('title', 'ilike', "%{$q}%")
+                       ->orWhere('description', 'ilike', "%{$q}%")
+                       ->orWhereRaw("hashtags::text ilike ?", ["%{$q}%"])
+                );
+            } else {
+                $query->orderByDesc('views_count');
+            }
+            $videos = $query->skip($cursor)->limit($limit)->get();
+            return response()->json(['data' => $this->serializeVideos($videos), 'has_more' => $videos->count() === $limit]);
+        }
+ 
+        // Standard feeds
+$videos = match ($type) {
+    'following' => $this->feedService->getFollowingFeed(Auth::id(), $cursor, $limit),
+    default     => $this->feedService->getForYouPage(Auth::id(), $limit, $cursor, $sessionId),
+};
 
-        $videos = match ($type) {
-            'following' => $this->feedService->getFollowingFeed(Auth::id(), $cursor, $limit),
-            default => $this->feedService->getForYouPage(Auth::id(), $limit, $cursor),
-        };
-
-        $serialized = $videos
-            ->each(fn($v) => $v->append(['video_stream_url', 'thumbnail_url_full']))
-            ->values()
-            ->toArray();
-
-        $totalActive = Video::active()->count();
-        $hasMore = $videos->count() === $limit && $totalActive > $limit;
-
-        return response()->json([
-            'data' => $serialized,
-            'next_cursor' => $videos->last()?->id,
-            'has_more' => $hasMore,
-        ]);
+return response()->json([
+    'data'        => $this->serializeVideos($videos),
+    'next_cursor' => $videos->last() ? (is_array($videos->last()) ? $videos->last()['id'] : $videos->last()->id) : null,
+    'has_more'    => $videos->count() === $limit,
+]);
     }
 
     public function like(Video $video): JsonResponse
@@ -178,9 +286,22 @@ class VideoController extends Controller
         if ($liked) {
             $video->likes()->detach($user->id);
             $video->decrement('likes_count');
+            // Unlike is a weak negative signal — don't penalise heavily
         } else {
             $video->likes()->attach($user->id);
             $video->increment('likes_count');
+
+            // Notify seller (existing behaviour)
+            if ($video->user_id !== $user->id) {
+                try {
+                    $video->user->notify(new \App\Notifications\NewLikeNotification($user, $video));
+                } catch (\Throwable) {
+                }
+            }
+
+            // Record for personalization — like is a medium positive signal
+            $this->feedService->recordEvent('video_share', $video, $user->id);
+            // (We use 'video_share' weight class for likes to avoid overweighting)
         }
 
         return response()->json([
@@ -189,40 +310,77 @@ class VideoController extends Controller
         ]);
     }
 
+    /**
+     * POST /api/videos/{video}/save
+     *
+     * Added: records feed event (save = strong interest signal).
+     */
+
+
     public function recordView(Request $request, Video $video): JsonResponse
     {
         $validated = $request->validate([
             'watch_seconds' => 'required|integer|min:0',
-            'session_id' => 'nullable|string|max:64',
+            'session_id'    => 'nullable|string|max:64',
+            'event'         => 'nullable|string|in:skip,complete,rewatch', // new optional field
         ]);
-
+ 
         $video->recordView(
-            userId: Auth::id(),
-            sessionId: $validated['session_id'] ?? session()->getId(),
+            userId:       Auth::id(),
+            sessionId:    $validated['session_id'] ?? session()->getId(),
             watchSeconds: $validated['watch_seconds'],
         );
-
+ 
+        // Determine event from watch behaviour
+        $watchSeconds = $validated['watch_seconds'];
+        $duration     = $video->duration_seconds ?? 30;
+        $watchPct     = $duration > 0 ? ($watchSeconds / $duration) * 100 : 50;
+        $explicitEvent = $validated['event'] ?? null;
+ 
+        $feedEvent = match (true) {
+            $explicitEvent === 'rewatch'    => 'video_rewatch',
+            $explicitEvent === 'skip'       => 'video_skip',
+            $explicitEvent === 'complete'   => 'video_complete',
+            $watchPct >= 80                 => 'video_complete',  // watched ≥80% = completion
+            $watchSeconds < 2               => 'video_skip',      // < 2s = skip
+            default                         => null,              // normal view, no special event
+        };
+ 
+        if ($feedEvent) {
+            $this->feedService->recordEvent(
+                event:     $feedEvent,
+                video:     $video,
+                userId:    Auth::id(),
+                sessionId: $validated['session_id'] ?? session()->getId(),
+                meta:      ['watch_seconds' => $watchSeconds, 'watch_percent' => $watchPct],
+            );
+        }
+ 
         return response()->json(['ok' => true]);
     }
 
     public function save(Video $video): JsonResponse
     {
-        $user = Auth::user();
+        $user  = Auth::user();
         $saved = $video->savedByUsers()->where('user_id', $user->id)->exists();
-
+ 
         if ($saved) {
             $video->savedByUsers()->detach($user->id);
             $video->decrement('saves_count');
         } else {
             $video->savedByUsers()->attach($user->id);
             $video->increment('saves_count');
+ 
+            // Save = product wishlist intent — strong commerce signal
+            $this->feedService->recordEvent('product_wishlist', $video, $user->id);
         }
-
+ 
         return response()->json([
-            'saved' => !$saved,
+            'saved'       => !$saved,
             'saves_count' => $video->refresh()->saves_count,
         ]);
     }
+ 
 
     public function tagProducts(Request $request, Video $video): JsonResponse
     {
@@ -268,7 +426,7 @@ class VideoController extends Controller
                 ? $video->hashtags
                 : json_decode($video->hashtags ?? '[]', true);
 
-            $prompt = "Create an engaging summary for this video not more or less 150 words.
+            $prompt = "Create an engaging summary for this video not more than 150 words.
 CRITICAL INSTRUCTION: Return ONLY the summary itself. No introductory phrases.
 
 Title: {$video->title}

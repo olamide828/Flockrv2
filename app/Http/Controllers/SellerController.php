@@ -34,6 +34,9 @@ class SellerController extends Controller
             'orders_change' => $this->changePercent($seller->id, 'orders', $period),
         ];
 
+
+
+
         $recentOrders = Order::forSeller($seller->id)
             ->with('buyer:id,name,username,avatar')
             ->withCount('items')
@@ -53,8 +56,27 @@ class SellerController extends Controller
             ->with('user:id,name,username')
             ->get(['id', 'ulid', 'user_id', 'title', 'thumbnail_url', 'status', 'views_count', 'likes_count', 'published_at']);
 
-        return Inertia::render('Seller/Dashboard', compact('stats', 'recentOrders', 'topProducts', 'recentVideos'));
-    }
+
+        $orders = $seller->orders()
+    ->with(['seller:id,name,username,avatar', 'items.product'])
+    ->latest()
+    ->limit(20)
+    ->get();
+
+$savedProducts = $seller->savedProducts()
+    ->with('seller:id,name,username,avatar,is_verified')
+    ->get();
+
+$savedVideos = $seller->savedVideos()
+    ->with('user:id,name,username,avatar')
+    ->get();
+
+return Inertia::render('Seller/Dashboard', compact(
+    'stats', 'recentOrders', 'topProducts', 'recentVideos',
+    'orders', 'savedProducts', 'savedVideos'
+)); 
+
+}
 
     public function videos(): Response
     {
@@ -140,58 +162,58 @@ class SellerController extends Controller
         $validated = $request->validate([
             'amount' => 'required|numeric|min:1000',
         ]);
- 
-        $seller  = Auth::user();
+
+        $seller = Auth::user();
         $balance = $seller->wallet_balance;
-        $amt     = (float) $validated['amount'];
- 
+        $amt = (float) $validated['amount'];
+
         // 1. Check sufficient balance
         if ($amt > $balance) {
             return response()->json([
                 'message' => "Insufficient balance. Your available balance is ₦" . number_format($balance, 2),
             ], 422);
         }
- 
+
         // 2. Block duplicate pending requests
         $hasPending = \App\Models\Payout::where('seller_id', $seller->id)
             ->where('status', 'pending')
             ->exists();
- 
+
         if ($hasPending) {
             return response()->json([
                 'message' => 'You have a pending payout request. Wait for it to be processed before requesting another.',
             ], 422);
         }
- 
+
         // 3. Check seller has a bank account connected
         if (!$seller->paystack_recipient_code) {
             return response()->json([
                 'message' => 'Please connect a bank account in Settings before requesting a payout.',
             ], 422);
         }
- 
+
         // 4. Debit wallet immediately so balance updates
-        $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
+        $lastTx = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
         $balanceBefore = $lastTx?->balance_after ?? 0;
- 
+
         \App\Models\WalletTransaction::create([
-            'user_id'       => $seller->id,
-            'amount'        => $amt,
-            'type'          => 'debit',
-            'source'        => 'payout',
-            'description'   => 'Payout withdrawal request',
+            'user_id' => $seller->id,
+            'amount' => $amt,
+            'type' => 'debit',
+            'source' => 'payout',
+            'description' => 'Payout withdrawal request',
             'balance_after' => $balanceBefore - $amt,
         ]);
- 
+
         // 5. Create payout record
         $payout = \App\Models\Payout::create([
             'seller_id' => $seller->id,
-            'amount'    => $amt,
-            'status'    => 'pending',
+            'amount' => $amt,
+            'status' => 'pending',
         ]);
- 
+
         return response()->json($payout, 201);
     }
- 
+
 
 }

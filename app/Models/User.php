@@ -41,6 +41,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'bank_code',
         'account_name',
         'account_last4',
+        'last_seen_at',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -52,11 +53,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'is_active' => 'boolean',
         'notification_preferences' => 'array',
         'preferences' => 'array',
+        'last_seen_at' => 'datetime',
     ];
 
-    // Appended so avatar_url is always in JSON output
-    // without ever being SELECT'd as a DB column
-    protected $appends = ['avatar_url'];
+    protected $appends = ['avatar_url', 'is_online'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -110,30 +110,66 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsToMany(Conversation::class, 'conversation_user')->withTimestamps();
     }
 
+    public function blocks(): HasMany
+    {
+        return $this->hasMany(UserBlock::class, 'blocker_id');
+    }
+
+    public function blockedBy(): HasMany
+    {
+        return $this->hasMany(UserBlock::class, 'blocked_id');
+    }
+
     // ─── Accessors ────────────────────────────────────────────────────────────
 
     /**
-     * Full avatar URL — computed from the `avatar` storage key.
-     * NEVER select this as a DB column (it doesn't exist in the DB).
-     * Safe to use in ->with('user:id,name,username,avatar,is_verified') selects.
+     * Full avatar URL — safe for partial selects.
      */
     public function getAvatarUrlAttribute(): string
     {
-        $avatar = $this->getAttributeFromArray('avatar');
-
-        if ($avatar) {
-            if (str_starts_with($avatar, 'http')) {
-                return $avatar;
-            }
-
-            $base = rtrim(config('filesystems.disks.r2.url', ''), '/');
-
-            return $base . '/' . ltrim($avatar, '/');
+        try {
+            $avatar = $this->getAttributeFromArray('avatar');
+        } catch (\Throwable) {
+            $avatar = null;
         }
 
-        return 'https://ui-avatars.com/api/?name=' .
-            urlencode($this->name ?? 'U') .
-            '&background=1a1a1a&color=fff&size=128';
+        if ($avatar) {
+            if (str_starts_with($avatar, 'http'))
+                return $avatar;
+            $disk = config('filesystems.default', 'public');
+            $base = config("filesystems.disks.{$disk}.url");
+            if (!$base)
+                $base = rtrim(config('app.url'), '/') . '/storage';
+            return rtrim($base, '/') . '/' . ltrim($avatar, '/');
+        }
+
+        $name = 'U';
+        try {
+            $name = $this->getAttributeFromArray('name') ?? 'U';
+        } catch (\Throwable) {
+        }
+
+        return 'https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=1a1a1a&color=fff&size=128';
+    }
+
+    /**
+     * Is online — PERMANENTLY SAFE against partial selects.
+     * Returns false (not null/crash) when last_seen_at was not selected.
+     */
+    public function getIsOnlineAttribute(): bool
+    {
+        try {
+            // Use getAttributes() to avoid MissingAttributeException on partial selects
+            $attrs = $this->getAttributes();
+            if (!array_key_exists('last_seen_at', $attrs))
+                return false;
+            $lastSeen = $attrs['last_seen_at'];
+            if (!$lastSeen)
+                return false;
+            return \Carbon\Carbon::parse($lastSeen)->gt(now()->subMinutes(5));
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function getWalletBalanceAttribute(): float
@@ -166,41 +202,18 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->preferences['interests'] ?? [];
     }
-
     public function getBudget(): ?string
     {
         return $this->preferences['budget'] ?? null;
     }
 
-    public function getDiscountPercentAttribute(): ?int
+    public function isBlockedBy(User $user): bool
     {
-        try {
-            if (!$this->compare_price || $this->compare_price <= $this->price)
-                return null;
-            return (int) round((($this->compare_price - $this->price) / $this->compare_price) * 100);
-        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
-            return null;
-        }
+        return UserBlock::where('blocker_id', $user->id)->where('blocked_id', $this->id)->exists();
     }
 
-    public function getPrimaryImageAttribute(): ?string
+    public function hasBlocked(User $user): bool
     {
-        try {
-            $images = $this->images ?? [];
-            if (empty($images))
-                return null;
-            return $this->r2Url($images[0]);
-        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
-            return null;
-        }
-    }
-
-    public function getIsInStockAttribute(): bool
-    {
-        try {
-            return ($this->stock_quantity ?? 0) > 0;
-        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
-            return false;
-        }
+        return UserBlock::where('blocker_id', $this->id)->where('blocked_id', $user->id)->exists();
     }
 }

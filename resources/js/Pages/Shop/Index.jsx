@@ -14,7 +14,9 @@ import {
   HiShoppingBag,
   HiSquares2X2, 
   HiBars3,
-  HiChevronDown
+  HiChevronDown,
+  HiMagnifyingGlass,
+  HiXMark
 } from "react-icons/hi2";
 
 const SORT_OPTIONS = [
@@ -35,40 +37,44 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
   const [page,           setPage]           = useState(1)
   const [hasMore,        setHasMore]        = useState(true)
   const [sortOpen,       setSortOpen]       = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef(null)
+
+  const fetchProductsDebounced = (q) => {
+    clearTimeout(searchRef.current)
+    searchRef.current = setTimeout(() => fetchProducts(true, q), 350)
+}
 
   useEffect(() => {
     fetchProducts(true)
   }, [selectedCat, sort, condition])
 
-  const fetchProducts = async (reset = false) => {
+  const fetchProducts = async (reset = false, searchQuery = search) => {
     setLoading(true)
     const currentPage = reset ? 1 : page
     if (reset) setPage(1)
     try {
-      const { data } = await axios.get('/api/shop/products', {
-        params: {
-          category_id: selectedCat,
-          sort,
-          condition: condition || undefined,
-          price_min: priceRange[0] || undefined,
-          price_max: priceRange[1] < 500000 ? priceRange[1] : undefined,
-          page: currentPage,
-          per_page: 24,
-        }
-      })
-      if (reset) {
-        setProducts(data.data)
-      } else {
-        setProducts(prev => [...prev, ...data.data])
-      }
-      setHasMore(data.current_page < data.last_page)
-      if (!reset) setPage(p => p + 1)
+        const { data } = await axios.get('/api/shop/products', {
+            params: {
+                q: searchQuery || undefined,        // ← add this
+                category_id: selectedCat,
+                sort,
+                condition: condition || undefined,
+                price_min: priceRange[0] || undefined,
+                price_max: priceRange[1] < 500000 ? priceRange[1] : undefined,
+                page: currentPage,
+                per_page: 24,
+            }
+        })
+        if (reset) { setProducts(data.data) }
+        else { setProducts(prev => [...prev, ...data.data]) }
+        setHasMore(data.current_page < data.last_page)
+        if (!reset) setPage(p => p + 1)
     } catch {
-      // keep existing
     } finally {
-      setLoading(false)
+        setLoading(false)
     }
-  }
+}
 
   const activeSort = SORT_OPTIONS.find(o => o.value === sort)
 
@@ -142,73 +148,84 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
 
         {/* ── Main area ─────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <div className="shrink-0 border-b border-white/[0.06] px-5 py-3 flex items-center gap-3">
-            
-            <div className="md:hidden flex gap-2 overflow-x-auto scroll-hidden flex-1">
-              <button
-                onClick={() => setSelectedCat(null)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${!selectedCat ? 'bg-flockr-orange text-white' : 'bg-flockr-card text-flockr-muted border border-white/[0.08]'}`}
-              >
-                All
-              </button>
-              {categories.map(cat => (
+          <div className="shrink-0 border-b border-white/[0.06]">
+    {/* Top row: title + sort + view */}
+    <div className="px-5 py-3 flex items-center gap-3">
+        <div className="flex justify-between items-center flex-1 gap-4">
+            <h1 className='lg:flex hidden'>Shop</h1>
+            {/* Sort dropdown */}
+            <div className="relative">
                 <button
-                  key={cat.id}
-                  onClick={() => setSelectedCat(cat.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${selectedCat === cat.id ? 'bg-flockr-orange text-white' : 'bg-flockr-card text-flockr-muted border border-white/[0.08]'}`}
+                    onClick={() => setSortOpen(!sortOpen)}
+                    className="flex items-center gap-2 bg-black border border-white/[0.08] text-white text-xs rounded-lg px-3 py-2 outline-none min-w-[140px]"
                 >
-                  {cat.icon} {cat.name}
+                    {activeSort.icon}
+                    {activeSort.label}
+                    <HiChevronDown className={`ml-auto transition-transform ${sortOpen ? 'rotate-180' : ''}`} />
                 </button>
-              ))}
-            </div>
-
-            <div className=" flex justify-between items-center flex-1 gap-4">
-              <h1 className='lg:flex hidden'>Shop</h1>
-              {/* Custom Dropdown to support Icons */}
-              <div className="relative">
-                <button 
-                  onClick={() => setSortOpen(!sortOpen)}
-                  className="flex items-center gap-2 bg-black border border-white/[0.08] text-white text-xs rounded-lg px-3 py-2 outline-none min-w-[140px]"
-                >
-                  {activeSort.icon}
-                  {activeSort.label}
-                  <HiChevronDown className={`ml-auto transition-transform ${sortOpen ? 'rotate-180' : ''}`} />
-                </button>
-                
                 {sortOpen && (
-                  <div className="absolute top-full left-0 w-full mt-1 bg-black border border-white/[0.08] rounded-lg shadow-xl z-50 overflow-hidden">
-                    {SORT_OPTIONS.map(o => (
-                      <button
-                        key={o.value}
-                        className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-white hover:bg-white/5 transition-colors"
-                        onClick={() => {
-                          setSort(o.value);
-                          setSortOpen(false);
-                        }}
-                      >
-                        {o.icon} {o.label}
-                      </button>
-                    ))}
-                  </div>
+                    <div className="absolute top-full left-0 w-full mt-1 bg-black border border-white/[0.08] rounded-lg shadow-xl z-50 overflow-hidden">
+                        {SORT_OPTIONS.map(o => (
+                            <button
+                                key={o.value}
+                                className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-white hover:bg-white/5 transition-colors"
+                                onClick={() => { setSort(o.value); setSortOpen(false) }}
+                            >
+                                {o.icon} {o.label}
+                            </button>
+                        ))}
+                    </div>
                 )}
-              </div>
-
-              <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-lg">
-                <button
-                    onClick={() => setViewMode('grid')}
-                    className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'text-flockr-orange bg-white/10' : 'text-flockr-muted hover:text-white'}`}
-                >
+            </div>
+            {/* View toggle */}
+            <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-lg">
+                <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'text-flockr-orange bg-white/10' : 'text-flockr-muted hover:text-white'}`}>
                     <HiSquares2X2 className="w-4 h-4" />
                 </button>
-                <button
-                    onClick={() => setViewMode('list')}
-                    className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'text-flockr-orange bg-white/10' : 'text-flockr-muted hover:text-white'}`}
-                >
+                <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'text-flockr-orange bg-white/10' : 'text-flockr-muted hover:text-white'}`}>
                     <HiBars3 className="w-4 h-4" />
                 </button>
-              </div>
             </div>
-          </div>
+        </div>
+    </div>
+
+    {/* Search bar */}
+    <div className="px-5 pb-3">
+        <div className="relative">
+            <HiMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/30 w-4 h-4" />
+            <input
+                value={search}
+                onChange={e => { setSearch(e.target.value); fetchProductsDebounced(e.target.value) }}
+                placeholder="Search products..."
+                className="w-full h-10 bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-4 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/[0.14]"
+            />
+            {search && (
+                <button onClick={() => { setSearch(''); fetchProducts(true, '') }} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white">
+                    <HiXMark className="w-4 h-4" />
+                </button>
+            )}
+        </div>
+    </div>
+
+    {/* Mobile categories — below search, scrolls horizontally */}
+    <div className="md:hidden flex gap-2 overflow-x-auto scroll-hidden px-5 pb-3">
+        <button
+            onClick={() => setSelectedCat(null)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${!selectedCat ? 'bg-flockr-orange text-white' : 'bg-flockr-card text-flockr-muted border border-white/[0.08]'}`}
+        >
+            All
+        </button>
+        {categories.map(cat => (
+            <button
+                key={cat.id}
+                onClick={() => setSelectedCat(cat.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${selectedCat === cat.id ? 'bg-flockr-orange text-white' : 'bg-flockr-card text-flockr-muted border border-white/[0.08]'}`}
+            >
+                {cat.name}
+            </button>
+        ))}
+    </div>
+</div>
 
           {/* Products */}
           <div className="flex-1 overflow-y-auto scroll-hidden px-5 py-5 pb-24 md:pb-5">

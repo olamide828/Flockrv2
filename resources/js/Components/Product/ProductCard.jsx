@@ -133,7 +133,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
     onClick={handleBuy}
     className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold whitespace-nowrap shrink-0 btn-primary"
 >
-    Buy Now
+    Buy
 </button>
                     )}
                 </div>

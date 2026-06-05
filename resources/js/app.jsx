@@ -18,7 +18,7 @@ window.flockrConfig = {
 }
 
 createInertiaApp({
-  title: (title) => title ? `${title} · Flockr - Shop What You Watch` : 'Flockr — Shop What You Watch',
+  title: (title) => title ? `${title} · Flockr — Shop What You Watch` : 'Flockr — Shop What You Watch',
   resolve: (name) => resolvePageComponent(`./Pages/${name}.jsx`, import.meta.glob('./Pages/**/*.jsx')),
   setup({ el, App, props }) { createRoot(el).render(<App {...props} />) },
   progress: { color: '#ff5c00', showSpinner: false },

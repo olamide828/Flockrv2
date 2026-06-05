@@ -39,4 +39,7 @@ return [
         'max_whisper_minutes_per_day' => 300,
     ],
 
+    'ffmpeg_path'  => env('FFMPEG_PATH',  'ffmpeg'),
+    'ffprobe_path' => env('FFPROBE_PATH', 'ffprobe'),
+
 ];

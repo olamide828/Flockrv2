@@ -16,6 +16,7 @@ import {
     RiImageLine,
     RiLoader4Line,
     RiShieldCheckLine,
+    RiShoppingCart2Line,
     RiSparkling2Line,
     RiSubtractLine,
     RiTruckLine,
@@ -42,6 +43,8 @@ export default function ProductShow({ product, similarProducts = [] }) {
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryError, setSummaryError] = useState('');
     const [descExpanded, setDescExpanded] = useState(false);
+    const [addingToCart, setAddingToCart] = useState(false);
+    const [addedToCart, setAddedToCart] = useState(false);
 
     // ── Build full image URL array ────────────────────────────────────────────
     // Priority: image_urls accessor (all images, full URLs) → primary_image
@@ -157,6 +160,28 @@ export default function ProductShow({ product, similarProducts = [] }) {
         }
         setSaved((s) => !s);
         await axios.post(`/api/products/${product.id}/save`).catch(() => setSaved((s) => !s));
+    };
+
+    const handleAddToCart = async () => {
+        if (!auth?.user) {
+            router.visit('/login');
+            return;
+        }
+        setAddingToCart(true);
+        try {
+            await axios.post('/api/cart', {
+                product_id: product.id,
+                quantity,
+            });
+            setAddedToCart(true);
+            setTimeout(() => setAddedToCart(false), 2500);
+            // Dispatch event so AppLayout badge updates instantly
+            window.dispatchEvent(new CustomEvent('flockr:cart'));
+        } catch (err) {
+            alert(err.response?.data?.message ?? 'Failed to add to cart.');
+        } finally {
+            setAddingToCart(false);
+        }
     };
 
     // ── Image navigation ──────────────────────────────────────────────────────
@@ -540,9 +565,17 @@ export default function ProductShow({ product, similarProducts = [] }) {
 
                             <div className="flex gap-3">
                                 <button
+                                    onClick={handleAddToCart}
+                                    disabled={!product.is_in_stock || addingToCart}
+                                    className="btn-ghost flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {addingToCart ? 'Adding...' : addedToCart ? '✓ Added' : `Cart · ₦${totalPrice}`}
+                                </button>
+
+                                <button
                                     onClick={handleBuy}
                                     disabled={!product.is_in_stock || buying}
-                                    className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {buying ? (
                                         <>
@@ -554,22 +587,15 @@ export default function ProductShow({ product, similarProducts = [] }) {
                                         </>
                                     ) : product.is_in_stock ? (
                                         <>
-                                            <RiFlashlightLine size={18} /> Buy Now · ₦{totalPrice}
+                                            <RiFlashlightLine size={18} /> Buy Now
                                         </>
                                     ) : (
                                         'Out of Stock'
                                     )}
                                 </button>
+
                                 <button onClick={handleSave} className="btn-ghost flex items-center gap-1.5 rounded-2xl px-4 py-3.5">
-                                    {saved ? (
-                                        <>
-                                            <RiBookmarkFill size={17} color="#FBBF24" /> Saved
-                                        </>
-                                    ) : (
-                                        <>
-                                            <RiBookmarkLine size={17} /> Save
-                                        </>
-                                    )}
+                                    {saved ? <RiBookmarkFill size={17} color="#FBBF24" /> : <RiBookmarkLine size={17} />}
                                 </button>
                             </div>
 
@@ -780,22 +806,29 @@ export default function ProductShow({ product, similarProducts = [] }) {
 
                 {/* Mobile sticky buy bar */}
                 <div className="glass-dark fixed right-0 bottom-16 left-0 z-30 border-t border-white/[0.06] p-4 md:hidden">
-                    <div className="flex items-center gap-3">
-                        <div>
-                            <p className="text-flockr-orange text-lg font-bold">₦{Number(product.price).toLocaleString()}</p>
-                            {product.compare_price && (
-                                <p className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</p>
-                            )}
-                        </div>
-                        <button
-                            onClick={handleBuy}
-                            disabled={!product.is_in_stock || buying}
-                            className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3 disabled:opacity-60"
-                        >
-                            {buying ? 'Processing...' : product.is_in_stock ? `Buy Now · ₦${totalPrice}` : 'Out of Stock'}
-                        </button>
-                    </div>
-                </div>
+    <div className="flex items-center gap-3">
+        <div>
+            <p className="text-flockr-orange text-lg font-bold">₦{Number(product.price).toLocaleString()}</p>
+            {product.compare_price && (
+                <p className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</p>
+            )}
+        </div>
+        <button
+            onClick={handleAddToCart}
+            disabled={!product.is_in_stock || addingToCart}
+            className="btn-ghost flex items-center justify-center gap-2 rounded-2xl px-4 py-3 disabled:opacity-60"
+        >
+            {addedToCart ? '✓' : <RiShoppingCart2Line size={18} />}
+        </button>
+        <button
+            onClick={handleBuy}
+            disabled={!product.is_in_stock || buying}
+            className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3 disabled:opacity-60"
+        >
+            {buying ? 'Processing...' : product.is_in_stock ? `Buy Now · ₦${totalPrice}` : 'Out of Stock'}
+        </button>
+    </div>
+</div>
             </div>
 
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

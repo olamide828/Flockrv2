@@ -9,16 +9,12 @@ use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
-// use App\Models\Product;
-// use Illuminate\Http\JsonResponse;
-// use Illuminate\Http\Request;
-// use Illuminate\Support\Facades\Http;
-
 
 class ProductController extends Controller
 {
@@ -28,13 +24,32 @@ class ProductController extends Controller
     ) {
     }
 
+    // ── Helper: IDs of sellers this user has blocked (or been blocked by) ─────
+    private function blockedSellerIds(): array
+    {
+        $userId = Auth::id();
+        if (!$userId)
+            return [];
+
+        return DB::table('user_blocks')
+            ->where('blocker_id', $userId)
+            ->orWhere('blocked_id', $userId)
+            ->get()
+            ->map(fn($row) => $row->blocker_id === $userId ? $row->blocked_id : $row->blocker_id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
     // ── Inertia Pages ─────────────────────────────────────────────────────────
 
     public function shop(): Response
     {
+        $blocked = $this->blockedSellerIds();
         $categories = Category::where('is_active', true)->orderBy('sort_order')->get();
 
         $featured = Product::active()
+            ->when(!empty($blocked), fn($q) => $q->whereNotIn('seller_id', $blocked))
             ->with('seller:id,name,username,avatar,is_verified')
             ->withCount('orderItems')
             ->orderByDesc('order_items_count')
@@ -51,8 +66,12 @@ class ProductController extends Controller
     {
         abort_if($product->status !== 'active', 404);
 
+        // If the viewer has blocked this seller (or been blocked by them) — 404
+        $blocked = $this->blockedSellerIds();
+        abort_if(in_array($product->seller_id, $blocked), 404);
+
         $product->load([
-            'seller:id,name,username,avatar,is_verified,total_sales,location',  // ← avatar not avatar_url
+            'seller:id,name,username,avatar,is_verified,total_sales,location',
             'category:id,name',
             'videos' => fn($q) => $q->where('status', 'active')
                 ->with('user:id,name,username')
@@ -61,16 +80,15 @@ class ProductController extends Controller
 
         abort_if(!$product->seller || $product->seller->username !== $username, 404);
 
-
-
         $product->increment('views_count');
-
-        $similar = collect();
 
         $similar = collect();
         try {
             $similar = $this->jina->similarProducts($product, 6);
-            // Ensure seller is loaded on similar products
+            // Also filter similar products from blocked sellers
+            if (!empty($blocked)) {
+                $similar = $similar->filter(fn($p) => !in_array($p->seller_id, $blocked))->values();
+            }
             $similar->load('seller:id,name,username,avatar,is_verified');
         } catch (\Throwable) {
         }
@@ -79,10 +97,7 @@ class ProductController extends Controller
             && $product->savedByUsers()->where('user_id', Auth::id())->exists();
 
         return Inertia::render('Product/Show', [
-            'product' => array_merge(
-                $product->toArray(),
-                ['is_saved' => $isSaved]
-            ),
+            'product' => array_merge($product->toArray(), ['is_saved' => $isSaved]),
             'similarProducts' => $similar,
         ]);
     }
@@ -108,7 +123,10 @@ class ProductController extends Controller
     /** GET /api/shop/products */
     public function apiIndex(Request $request): JsonResponse
     {
+        $blocked = $this->blockedSellerIds();
+
         $query = Product::active()
+            ->when(!empty($blocked), fn($q) => $q->whereNotIn('seller_id', $blocked))
             ->with('seller:id,name,username,avatar,is_verified')
             ->withCount('orderItems');
 
@@ -126,6 +144,14 @@ class ProductController extends Controller
         }
         if ($request->filled('seller_id')) {
             $query->where('seller_id', $request->seller_id);
+        }
+        if ($request->filled('q')) {
+            $q = $request->q;
+            $query->where(
+                fn($query) =>
+                $query->where('name', 'ilike', "%{$q}%")
+                    ->orWhere('description', 'ilike', "%{$q}%")
+            );
         }
 
         $query = match ($request->input('sort', 'popular')) {
@@ -159,7 +185,6 @@ class ProductController extends Controller
             'attributes' => 'nullable|array',
         ]);
 
-        // ── Generate a unique slug from the product name ──────────────────────
         $baseSlug = Str::slug($validated['name']);
         $slug = $baseSlug;
         $i = 1;
@@ -174,6 +199,13 @@ class ProductController extends Controller
             'location' => Auth::user()->location,
         ]);
 
+        // Notify followers about new product
+        $seller = Auth::user();
+        $seller->followers()->chunk(100, function ($followers) use ($product) {
+            foreach ($followers as $follower) {
+                $follower->notify(new \App\Notifications\NewProductNotification($product));
+            }
+        });
         return response()->json($product, 201);
     }
 
@@ -193,7 +225,6 @@ class ProductController extends Controller
             'attributes' => 'nullable|array',
         ]);
 
-        // Re-slug if name changed
         if (isset($validated['name']) && $validated['name'] !== $product->name) {
             $baseSlug = Str::slug($validated['name']);
             $slug = $baseSlug;
@@ -266,7 +297,6 @@ class ProductController extends Controller
         }
     }
 
-
     public function generateSummary(Request $request): JsonResponse
     {
         try {
@@ -274,64 +304,35 @@ class ProductController extends Controller
                 'product_id' => ['required', 'integer', 'exists:products,id'],
             ]);
 
-            $product = Product::with('seller:id,name,username')
-                ->findOrFail($request->product_id);
+            $product = Product::with('seller:id,name,username')->findOrFail($request->product_id);
 
-            $prompt = "
-        Create an engaging ecommerce product summary not more or less than 150 words.
+            $prompt = "Create an engaging ecommerce product summary not more or less than 150 words.
 
-        CRITICAL INSTRUCTION: Return ONLY the summary itself. Do NOT include any introductory phrases, conversational fillers (like 'Here is your summary'), or meta-commentary. Start directly with the summary content.
+CRITICAL INSTRUCTION: Return ONLY the summary itself. Do NOT include any introductory phrases, conversational fillers, or meta-commentary. Start directly with the summary content.
 
-        Product Name: {$product->name}
+Product Name: {$product->name}
+Description: {$product->description}
+Price: {$product->price}";
 
-        Description: {$product->description}
-
-        Price: {$product->price}
-        ";
-
-            $response = Http::timeout(30)
-                ->post(
-                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' . env('GEMINI_API_KEY'),
-                    [
-                        'contents' => [
-                            [
-                                'parts' => [
-                                    [
-                                        'text' => $prompt
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                );
-
-            $content = data_get(
-                $response->json(),
-                'candidates.0.content.parts.0.text'
+            $response = Http::timeout(30)->post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' . env('GEMINI_API_KEY'),
+                ['contents' => [['parts' => [['text' => $prompt]]]]]
             );
 
             if ($response->status() === 429) {
-                return response()->json([
-                    'message' => 'AI summary limit reached. Please try again in a minute.'
-                ], 429);
+                return response()->json(['message' => 'AI summary limit reached. Please try again in a minute.'], 429);
             }
+
+            $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
 
             if (!$content) {
-                return response()->json([
-                    'message' => 'Gemini request failed.',
-                    'response' => $response->json(),
-                ], 500);
+                return response()->json(['message' => 'Gemini request failed.', 'response' => $response->json()], 500);
             }
 
-            return response()->json([
-                'summary' => trim($content)
-            ]);
+            return response()->json(['summary' => trim($content)]);
 
         } catch (\Throwable $e) {
-
-            return response()->json([
-                'message' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => $e->getMessage()], 500);
         }
     }
 }

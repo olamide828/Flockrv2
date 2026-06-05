@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
+use Illuminate\Support\Str;
 
 class OrderController extends Controller
 {
@@ -101,6 +102,8 @@ class OrderController extends Controller
                 'quantity' => $qty,
                 'total' => $subtotal,
             ]);
+
+            
 
             return $order;
         });
@@ -217,4 +220,36 @@ class OrderController extends Controller
 
         return response()->json(['status' => $order->status]);
     }
+
+    /**
+ * POST /api/orders/resume-payment
+ * Re-initializes a Paystack transaction for a pending order.
+ * Used when buyer exits Paystack without completing payment.
+ */
+public function resumePayment(Request $request): JsonResponse
+{
+    $validated = $request->validate([
+        'order_id' => 'required|integer|exists:orders,id',
+    ]);
+
+    $order = Order::where('id', $validated['order_id'])
+        ->where('buyer_id', Auth::id())
+        ->where('status', 'pending')
+        ->with(['buyer', 'seller'])
+        ->firstOrFail();
+
+    // Generate fresh payment reference
+    $newReference = 'FLK_' . Str::upper(Str::random(16));
+
+    $order->update([
+        'reference' => $newReference,
+    ]);
+
+    $payment = $this->paystack->initializeTransaction($order->fresh());
+
+    return response()->json([
+        'authorization_url' => $payment['authorization_url'],
+        'reference'         => $newReference,
+    ]);
+}
 }

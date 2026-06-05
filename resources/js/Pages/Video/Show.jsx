@@ -7,29 +7,37 @@ import {
     RiBookmarkLine,
     RiChat1Line,
     RiCheckLine,
+    RiCloseFill,
     RiCloseLine,
     RiDeleteBinLine,
+    RiDownload2Line,
     RiFacebookCircleLine,
     RiHeartFill,
     RiHeartLine,
     RiInstagramLine,
-    RiLinksLine,
+    RiLink,
     RiLoader4Line,
     RiMapPinLine,
+    RiMoreLine,
     RiReplyLine,
     RiSearchLine,
     RiSendPlaneFill,
     RiShareForwardLine,
     RiShoppingBag2Line,
-    RiTiktokLine,
+    RiTelegramLine,
+    RiTwitterXLine,
     RiUserAddLine,
     RiUserFollowLine,
     RiVerifiedBadgeLine,
     RiVolumeMuteLine,
     RiVolumeUpLine,
     RiWhatsappLine,
+    RiRedditLine,
 } from 'react-icons/ri';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 const fmt = (n) => {
     const num = Number(n ?? 0);
     if (isNaN(num)) return '0';
@@ -37,7 +45,6 @@ const fmt = (n) => {
     if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
     return String(num);
 };
-
 const timeAgo = (d) => {
     const s = (Date.now() - new Date(d)) / 1000;
     if (s < 60) return 'now';
@@ -46,165 +53,265 @@ const timeAgo = (d) => {
     return new Date(d).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' });
 };
 
-// ── Comment item with reply + delete ─────────────────────────────────────────
-function CommentItem({ comment, onReply, onDelete, currentUserId, isAdmin }) {
-    const avatar =
-        comment.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.user?.name || 'U')}&background=222&color=fff`;
+// ─────────────────────────────────────────────────────────────────────────────
+// useVideoDownload — server-side watermark download hook
+// ─────────────────────────────────────────────────────────────────────────────
+function useVideoDownload(video) {
+    const [dlState, setDlState] = useState('idle'); // idle | preparing | processing | done | error
+    const pollTimer = useRef(null);
 
-    const canDelete = currentUserId && (comment.user?.id === currentUserId || isAdmin);
+    const stopPolling = () => {
+        if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
+    };
 
-    return (
-        <div style={{ display: 'flex', gap: 10, padding: '10px 0', opacity: comment._opt ? 0.6 : 1 }}>
-            <img src={avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>@{comment.user?.username}</span>
-                    <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(comment.created_at)}</span>
-                </div>
-                <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, margin: '3px 0 6px', lineHeight: 1.4 }}>{comment.body}</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <button
-                        onClick={() => onReply(comment)}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'rgba(255,255,255,0.4)',
-                            fontSize: 11,
-                            padding: 0,
-                        }}
-                    >
-                        <RiReplyLine size={13} /> Reply
-                    </button>
-                    {canDelete && (
-                        <button
-                            onClick={() => onDelete(comment)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: 'rgba(239,68,68,0.6)',
-                                fontSize: 11,
-                                padding: 0,
-                            }}
-                        >
-                            <RiDeleteBinLine size={13} /> Delete
-                        </button>
-                    )}
-                </div>
+    const triggerBrowserDownload = useCallback(async (url, jobKey) => {
+        try {
+            const res  = await fetch(url, { mode: 'cors' });
+            const blob = await res.blob();
+            const burl = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = burl;
+            a.download = `flockr-${video.user?.username ?? 'video'}-${video.ulid ?? Date.now()}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(burl), 10_000);
+            setDlState('done');
+            setTimeout(() => setDlState('idle'), 4000);
+            axios.delete(`/api/videos/download/cleanup?job_key=${encodeURIComponent(jobKey)}`).catch(() => {});
+        } catch {
+            setDlState('error');
+            setTimeout(() => setDlState('idle'), 4000);
+        }
+    }, [video.user?.username, video.ulid]);
 
-                {/* Nested replies */}
-                {comment.replies?.length > 0 && (
-                    <div
-                        style={{
-                            marginTop: 10,
-                            paddingLeft: 12,
-                            borderLeft: '2px solid rgba(255,255,255,0.06)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 2,
-                        }}
-                    >
-                        {comment.replies.map((reply) => (
-                            <CommentItem
-                                key={reply.id}
-                                comment={reply}
-                                onReply={onReply}
-                                onDelete={onDelete}
-                                currentUserId={currentUserId}
-                                isAdmin={isAdmin}
-                            />
-                        ))}
-                    </div>
+    const download = useCallback(async () => {
+        if (dlState !== 'idle' && dlState !== 'error') return;
+        setDlState('preparing');
+        stopPolling();
+        try {
+            const { data } = await axios.post(
+                `/api/videos/${video.ulid}/download/prepare`,
+                {},
+                { withCredentials: true }
+            );
+            const jobKey = data.job_key;
+            if (data.status === 'done' && data.url) {
+                await triggerBrowserDownload(data.url, jobKey);
+                return;
+            }
+            setDlState('processing');
+            pollTimer.current = setInterval(async () => {
+                try {
+                    const { data: poll } = await axios.get(
+                        `/api/videos/download/status?job_key=${encodeURIComponent(jobKey)}`,
+                        { withCredentials: true }
+                    );
+                    if (poll.status === 'done' && poll.url) {
+                        stopPolling();
+                        await triggerBrowserDownload(poll.url, jobKey);
+                    } else if (poll.status === 'error') {
+                        stopPolling();
+                        setDlState('error');
+                        setTimeout(() => setDlState('idle'), 4000);
+                    }
+                } catch {
+                    stopPolling();
+                    setDlState('error');
+                    setTimeout(() => setDlState('idle'), 4000);
+                }
+            }, 2000);
+            // Timeout after 5 minutes
+            setTimeout(() => {
+                if (pollTimer.current) {
+                    stopPolling();
+                    setDlState('error');
+                    setTimeout(() => setDlState('idle'), 4000);
+                }
+            }, 300_000);
+        } catch {
+            setDlState('error');
+            setTimeout(() => setDlState('idle'), 4000);
+        }
+    }, [dlState, video.ulid, triggerBrowserDownload]);
+
+    return { download, dlState };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SideBtn
+// ─────────────────────────────────────────────────────────────────────────────
+const SideBtn = ({ onClick, children, label }) => (
+    <button onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.7))' }}>{children}</div>
+        {label !== undefined && label !== '' && <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.9)', marginTop: 1 }}>{label}</span>}
+    </button>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ExpandableDescription
+// ─────────────────────────────────────────────────────────────────────────────
+const ExpandableDescription = ({ text, maxLines = 2 }) => {
+    const [expanded, setExpanded] = useState(false);
+    if (!text) return null;
+    const isLong = text.length > 100;
+    if (!isLong || expanded) {
+        return (
+            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, margin: 0, lineHeight: 1.4 }}>
+                {text}
+                {expanded && isLong && (
+                    <button onClick={e => { e.stopPropagation(); setExpanded(false); }} style={{ background: 'none', border: 'none', color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '0 0 0 4px' }}>less</button>
                 )}
+            </p>
+        );
+    }
+    return (
+        <div>
+            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, margin: 0, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: maxLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{text}</p>
+            <button onClick={e => { e.stopPropagation(); setExpanded(true); }} style={{ background: 'none', border: 'none', color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 0 0', display: 'block' }}>see more</button>
+        </div>
+    );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CommentInput
+// ─────────────────────────────────────────────────────────────────────────────
+const CommentInput = ({ auth, commentBody, setCommentBody, sending, sendComment, replyTo, setReplyTo, inputRef }) => {
+    if (!auth?.user) return (
+        <div style={{ padding: '10px 14px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <button onClick={() => router.visit('/login')} style={{ width: '100%', padding: '11px', background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.3)', borderRadius: 12, color: '#FF6B35', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Log in to comment</button>
+        </div>
+    );
+    return (
+        <div style={{ padding: '10px 14px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            {replyTo && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, padding: '6px 10px', background: 'rgba(255,107,53,0.08)', borderRadius: 8, border: '1px solid rgba(255,107,53,0.2)' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Replying to <span style={{ color: '#FF6B35' }}>@{replyTo.user?.username}</span></span>
+                    <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex', padding: 0 }}><RiCloseLine size={14} /></button>
+                </div>
+            )}
+            <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+                <img src={auth.user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(auth.user.name)}&background=222`} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                <input
+                    ref={inputRef} value={commentBody} onChange={e => setCommentBody(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); } }}
+                    onTouchStart={e => e.stopPropagation()} onClick={e => e.stopPropagation()}
+                    placeholder={replyTo ? `Reply to @${replyTo.user?.username}...` : 'Add a comment...'}
+                    maxLength={500}
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, padding: '9px 16px', color: '#fff', fontSize: 13, outline: 'none' }}
+                />
+                <button onClick={sendComment} disabled={!commentBody.trim() || sending}
+                    style={{ background: commentBody.trim() && !sending ? '#FF6B35' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: commentBody.trim() && !sending ? 'pointer' : 'default', flexShrink: 0, transition: 'background 0.2s' }}>
+                    {sending ? <RiLoader4Line size={15} color="#fff" style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiSendPlaneFill size={15} color="#fff" />}
+                </button>
             </div>
         </div>
     );
-}
+};
 
-// ── Product row ───────────────────────────────────────────────────────────────
-function ProductRow({ product }) {
-    return (
-        <button
-            onClick={() => router.visit(`/products/${product.slug ?? product.id}`)}
-            style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                width: '100%',
-                textAlign: 'left',
-                padding: '10px 12px',
-                borderRadius: 12,
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                cursor: 'pointer',
-            }}
-        >
-            <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', flexShrink: 0 }}>
-                {product.primary_image && (
-                    <img src={product.primary_image} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                )}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                    style={{
-                        color: '#fff',
-                        fontWeight: 600,
-                        fontSize: 13,
-                        margin: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                    }}
-                >
-                    {product.name}
-                </p>
-                <p style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14, margin: '3px 0 0' }}>₦{Number(product.price).toLocaleString()}</p>
-            </div>
-            <div
-                style={{ padding: '7px 14px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}
-            >
-                Buy
-            </div>
-        </button>
-    );
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// CommentItem
+// ─────────────────────────────────────────────────────────────────────────────
+const CommentItem = ({ comment, onReply, onDelete, currentUserId, isAdmin }) => {
+    const avatar = comment.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.user?.name || 'U')}&background=222&color=fff`;
+    const canDelete = currentUserId && (comment.user?.id === currentUserId || isAdmin);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
+    const longPressTimer = useRef(null);
 
-// ── Side action button ────────────────────────────────────────────────────────
-function SideBtn({ onClick, children, label }) {
+    const handleLongPressStart = () => {
+        if (!canDelete) return;
+        longPressTimer.current = setTimeout(() => { if (window.innerWidth < 768) setDeleteSheetOpen(true); }, 500);
+    };
+    const handleLongPressEnd = () => clearTimeout(longPressTimer.current);
+    const doDelete = () => { setMenuOpen(false); setDeleteSheetOpen(false); onDelete(comment); };
+
     return (
-        <button
-            onClick={onClick}
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: 0,
-            }}
-        >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.7))' }}>
-                {children}
+        <>
+            <div onMouseDown={handleLongPressStart} onMouseUp={handleLongPressEnd}
+                onTouchStart={handleLongPressStart} onTouchEnd={handleLongPressEnd} onTouchCancel={handleLongPressEnd}
+                style={{ display: 'flex', gap: 10, padding: '10px 0', opacity: comment._opt ? 0.6 : 1, position: 'relative' }}>
+                <img src={avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{comment.user?.name || comment.user?.username}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(comment.created_at)}</span>
+                    </div>
+                    <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, margin: '3px 0 6px', lineHeight: 1.4 }}>{comment.body}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <button onClick={() => onReply(comment)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 11, padding: 0 }}>
+                            <RiReplyLine size={13} /> Reply
+                        </button>
+                        {canDelete && (
+                            <div style={{ position: 'relative' }}>
+                                <button onClick={() => setMenuOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.35)', padding: 0 }}>
+                                    <RiMoreLine size={15} />
+                                </button>
+                                {menuOpen && (
+                                    <>
+                                        <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
+                                        <div style={{ position: 'absolute', bottom: '100%', left: 0, zIndex: 99, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden', minWidth: 120, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', marginBottom: 4 }}>
+                                            <button onClick={doDelete} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 13, fontWeight: 600 }}>
+                                                <RiDeleteBinLine size={15} /> Delete
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {comment.replies?.length > 0 && (
+                        <div style={{ marginTop: 10, paddingLeft: 12, borderLeft: '2px solid rgba(255,255,255,0.06)' }}>
+                            {comment.replies.map(r => <CommentItem key={r.id} comment={r} onReply={onReply} onDelete={onDelete} currentUserId={currentUserId} isAdmin={isAdmin} />)}
+                        </div>
+                    )}
+                </div>
             </div>
-            {label !== undefined && label !== '' && (
-                <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.9)', marginTop: 1 }}>{label}</span>
+            {deleteSheetOpen && (
+                <>
+                    <div onClick={() => setDeleteSheetOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }} />
+                    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'slideUp 0.25s ease', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}><div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} /></div>
+                        <div style={{ padding: '8px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                            <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{comment.user?.name}</p>
+                            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{comment.body}</p>
+                        </div>
+                        <button onClick={doDelete} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 15, fontWeight: 700 }}>
+                            <RiDeleteBinLine size={20} /> Delete Comment
+                        </button>
+                        <button onClick={() => setDeleteSheetOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 'calc(100% - 32px)', margin: '0 16px 12px', padding: '13px', background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 600, borderRadius: 14 }}>
+                            Cancel
+                        </button>
+                    </div>
+                </>
             )}
-        </button>
+        </>
     );
-}
+};
 
-// ── Share sheet ───────────────────────────────────────────────────────────────
-function ShareSheet({ videoUrl, videoTitle, onClose }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// ProductRow
+// ─────────────────────────────────────────────────────────────────────────────
+const ProductRow = ({ product }) => (
+    <button onClick={() => router.visit(product.seller?.username ? `/@${product.seller.username}/products/${product.slug ?? product.id}` : '/shop')} style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}>
+        <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', flexShrink: 0 }}>
+            {product.primary_image && <img src={product.primary_image} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</p>
+            <p style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14, margin: '3px 0 0' }}>₦{Number(product.price).toLocaleString()}</p>
+        </div>
+        <div style={{ padding: '7px 14px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>Buy</div>
+    </button>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ShareSheet — all original options + Download button
+// ─────────────────────────────────────────────────────────────────────────────
+const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
     const [copied, setCopied] = useState(false);
+    const encodedUrl   = encodeURIComponent(videoUrl);
+    const encodedTitle = encodeURIComponent(videoTitle || 'Check this out on Flockr');
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(videoUrl).catch(() => {});
@@ -212,1381 +319,469 @@ function ShareSheet({ videoUrl, videoTitle, onClose }) {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const encodedUrl = encodeURIComponent(videoUrl);
-    const encodedTitle = encodeURIComponent(videoTitle || 'Check this out on Flockr');
+    const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
-    const shareOptions = [
-        {
-            label: 'WhatsApp',
-            Icon: RiWhatsappLine,
-            color: '#25D366',
-            bg: 'rgba(37,211,102,0.12)',
-            href: `https://wa.me/?text=${encodedTitle}%20${encodedUrl}`,
-        },
-        {
-            label: 'Facebook',
-            Icon: RiFacebookCircleLine,
-            color: '#1877F2',
-            bg: 'rgba(24,119,242,0.12)',
-            href: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-        },
-        {
-            label: 'Instagram',
-            Icon: RiInstagramLine,
-            color: '#E1306C',
-            bg: 'rgba(225,48,108,0.12)',
-            // Instagram doesn't support direct URL sharing — open app store/app
-            href: null,
-            onClick: () => {
-                handleCopy();
-                alert('Link copied! Open Instagram and paste in your story or bio.');
-            },
-        },
-        {
-            label: 'TikTok',
-            Icon: RiTiktokLine,
-            color: '#fff',
-            bg: 'rgba(255,255,255,0.08)',
-            href: null,
-            onClick: () => {
-                handleCopy();
-                alert('Link copied! Open TikTok and paste in your bio or DM.');
-            },
-        },
+    // Download button appearance based on dlState
+    const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download';
+    const dlColor = { idle: '#fff', preparing: 'rgba(255,255,255,0.4)', processing: 'rgba(255,255,255,0.4)', done: '#10B981', error: '#EF4444' }[dlState] ?? '#fff';
+    const dlBg    = { idle: 'rgba(255,255,255,0.06)', preparing: 'rgba(255,255,255,0.04)', processing: 'rgba(255,255,255,0.04)', done: 'rgba(16,185,129,0.12)', error: 'rgba(239,68,68,0.12)' }[dlState] ?? 'rgba(255,255,255,0.06)';
+    const dlBusy  = dlState === 'preparing' || dlState === 'processing';
+
+    const opts = [
+        { label: 'WhatsApp',   Icon: RiWhatsappLine,       color: '#25D366', bg: 'rgba(37,211,102,0.12)',  href: `https://wa.me/?text=${encodedTitle}%20${encodedUrl}` },
+        { label: 'Facebook',   Icon: RiFacebookCircleLine, color: '#1877F2', bg: 'rgba(24,119,242,0.12)',  href: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}` },
+        { label: 'Telegram',   Icon: RiTelegramLine,       color: '#26A5E4', bg: 'rgba(38,165,228,0.12)',  href: `https://t.me/share/url?url=${encodedUrl}&text=${encodedTitle}` },
+        { label: 'X (Twitter)',Icon: RiTwitterXLine,       color: '#fff',    bg: 'rgba(255,255,255,0.08)', href: `https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedUrl}` },
+        { label: 'Reddit',     Icon: RiRedditLine,         color: '#FF4500', bg: 'rgba(255,69,0,0.12)',    href: `https://reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}` },
+        { label: 'Instagram',  Icon: RiInstagramLine,      color: '#E1306C', bg: 'rgba(225,48,108,0.12)', href: null, onClick: handleCopy },
+        ...(canNativeShare ? [{ label: 'More', Icon: RiShareForwardLine, color: '#FF6B35', bg: 'rgba(255,107,53,0.12)', href: null, onClick: () => navigator.share({ title: videoTitle || 'Flockr', url: videoUrl }).catch(() => {}) }] : []),
+        // ── Download (server-side watermarked) ────────────────────────────────
+        { label: dlLabel, Icon: RiDownload2Line, color: dlColor, bg: dlBg, href: null, onClick: dlBusy ? undefined : onDownload, busy: dlBusy },
     ];
 
     return (
         <>
             <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.5)' }} />
-            <div
-                style={{
-                    position: 'fixed',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    zIndex: 50,
-                    background: 'rgba(18,18,18,0.98)',
-                    backdropFilter: 'blur(24px)',
-                    borderRadius: '20px 20px 0 0',
-                    borderTop: '1px solid rgba(255,255,255,0.08)',
-                    animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
-                    paddingBottom: 'env(safe-area-inset-bottom, 16px)',
-                }}
-            >
-                {/* Handle */}
+            <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
                     <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
                 </div>
-
-                {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 16px' }}>
                     <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Share</span>
-                    <button
-                        onClick={onClose}
-                        style={{
-                            background: 'rgba(255,255,255,0.1)',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#fff',
-                            width: 30,
-                            height: 30,
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
-                    >
-                        <RiCloseLine size={18} />
-                    </button>
+                    <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiCloseLine size={18} /></button>
                 </div>
-
-                {/* Share options */}
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '0 24px 24px' }}>
-                    {shareOptions.map((opt) => {
-                        const { Icon } = opt;
-                        const handleClick = () => {
-                            if (opt.onClick) {
-                                opt.onClick();
-                                return;
-                            }
-                            if (opt.href) window.open(opt.href, '_blank', 'noopener');
-                        };
+                <div style={{ display: 'flex', gap: 20, padding: '0 20px 24px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {opts.map(o => {
+                        const { Icon } = o;
                         return (
-                            <button
-                                key={opt.label}
-                                onClick={handleClick}
-                                style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: 56,
-                                        height: 56,
-                                        borderRadius: 16,
-                                        background: opt.bg,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        border: `1px solid ${opt.color}22`,
-                                    }}
-                                >
-                                    <Icon size={26} color={opt.color} />
+                            <button key={o.label}
+                                onClick={() => { if (o.onClick) { o.onClick(); return; } if (o.href) window.open(o.href, '_blank', 'noopener,noreferrer'); }}
+                                disabled={o.busy}
+                                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: o.busy ? 'default' : 'pointer', flexShrink: 0, opacity: o.busy ? 0.6 : 1 }}>
+                                <div style={{ width: 56, height: 56, borderRadius: 16, background: o.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${o.color}22` }}>
+                                    {o.busy
+                                        ? <RiLoader4Line size={26} color={o.color} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                        : <Icon size={26} color={o.color} />
+                                    }
                                 </div>
-                                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{opt.label}</span>
+                                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, whiteSpace: 'nowrap' }}>{o.label}</span>
                             </button>
                         );
                     })}
                 </div>
-
-                {/* Copy link row */}
-                <div
-                    style={{
-                        margin: '0 16px 20px',
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 14,
-                        padding: '12px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                    }}
-                >
-                    <RiLinksLine size={18} color="rgba(255,255,255,0.4)" style={{ flexShrink: 0 }} />
-                    <span
-                        style={{
-                            flex: 1,
-                            color: 'rgba(255,255,255,0.4)',
-                            fontSize: 12,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
-                        {videoUrl}
-                    </span>
-                    <button
-                        onClick={handleCopy}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '7px 14px',
-                            borderRadius: 999,
-                            background: copied ? 'rgba(16,185,129,0.15)' : '#FF6B35',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#fff',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            flexShrink: 0,
-                            transition: 'background 0.2s',
-                        }}
-                    >
-                        {copied ? (
-                            <>
-                                <RiCheckLine size={13} /> Copied!
-                            </>
-                        ) : (
-                            <>Copy link</>
-                        )}
+                <div style={{ margin: '0 16px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <RiLink size={18} color="rgba(255,255,255,0.4)" style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.4)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{videoUrl}</span>
+                    <button onClick={handleCopy} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, background: copied ? 'rgba(16,185,129,0.15)' : '#FF6B35', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, transition: 'background 0.2s' }}>
+                        {copied ? <><RiCheckLine size={13} /> Copied!</> : 'Copy link'}
                     </button>
                 </div>
             </div>
         </>
     );
-}
+};
 
-// ── Main VideoShow component ──────────────────────────────────────────────────
-export default function VideoShow({ video, isLiked: initLiked, isSaved: initSaved, isFollowing: initFollowing }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// VideoSlide — one full-screen slide
+// ─────────────────────────────────────────────────────────────────────────────
+function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const { auth } = usePage().props;
-    const videoRef = useRef(null);
-    const progressBarRef = useRef(null);
-    const watchStartRef = useRef(null);
+    const videoRef        = useRef(null);
+    const progressBarRef  = useRef(null);
+    const watchStartRef   = useRef(null);
     const commentInputRef = useRef(null);
 
-    const [playing, setPlaying] = useState(false);
-    const [muted, setMuted] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [tapFlash, setTapFlash] = useState(false);
-    const [showPP, setShowPP] = useState(false);
-
-    const [liked, setLiked] = useState(initLiked);
-    const [likesCount, setLikesCount] = useState(Number(video.likes_count ?? 0));
-    const [saved, setSaved] = useState(initSaved);
-    const [savesCount, setSavesCount] = useState(Number(video.saves_count ?? 0));
-    const [followed, setFollowed] = useState(initFollowing);
+    const [playing,       setPlaying]       = useState(false);
+    const [muted,         setMuted]         = useState(false);
+    const [progress,      setProgress]      = useState(0);
+    const [loading,       setLoading]       = useState(true);
+    const [tapFlash,      setTapFlash]      = useState(false);
+    const [showPP,        setShowPP]        = useState(false);
+    const [liked,         setLiked]         = useState(video.is_liked ?? false);
+    const [likesCount,    setLikesCount]    = useState(Number(video.likes_count ?? 0));
+    const [saved,         setSaved]         = useState(video.is_saved ?? false);
+    const [savesCount,    setSavesCount]    = useState(Number(video.saves_count ?? 0));
+    const [followed,      setFollowed]      = useState(video.is_following ?? false);
     const [commentsCount, setCommentsCount] = useState(Number(video.comments_count ?? 0));
-
-    const [tab, setTab] = useState('comments');
-    const [comments, setComments] = useState([]);
-    const [cmtsLoaded, setCmtsLoaded] = useState(false);
-    const [loadingCmts, setLoadingCmts] = useState(false);
-    const [commentBody, setCommentBody] = useState('');
-    const [sending, setSending] = useState(false);
-    const [replyTo, setReplyTo] = useState(null);
-
-    // Mobile sheets
-    const [mobileSheet, setMobileSheet] = useState(null); // 'comments' | 'products' | 'share'
-
-    // Search overlay
-    const [showSearch, setShowSearch] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [tab,           setTab]           = useState('comments');
+    const [comments,      setComments]      = useState([]);
+    const [cmtsLoaded,    setCmtsLoaded]    = useState(false);
+    const [loadingCmts,   setLoadingCmts]   = useState(false);
+    const [commentBody,   setCommentBody]   = useState('');
+    const [sending,       setSending]       = useState(false);
+    const [replyTo,       setReplyTo]       = useState(null);
+    const [mobileSheet,   setMobileSheet]   = useState(null);
+    const [showSearch,    setShowSearch]    = useState(false);
+    const [searchQuery,   setSearchQuery]   = useState('');
     const searchInputRef = useRef(null);
 
-    const isOwner = auth?.user?.id === video.user?.id;
-    const isAdmin = auth?.user?.role === 'admin';
+    // ── Download hook ─────────────────────────────────────────────────────────
+    const { download, dlState } = useVideoDownload(video);
+
+    const isOwner     = auth?.user?.id === video.user_id;
+    const isAdmin     = auth?.user?.role === 'admin';
     const hasProducts = video.is_for_sale && video.products?.length > 0;
-    const avatarSrc =
-        video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
-    const videoUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
+    const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url;
+    const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : '';
 
-    // ── Auto-play ─────────────────────────────────────────────────────────────
     useEffect(() => {
         const el = videoRef.current;
         if (!el) return;
-        el.muted = true;
-        el.play()
-            .then(() => {
-                setPlaying(true);
-                setTimeout(() => {
-                    el.muted = false;
-                    setMuted(false);
-                }, 300);
-            })
-            .catch(() => {});
-        watchStartRef.current = Date.now();
-        return () => {
-            if (watchStartRef.current && auth?.user) {
+        if (isActive) {
+            el.muted = true;
+            el.play().then(() => { setPlaying(true); setTimeout(() => { el.muted = false; setMuted(false); }, 300); }).catch(() => {});
+            watchStartRef.current = Date.now();
+        } else {
+            el.pause(); el.currentTime = 0; setMobileSheet(null);
+            if (watchStartRef.current) {
                 const secs = Math.round((Date.now() - watchStartRef.current) / 1000);
-                if (secs > 1) {
-                    axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {});
-                }
+                if (secs > 1 && auth?.user) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs }, { withCredentials: true }).catch(() => {});
+                watchStartRef.current = null;
             }
-        };
-    }, []);
+        }
+    }, [isActive]);
 
     useEffect(() => {
-        loadComments();
-    }, []);
-
-    // ── Progress bar ──────────────────────────────────────────────────────────
-    useEffect(() => {
-        const el = videoRef.current;
-        if (!el) return;
-        const onTime = () => {
-            if (el.duration) setProgress((el.currentTime / el.duration) * 100);
-        };
+        const el = videoRef.current; if (!el) return;
+        const onTime = () => { if (el.duration) setProgress((el.currentTime / el.duration) * 100); };
         el.addEventListener('timeupdate', onTime);
         return () => el.removeEventListener('timeupdate', onTime);
     }, []);
 
-    // ── Focus search input ────────────────────────────────────────────────────
-    useEffect(() => {
-        if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100);
-    }, [showSearch]);
+    useEffect(() => { loadComments(); }, []);
+    useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
 
-    // ── Double-tap to like ────────────────────────────────────────────────────
     const lastTap = useRef(0);
     const handleVideoTap = useCallback(() => {
         if (mobileSheet || showSearch) return;
         const now = Date.now();
         if (now - lastTap.current < 300) {
             if (!liked) handleLike();
-            setTapFlash(true);
-            setTimeout(() => setTapFlash(false), 700);
+            setTapFlash(true); setTimeout(() => setTapFlash(false), 700);
         } else {
             videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause();
-            setShowPP(true);
-            setTimeout(() => setShowPP(false), 700);
+            setShowPP(true); setTimeout(() => setShowPP(false), 700);
         }
         lastTap.current = now;
     }, [liked, mobileSheet, showSearch]);
 
-    // ── Seek — FIXED: use ref on the bar element ──────────────────────────────
     const handleSeek = useCallback((e) => {
-        const el = videoRef.current;
-        const bar = progressBarRef.current;
+        const el = videoRef.current; const bar = progressBarRef.current;
         if (!el?.duration || !bar) return;
+        e.stopPropagation();
         const rect = bar.getBoundingClientRect();
-        const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        el.currentTime = pct * el.duration;
-        // Also update progress immediately so it doesn't snap back
-        setProgress(pct * 100);
+        el.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * el.duration;
     }, []);
 
-    // ── Actions ───────────────────────────────────────────────────────────────
     const handleLike = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
-        const was = liked;
-        setLiked(!was);
-        setLikesCount((c) => Math.max(0, c + (was ? -1 : 1)));
-        try {
-            const { data } = await axios.post(`/api/videos/${video.ulid}/like`, {}, { withCredentials: true });
-            setLiked(data.liked);
-            setLikesCount(Number(data.likes_count ?? 0));
-        } catch {
-            setLiked(was);
-            setLikesCount((c) => Math.max(0, c + (was ? 1 : -1)));
-        }
+        const was = liked; setLiked(!was); setLikesCount(c => Math.max(0, c + (was ? -1 : 1)));
+        try { const { data } = await axios.post(`/api/videos/${video.ulid}/like`, {}, { withCredentials: true }); setLiked(data.liked); setLikesCount(Number(data.likes_count ?? 0)); }
+        catch { setLiked(was); setLikesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [liked, auth, video.id]);
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
-        const was = saved;
-        setSaved(!was);
-        setSavesCount((c) => Math.max(0, c + (was ? -1 : 1)));
-        try {
-            const { data } = await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true });
-            setSaved(data.saved);
-            setSavesCount(Number(data.saves_count ?? 0));
-        } catch {
-            setSaved(was);
-            setSavesCount((c) => Math.max(0, c + (was ? 1 : -1)));
-        }
+        const was = saved; setSaved(!was); setSavesCount(c => Math.max(0, c + (was ? -1 : 1)));
+        try { const { data } = await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true }); setSaved(data.saved); if (data.saves_count !== undefined) setSavesCount(Number(data.saves_count)); }
+        catch { setSaved(was); setSavesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [saved, auth, video.id]);
 
     const handleFollow = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
-        if (followed) return;
-        setFollowed(true);
-        try {
-            await axios.post(`/api/users/${video.user?.id}/follow`, {}, { withCredentials: true });
-        } catch {
-            setFollowed(false);
-        }
+        if (followed) return; setFollowed(true);
+        try { await axios.post(`/api/users/${video.user?.id}/follow`, {}, { withCredentials: true }); }
+        catch { setFollowed(false); }
     }, [followed, auth, video.user?.id]);
 
-    const toggleMute = useCallback(() => {
-        setMuted((m) => {
-            if (videoRef.current) videoRef.current.muted = !m;
-            return !m;
-        });
-    }, []);
+    const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; }); }, []);
+    const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
 
-    // ── Search ────────────────────────────────────────────────────────────────
-    const handleSearch = (e) => {
-        e.preventDefault();
-        if (searchQuery.trim()) {
-            router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`);
-        }
-    };
-
-    // ── Comments ──────────────────────────────────────────────────────────────
     const loadComments = useCallback(async () => {
-        if (cmtsLoaded) return;
-        setLoadingCmts(true);
+        if (cmtsLoaded) return; setLoadingCmts(true);
         try {
             const { data } = await axios.get(`/api/videos/${video.ulid}/comments`);
-            setComments(data.data ?? data);
+            const list = data.data ?? data;
+            setComments(list);
+            const total = data.meta?.total ?? list.reduce((sum, c) => sum + 1 + (c.replies?.length ?? 0), 0);
+            setCommentsCount(total);
             setCmtsLoaded(true);
-        } catch {
-        } finally {
-            setLoadingCmts(false);
-        }
+        } catch {} finally { setLoadingCmts(false); }
     }, [cmtsLoaded, video.id]);
 
-    const sendComment = useCallback(
-        async (e) => {
-            e?.preventDefault();
-            if (!commentBody.trim() || !auth?.user || sending) return;
-            setSending(true);
-            const text = commentBody.trim();
-            const optimistic = {
-                id: `opt-${Date.now()}`,
-                body: text,
-                user: auth.user,
-                created_at: new Date().toISOString(),
-                _opt: true,
-                parent_id: replyTo?.id ?? null,
-            };
-            if (replyTo) {
-                // Add as reply inside parent
-                setComments((prev) => prev.map((c) => (c.id === replyTo.id ? { ...c, replies: [optimistic, ...(c.replies ?? [])] } : c)));
-            } else {
-                setComments((prev) => [optimistic, ...prev]);
-                setCommentsCount((c) => c + 1);
-            }
-            setCommentBody('');
-            setReplyTo(null);
-            try {
-                const { data } = await axios.post(
-                    `/api/videos/${video.ulid}/comments`,
-                    {
-                        body: text,
-                        parent_id: replyTo?.id ?? null,
-                    },
-                    { withCredentials: true },
-                );
-                if (replyTo) {
-                    setComments((prev) =>
-                        prev.map((c) =>
-                            c.id === replyTo.id ? { ...c, replies: (c.replies ?? []).map((r) => (r.id === optimistic.id ? data : r)) } : c,
-                        ),
-                    );
-                } else {
-                    setComments((prev) => prev.map((c) => (c.id === optimistic.id ? data : c)));
-                }
-            } catch {
-                if (replyTo) {
-                    setComments((prev) =>
-                        prev.map((c) => (c.id === replyTo.id ? { ...c, replies: (c.replies ?? []).filter((r) => r.id !== optimistic.id) } : c)),
-                    );
-                } else {
-                    setComments((prev) => prev.filter((c) => c.id !== optimistic.id));
-                    setCommentsCount((c) => Math.max(0, c - 1));
-                }
-                setCommentBody(text);
-            } finally {
-                setSending(false);
-            }
-        },
-        [commentBody, auth, sending, replyTo, video.id],
-    );
+    const sendComment = useCallback(async () => {
+        if (!commentBody.trim() || !auth?.user || sending) return;
+        setSending(true);
+        const text = commentBody.trim(); const parentId = replyTo?.id ?? null;
+        const optimistic = { id: `opt-${Date.now()}`, body: text, user: auth.user, created_at: new Date().toISOString(), _opt: true };
+        if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: [...(c.replies ?? []), optimistic] } : c)); }
+        else { setComments(prev => [optimistic, ...prev]); setCommentsCount(c => c + 1); }
+        setCommentBody(''); setReplyTo(null);
+        try {
+            const { data } = await axios.post(`/api/videos/${video.ulid}/comments`, { body: text, parent_id: parentId }, { withCredentials: true });
+            if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).map(r => r.id === optimistic.id ? data : r) } : c)); }
+            else { setComments(prev => prev.map(c => c.id === optimistic.id ? data : c)); }
+        } catch {
+            if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).filter(r => r.id !== optimistic.id) } : c)); }
+            else { setComments(prev => prev.filter(c => c.id !== optimistic.id)); setCommentsCount(c => Math.max(0, c - 1)); }
+            setCommentBody(text);
+        } finally { setSending(false); }
+    }, [commentBody, auth, sending, replyTo, video.id]);
 
-    const handleDeleteComment = useCallback(
-        async (comment) => {
-            if (!confirm('Delete this comment?')) return;
-            // Remove optimistically
-            setComments((prev) => {
-                // Check if it's a top-level comment
-                const isTop = prev.some((c) => c.id === comment.id);
-                if (isTop) {
-                    setCommentsCount((c) => Math.max(0, c - 1));
-                    return prev.filter((c) => c.id !== comment.id);
-                }
-                // It's a reply — remove from parent's replies
-                return prev.map((c) => ({
-                    ...c,
-                    replies: (c.replies ?? []).filter((r) => r.id !== comment.id),
-                }));
-            });
-            try {
-                await axios.delete(`/api/comments/${comment.id}`, { withCredentials: true });
-            } catch {
-                loadComments();
-            } // re-load on failure
-        },
-        [loadComments],
-    );
+    const handleDeleteComment = useCallback(async (comment) => {
+        const isTop = comments.some(c => c.id === comment.id);
+        if (isTop) { const rc = comment.replies?.length ?? 0; setComments(prev => prev.filter(c => c.id !== comment.id)); setCommentsCount(c => Math.max(0, c - 1 - rc)); }
+        else { setComments(prev => prev.map(c => ({ ...c, replies: (c.replies ?? []).filter(r => r.id !== comment.id) }))); setCommentsCount(c => Math.max(0, c - 1)); }
+        try { await axios.delete(`/api/comments/${comment.id}`, { withCredentials: true }); }
+        catch { loadComments(); }
+    }, [comments, loadComments]);
 
-    const handleReply = useCallback((comment) => {
-        setReplyTo(comment);
-        setTimeout(() => commentInputRef.current?.focus(), 100);
-    }, []);
+    const handleReply = useCallback((comment) => { setReplyTo(comment); commentInputRef.current?.focus(); }, []);
+    const openSheet = (sheet) => { setMobileSheet(sheet); if (sheet === 'comments') loadComments(); };
 
-    const openSheet = (sheet) => {
-        setMobileSheet(sheet);
-        if (sheet === 'comments') loadComments();
-    };
+    return (
+        <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
 
-    // ── Comment input ─────────────────────────────────────────────────────────
-    const CommentInput = () => (
-        <div style={{ padding: '10px 14px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-            {replyTo && (
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: 8,
-                        padding: '6px 10px',
-                        background: 'rgba(255,107,53,0.08)',
-                        borderRadius: 8,
-                        border: '1px solid rgba(255,107,53,0.2)',
-                    }}
-                >
-                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
-                        Replying to <span style={{ color: '#FF6B35' }}>@{replyTo.user?.username}</span>
-                    </span>
-                    <button
-                        onClick={() => setReplyTo(null)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex' }}
-                    >
-                        <RiCloseLine size={14} />
-                    </button>
-                </div>
+            {/* ShareSheet — passes download props */}
+            {mobileSheet === 'share' && (
+                <ShareSheet
+                    videoUrl={videoUrl}
+                    videoTitle={video.title}
+                    onClose={() => setMobileSheet(null)}
+                    onDownload={download}
+                    dlState={dlState}
+                />
             )}
-            {auth?.user ? (
-                <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-                    <img
-                        src={auth.user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(auth.user.name)}&background=222`}
-                        alt=""
-                        style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-                    />
-                    <input
-                        ref={commentInputRef}
-                        value={commentBody}
-                        onChange={(e) => setCommentBody(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && sendComment()}
-                        placeholder={replyTo ? `Reply to @${replyTo.user?.username}...` : 'Add a comment...'}
-                        maxLength={500}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            flex: 1,
-                            background: 'rgba(255,255,255,0.08)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            borderRadius: 999,
-                            padding: '9px 16px',
-                            color: '#fff',
-                            fontSize: 13,
-                            outline: 'none',
-                        }}
-                    />
-                    <button
-                        onClick={sendComment}
-                        disabled={!commentBody.trim() || sending}
-                        style={{
-                            background: commentBody.trim() ? '#FF6B35' : 'rgba(255,255,255,0.08)',
-                            border: 'none',
-                            borderRadius: '50%',
-                            width: 36,
-                            height: 36,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: commentBody.trim() ? 'pointer' : 'default',
-                            flexShrink: 0,
-                            transition: 'background 0.2s',
-                        }}
-                    >
-                        {sending ? (
-                            <RiLoader4Line size={15} color="#fff" style={{ animation: 'spin 0.8s linear infinite' }} />
-                        ) : (
-                            <RiSendPlaneFill size={15} color="#fff" />
-                        )}
+
+            {/* VIDEO COLUMN */}
+            <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
+                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted loop playsInline preload="metadata"
+                    onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
+                    onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+                    onClick={handleVideoTap}
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                />
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
+
+                {/* Top bar */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
+                    <button onClick={showBackBtn ? onBack : () => window.history.back()} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                        <RiArrowLeftLine size={20} />
+                    </button>
+                    {showSearch ? (
+                        <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, margin: '0 10px' }}>
+                            <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
+                            <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', padding: '8px 12px', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0 }}>
+                                <RiCloseFill size={20} />
+                            </button>
+                        </form>
+                    ) : (
+                        <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                            <RiSearchLine size={20} />
+                        </button>
+                    )}
+                </div>
+
+                {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
+                {tapFlash && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><RiHeartFill size={90} color="#EF4444" style={{ filter: 'drop-shadow(0 0 20px rgba(239,68,68,0.5))', animation: 'heartPop 0.7s ease forwards' }} /></div>}
+                {showPP && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
+                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {playing
+                                ? <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" /></svg>
+                                : <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
+                            }
+                        </div>
+                    </div>
+                )}
+
+                <div ref={progressBarRef} onClick={handleSeek} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 28, zIndex: 15, cursor: 'pointer', display: 'flex', alignItems: 'flex-end' }}>
+                    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
+                        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
+                    </div>
+                </div>
+
+                {/* Right actions */}
+                <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
+                    <div style={{ position: 'relative', marginBottom: 4 }}>
+                        <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
+                        {!followed && !isOwner && auth?.user && <button onClick={handleFollow} style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: '#FF6B35', border: '2px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}><RiUserAddLine size={11} color="#fff" /></button>}
+                        {followed && <div style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiUserFollowLine size={11} color="#fff" /></div>}
+                    </div>
+                    <SideBtn onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
+                    <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
+                        <RiChat1Line size={28} color={tab === 'comments' ? '#FF6B35' : '#fff'} />
+                    </SideBtn>
+                    <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
+                    {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
+                    <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
+                    <button onClick={toggleMute} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
                     </button>
                 </div>
-            ) : (
-                <button
-                    onClick={() => router.visit('/login')}
-                    style={{
-                        width: '100%',
-                        padding: '11px',
-                        background: 'rgba(255,107,53,0.12)',
-                        border: '1px solid rgba(255,107,53,0.3)',
-                        borderRadius: 12,
-                        color: '#FF6B35',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                    }}
-                >
-                    Log in to comment
-                </button>
+
+                {/* Bottom info */}
+                <div className='lg:w-[50%]' style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
+                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
+                        {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                    </button>
+                    {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
+                    {video.description && <ExpandableDescription text={video.description} />}
+                    {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => <span key={i} style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}</div>}
+                    {video.user?.location && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RiMapPinLine size={11} color="rgba(255,255,255,0.55)" /><span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span></div>}
+                    {hasProducts && <button onClick={() => window.innerWidth < 768 ? openSheet('products') : setTab('products')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.45)', borderRadius: 999, padding: '6px 13px', backdropFilter: 'blur(8px)', cursor: 'pointer', width: 'fit-content', marginTop: 2 }}><RiShoppingBag2Line size={13} color="#FF6B35" /><span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop</span></button>}
+                </div>
+            </div>
+
+            {/* DESKTOP RIGHT PANEL */}
+            <div style={{ display: 'none', flexDirection: 'column', width: 340, flexShrink: 0, background: 'rgba(16,16,16,0.98)', borderLeft: '1px solid rgba(255,255,255,0.08)', height: '100%', overflowY: 'auto' }} className="video-show-panel">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                    <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.1)' }} /></button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
+                            {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{video.user?.username}</p>
+                    </div>
+                    {!isOwner && <button onClick={auth?.user ? handleFollow : () => router.visit('/login')} style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, border: 'none', background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed ? 'rgba(255,255,255,0.5)' : '#fff' }}>{followed ? 'Following' : 'Follow'}</button>}
+                </div>
+                {(video.title || video.description) && (
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                        {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
+                        {video.description && <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{video.description}</p>}
+                        {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => <span key={i} style={{ color: '#FF6B35', fontSize: 12, fontWeight: 600 }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}</div>}
+                        {/* Desktop share/download button row */}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                            <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                <RiShareForwardLine size={14} /> Share
+                            </button>
+                            <button onClick={download} disabled={dlState !== 'idle' && dlState !== 'error'}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: dlState === 'done' ? 'rgba(16,185,129,0.12)' : dlState === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: dlState === 'done' ? '#10B981' : dlState === 'error' ? '#EF4444' : '#fff', fontSize: 12, fontWeight: 600, cursor: (dlState === 'preparing' || dlState === 'processing') ? 'default' : 'pointer', opacity: (dlState === 'preparing' || dlState === 'processing') ? 0.5 : 1 }}>
+                                {(dlState === 'preparing' || dlState === 'processing') ? <RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiDownload2Line size={14} />}
+                                {{ idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState]}
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                    {[{ key: 'comments', label: `Comments (${fmt(commentsCount)})` }, ...(hasProducts ? [{ key: 'products', label: `Shop (${video.products.length})` }] : [])].map(t => (
+                        <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: '12px 8px', background: 'none', border: 'none', cursor: 'pointer', color: tab === t.key ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: tab === t.key ? 700 : 400, borderBottom: tab === t.key ? '2px solid #FF6B35' : '2px solid transparent', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>{t.label}</button>
+                    ))}
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    {tab === 'products' && hasProducts && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{video.products.map(p => <ProductRow key={p.id} product={p} />)}</div>}
+                    {tab === 'comments' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
+                                {loadingCmts && <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: '24px 0' }}>Loading...</p>}
+                                {!loadingCmts && comments.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0' }}><p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, margin: 0 }}>No comments yet</p></div>}
+                                {comments.map(c => <CommentItem key={c.id} comment={c} onReply={handleReply} onDelete={handleDeleteComment} currentUserId={auth?.user?.id} isAdmin={isAdmin} />)}
+                            </div>
+                            <CommentInput auth={auth} commentBody={commentBody} setCommentBody={setCommentBody} sending={sending} sendComment={sendComment} replyTo={replyTo} setReplyTo={setReplyTo} inputRef={commentInputRef} />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Mobile bottom sheets */}
+            {mobileSheet && mobileSheet !== 'share' && (
+                <>
+                    <div onClick={() => setMobileSheet(null)} style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.4)' }} />
+                    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: mobileSheet === 'comments' ? '55%' : 'auto', maxHeight: '60%', background: 'rgba(16,16,16,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', zIndex: 50, display: 'flex', flexDirection: 'column', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}><div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} /></div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 10px' }}>
+                            <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{mobileSheet === 'comments' ? `Comments (${fmt(commentsCount)})` : `Products (${video.products?.length})`}</span>
+                            <button onClick={() => setMobileSheet(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiCloseLine size={18} /></button>
+                        </div>
+                        {mobileSheet === 'products' && <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>{video.products?.map(p => <ProductRow key={p.id} product={p} />)}</div>}
+                        {mobileSheet === 'comments' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    {loadingCmts && <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
+                                    {!loadingCmts && comments.length === 0 && <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 14, padding: '32px 0' }}>No comments yet. Be the first!</p>}
+                                    {comments.map(c => <CommentItem key={c.id} comment={c} onReply={handleReply} onDelete={handleDeleteComment} currentUserId={auth?.user?.id} isAdmin={isAdmin} />)}
+                                </div>
+                                <CommentInput auth={auth} commentBody={commentBody} setCommentBody={setCommentBody} sending={sending} sendComment={sendComment} replyTo={replyTo} setReplyTo={setReplyTo} inputRef={commentInputRef} />
+                            </div>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     );
+}
 
-    const videoSrc = video.video_stream_url ?? video.hls_url ?? video.video_url;
+// ─────────────────────────────────────────────────────────────────────────────
+// VideoShow — scroll container
+// ─────────────────────────────────────────────────────────────────────────────
+export default function VideoShow({ video, isLiked, isSaved, isFollowing, initialSellerVideos = [] }) {
+    const [sellerVideos,  setSellerVideos]  = useState(initialSellerVideos);
+    const [sellerCursor,  setSellerCursor]  = useState(initialSellerVideos.length);
+    const [sellerHasMore, setSellerHasMore] = useState(true);
+    const [loadingMore,   setLoadingMore]   = useState(false);
+    const [activeIdx,     setActiveIdx]     = useState(0);
+    const sentinelRef = useRef(null);
+    const slideRefs   = useRef([]);
+
+    const mainVideo = { ...video, is_liked: isLiked, is_saved: isSaved, is_following: isFollowing };
+    const allVideos = [mainVideo, ...sellerVideos];
+
+    useEffect(() => {
+        const observers = [];
+        slideRefs.current.forEach((el, i) => {
+            if (!el) return;
+            const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) setActiveIdx(i); }, { threshold: 0.6 });
+            obs.observe(el);
+            observers.push(obs);
+        });
+        return () => observers.forEach(o => o.disconnect());
+    }, [allVideos.length]);
+
+    const loadMore = useCallback(async () => {
+        if (loadingMore || !sellerHasMore) return;
+        setLoadingMore(true);
+        try {
+            const { data } = await axios.get('/api/feed', { params: { type: 'seller', seller_id: video.user_id, exclude_ulid: video.ulid, cursor: sellerCursor, limit: 10 }, withCredentials: true });
+            const incoming = data.data ?? [];
+            setSellerVideos(prev => { const seen = new Set(prev.map(v => v.ulid)); return [...prev, ...incoming.filter(v => !seen.has(v.ulid))]; });
+            setSellerCursor(c => c + incoming.length);
+            setSellerHasMore(data.has_more ?? false);
+        } catch {} finally { setLoadingMore(false); }
+    }, [loadingMore, sellerHasMore, sellerCursor, video.user_id, video.ulid]);
+
+    useEffect(() => { if (activeIdx >= allVideos.length - 2 && sellerHasMore && !loadingMore) loadMore(); }, [activeIdx, allVideos.length]);
+
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadMore(); }, { threshold: 0.1 });
+        obs.observe(sentinelRef.current);
+        return () => obs.disconnect();
+    }, [loadMore]);
 
     return (
         <>
             <Head title={video.title || `${video.user?.name} on Flockr`} />
-
-            {/* Share sheet */}
-            {mobileSheet === 'share' && <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} />}
-
-            <div style={{ display: 'flex', height: '100%', minHeight: '100dvh', background: '#000', overflow: 'hidden' }}>
-                {/* ── VIDEO COLUMN ─────────────────────────────────────────── */}
-                <div
-                    style={{
-                        flex: 1,
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: '#000',
-                        overflow: 'hidden',
-                        minWidth: 0,
-                    }}
-                >
-                    <video
-                        ref={videoRef}
-                        src={videoSrc}
-                        poster={video.thumbnail_url_full}
-                        muted
-                        loop
-                        playsInline
-                        preload="metadata"
-                        onCanPlay={() => setLoading(false)}
-                        onWaiting={() => setLoading(true)}
-                        onPlay={() => setPlaying(true)}
-                        onPause={() => setPlaying(false)}
-                        onClick={handleVideoTap}
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
-                    />
-
-                    {/* Gradients */}
-                    <div
-                        style={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)',
-                            pointerEvents: 'none',
-                        }}
-                    />
-                    <div
-                        style={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)',
-                            pointerEvents: 'none',
-                        }}
-                    />
-
-                    {/* ── Top bar ─────────────────────────────────────────── */}
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            zIndex: 20,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '12px 14px',
-                        }}
-                    >
-                        <button
-                            onClick={() => window.history.back()}
-                            style={{
-                                width: 38,
-                                height: 38,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.45)',
-                                backdropFilter: 'blur(8px)',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: '#fff',
-                            }}
-                        >
-                            <RiArrowLeftLine size={20} />
-                        </button>
-
-                        {/* Search overlay or search icon */}
-                        {showSearch ? (
-                            <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, margin: '0 10px' }}>
-                                <input
-                                    ref={searchInputRef}
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder="Search products, sellers..."
-                                    onKeyDown={(e) => e.key === 'Escape' && setShowSearch(false)}
-                                    style={{
-                                        flex: 1,
-                                        background: 'rgba(0,0,0,0.6)',
-                                        backdropFilter: 'blur(12px)',
-                                        border: '1px solid rgba(255,255,255,0.2)',
-                                        borderRadius: 999,
-                                        padding: '8px 16px',
-                                        color: '#fff',
-                                        fontSize: 13,
-                                        outline: 'none',
-                                    }}
-                                />
-                                <button
-                                    onClick={() => {
-                                        setShowSearch(false);
-                                        setSearchQuery('');
-                                    }}
-                                    style={{
-                                        background: 'rgba(0,0,0,0.45)',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        color: 'rgba(255,255,255,0.6)',
-                                        fontSize: 13,
-                                        padding: '8px 12px',
-                                        borderRadius: 999,
-                                        backdropFilter: 'blur(8px)',
-                                        flexShrink: 0,
-                                    }}
-                                >
-                                    Cancel
-                                </button>
-                            </form>
-                        ) : (
-                            <button
-                                onClick={() => setShowSearch(true)}
-                                style={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: '50%',
-                                    background: 'rgba(0,0,0,0.45)',
-                                    backdropFilter: 'blur(8px)',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#fff',
-                                }}
-                            >
-                                <RiSearchLine size={20} />
-                            </button>
-                        )}
+            <div style={{ width: '100%', height: '100dvh', overflowY: 'scroll', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#000' }}>
+                {allVideos.map((v, i) => (
+                    <div key={v.ulid} ref={el => slideRefs.current[i] = el} style={{ width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', overflow: 'hidden', position: 'relative' }}>
+                        <VideoSlide video={v} isActive={activeIdx === i} showBackBtn={i > 0} onBack={() => slideRefs.current[i - 1]?.scrollIntoView({ behavior: 'smooth' })} />
                     </div>
-
-                    {/* Spinner */}
-                    {loading && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                pointerEvents: 'none',
-                                zIndex: 5,
-                            }}
-                        >
-                            <div
-                                style={{
-                                    width: 36,
-                                    height: 36,
-                                    border: '2px solid rgba(255,255,255,0.2)',
-                                    borderTopColor: '#FF6B35',
-                                    borderRadius: '50%',
-                                    animation: 'spin 0.8s linear infinite',
-                                }}
-                            />
-                        </div>
-                    )}
-
-                    {/* Double-tap heart */}
-                    {tapFlash && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                pointerEvents: 'none',
-                                zIndex: 5,
-                            }}
-                        >
-                            <RiHeartFill
-                                size={90}
-                                color="#EF4444"
-                                style={{ filter: 'drop-shadow(0 0 20px rgba(239,68,68,0.5))', animation: 'heartPop 0.7s ease forwards' }}
-                            />
-                        </div>
-                    )}
-
-                    {/* Play/pause flash */}
-                    {showPP && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                pointerEvents: 'none',
-                                zIndex: 5,
-                            }}
-                        >
-                            <div
-                                style={{
-                                    width: 56,
-                                    height: 56,
-                                    borderRadius: '50%',
-                                    background: 'rgba(0,0,0,0.5)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}
-                            >
-                                {playing ? (
-                                    <svg width={22} height={22} fill="white" viewBox="0 0 24 24">
-                                        <path
-                                            fillRule="evenodd"
-                                            d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z"
-                                            clipRule="evenodd"
-                                        />
-                                    </svg>
-                                ) : (
-                                    <svg width={22} height={22} fill="white" viewBox="0 0 24 24">
-                                        <path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                                    </svg>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ── FIXED Progress bar — taller hit area, ref attached ─ */}
-                    <div
-                        ref={progressBarRef}
-                        onClick={handleSeek}
-                        style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            // 24px tall hit area so it's easy to tap/click
-                            height: 24,
-                            zIndex: 10,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                        }}
-                    >
-                        {/* Visual bar — only 4px, sits at the bottom */}
-                        <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
-                            <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
-                        </div>
+                ))}
+                {loadingMore && (
+                    <div style={{ width: '100%', padding: '40px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, scrollSnapAlign: 'start' }}>
+                        <div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0 }}>Loading more videos…</p>
                     </div>
-
-                    {/* ── Right action buttons ─────────────────────────────── */}
-                    <div
-                        style={{
-                            position: 'absolute',
-                            right: 10,
-                            bottom: 32,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: 20,
-                            zIndex: 10,
-                        }}
-                    >
-                        {/* Avatar + follow */}
-                        <div style={{ position: 'relative', marginBottom: 4 }}>
-                            <button onClick={() => router.visit(`/@${video.user?.username}`)}>
-                                <img
-                                    src={avatarSrc}
-                                    alt=""
-                                    style={{
-                                        width: 44,
-                                        height: 44,
-                                        borderRadius: '50%',
-                                        objectFit: 'cover',
-                                        border: '2px solid #fff',
-                                        display: 'block',
-                                    }}
-                                />
-                            </button>
-                            {!followed && !isOwner && auth?.user && (
-                                <button
-                                    onClick={handleFollow}
-                                    style={{
-                                        position: 'absolute',
-                                        bottom: -10,
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        width: 22,
-                                        height: 22,
-                                        borderRadius: '50%',
-                                        background: '#FF6B35',
-                                        border: '2px solid #000',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                        zIndex: 2,
-                                    }}
-                                >
-                                    <RiUserAddLine size={11} color="#fff" />
-                                </button>
-                            )}
-                            {followed && (
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        bottom: -10,
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        width: 22,
-                                        height: 22,
-                                        borderRadius: '50%',
-                                        background: 'rgba(0,0,0,0.6)',
-                                        border: '2px solid rgba(255,255,255,0.3)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                >
-                                    <RiUserFollowLine size={11} color="#fff" />
-                                </div>
-                            )}
-                        </div>
-
-                        <SideBtn onClick={handleLike} label={fmt(likesCount)}>
-                            {liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}
-                        </SideBtn>
-
-                        <SideBtn
-                            onClick={() => {
-                                if (!auth?.user) return router.visit('/login');
-                                if (window.innerWidth < 768) openSheet('comments');
-                                else setTab('comments');
-                            }}
-                            label={fmt(commentsCount)}
-                        >
-                            <RiChat1Line size={28} color={tab === 'comments' ? '#FF6B35' : '#fff'} />
-                        </SideBtn>
-
-                        <SideBtn onClick={handleSave} label={fmt(savesCount)}>
-                            {saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}
-                        </SideBtn>
-
-                        {hasProducts && (
-                            <SideBtn
-                                onClick={() => {
-                                    if (window.innerWidth < 768) openSheet('products');
-                                    else setTab('products');
-                                }}
-                                label={video.products.length}
-                            >
-                                <RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} />
-                            </SideBtn>
-                        )}
-
-                        {/* Share — opens share sheet on mobile, or native share */}
-                        <SideBtn
-                            onClick={() => {
-                                if (window.innerWidth < 768) openSheet('share');
-                                else {
-                                    if (navigator.share) navigator.share({ title: video.title, url: videoUrl }).catch(() => {});
-                                    else openSheet('share');
-                                }
-                            }}
-                            label="Share"
-                        >
-                            <RiShareForwardLine size={28} color="#fff" />
-                        </SideBtn>
-
-                        <button
-                            onClick={toggleMute}
-                            style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.45)',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                            }}
-                        >
-                            {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
-                        </button>
-                    </div>
-
-                    {/* ── Bottom info overlay ───────────────────────────────── */}
-                    <div
-                        style={{
-                            position: 'absolute',
-                            bottom: 36,
-                            left: 12,
-                            right: 68,
-                            zIndex: 10,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 5,
-                        }}
-                    >
-                        <button
-                            onClick={() => router.visit(`/@${video.user?.username}`)}
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: 0,
-                                width: 'fit-content',
-                            }}
-                        >
-                            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>
-                                {video.user?.name}
-                            </span>
-                            {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
-                        </button>
-                        {video.title && (
-                            <p
-                                style={{
-                                    color: '#fff',
-                                    fontSize: 13,
-                                    fontWeight: 600,
-                                    margin: 0,
-                                    lineHeight: 1.35,
-                                    textShadow: '0 1px 4px rgba(0,0,0,0.7)',
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                {video.title}
-                            </p>
-                        )}
-                        {video.description && (
-                            <p
-                                style={{
-                                    color: 'rgba(255,255,255,0.85)',
-                                    fontSize: 12,
-                                    margin: 0,
-                                    lineHeight: 1.4,
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                {video.description}
-                            </p>
-                        )}
-                        {video.hashtags?.length > 0 && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                {video.hashtags.slice(0, 5).map((tag, i) => (
-                                    <span
-                                        key={i}
-                                        style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
-                                    >
-                                        {tag.startsWith('#') ? tag : `#${tag}`}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
-                        {video.user?.location && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <RiMapPinLine size={11} color="rgba(255,255,255,0.55)" />
-                                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span>
-                            </div>
-                        )}
-                        {hasProducts && (
-                            <button
-                                onClick={() => (window.innerWidth < 768 ? openSheet('products') : setTab('products'))}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    background: 'rgba(255,107,53,0.18)',
-                                    border: '1px solid rgba(255,107,53,0.45)',
-                                    borderRadius: 999,
-                                    padding: '6px 13px',
-                                    backdropFilter: 'blur(8px)',
-                                    cursor: 'pointer',
-                                    width: 'fit-content',
-                                    marginTop: 2,
-                                }}
-                            >
-                                <RiShoppingBag2Line size={13} color="#FF6B35" />
-                                <span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>
-                                    {video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop
-                                </span>
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* ── RIGHT PANEL (desktop) ────────────────────────────────── */}
-                <div
-                    style={{
-                        display: 'none',
-                        flexDirection: 'column',
-                        width: 340,
-                        flexShrink: 0,
-                        background: 'rgba(16,16,16,0.98)',
-                        borderLeft: '1px solid rgba(255,255,255,0.08)',
-                        height: '100%',
-                        minHeight: '100dvh',
-                        overflowY: 'auto',
-                    }}
-                    className="video-show-panel"
-                >
-                    {/* Creator header */}
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '16px',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                            flexShrink: 0,
-                        }}
-                    >
-                        <button onClick={() => router.visit(`/@${video.user?.username}`)}>
-                            <img
-                                src={avatarSrc}
-                                alt=""
-                                style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.1)' }}
-                            />
-                        </button>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <button
-                                    onClick={() => router.visit(`/@${video.user?.username}`)}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        color: '#fff',
-                                        fontWeight: 700,
-                                        fontSize: 14,
-                                        padding: 0,
-                                    }}
-                                >
-                                    {video.user?.name ?? video.user?.username}
-                                </button>
-                                {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
-                            </div>
-                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{video.user?.username}</p>
-                        </div>
-                        {!isOwner && (
-                            <button
-                                onClick={auth?.user ? handleFollow : () => router.visit('/login')}
-                                style={{
-                                    padding: '7px 16px',
-                                    borderRadius: 999,
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    flexShrink: 0,
-                                    border: 'none',
-                                    background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35',
-                                    color: followed ? 'rgba(255,255,255,0.5)' : '#fff',
-                                }}
-                            >
-                                {followed ? 'Following' : 'Follow'}
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Caption */}
-                    {(video.title || video.description || video.hashtags?.length > 0) && (
-                        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                            {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
-                            {video.description && (
-                                <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>{video.description}</p>
-                            )}
-                            {video.hashtags?.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                                    {video.hashtags.map((tag, i) => (
-                                        <span key={i} style={{ color: '#FF6B35', fontSize: 12, fontWeight: 600 }}>
-                                            {tag.startsWith('#') ? tag : `#${tag}`}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Tabs */}
-                    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                        {[
-                            { key: 'comments', label: `Comments (${fmt(commentsCount)})` },
-                            ...(hasProducts ? [{ key: 'products', label: `Shop (${video.products.length})` }] : []),
-                        ].map((t) => (
-                            <button
-                                key={t.key}
-                                onClick={() => setTab(t.key)}
-                                style={{
-                                    flex: 1,
-                                    padding: '12px 8px',
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    color: tab === t.key ? '#fff' : 'rgba(255,255,255,0.35)',
-                                    fontSize: 12,
-                                    fontWeight: tab === t.key ? 700 : 400,
-                                    borderBottom: tab === t.key ? '2px solid #FF6B35' : '2px solid transparent',
-                                    transition: 'all 0.15s',
-                                    whiteSpace: 'nowrap',
-                                }}
-                            >
-                                {t.label}
-                            </button>
-                        ))}
-                        {/* Desktop share button */}
-                        <button
-                            onClick={() => openSheet('share')}
-                            style={{
-                                padding: '12px 16px',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: 'rgba(255,255,255,0.35)',
-                                fontSize: 12,
-                                borderBottom: '2px solid transparent',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                            }}
-                        >
-                            <RiShareForwardLine size={14} /> Share
-                        </button>
-                    </div>
-
-                    {/* Tab content */}
-                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                        {tab === 'products' && hasProducts && (
-                            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {video.products.map((p) => (
-                                    <ProductRow key={p.id} product={p} />
-                                ))}
-                            </div>
-                        )}
-
-                        {tab === 'comments' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                                <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
-                                    {loadingCmts && (
-                                        <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: '24px 0' }}>
-                                            Loading...
-                                        </p>
-                                    )}
-                                    {!loadingCmts && comments.length === 0 && (
-                                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                                            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, margin: 0 }}>No comments yet</p>
-                                        </div>
-                                    )}
-                                    {comments.map((c) => (
-                                        <CommentItem
-                                            key={c.id}
-                                            comment={c}
-                                            onReply={handleReply}
-                                            onDelete={handleDeleteComment}
-                                            currentUserId={auth?.user?.id}
-                                            isAdmin={isAdmin}
-                                        />
-                                    ))}
-                                </div>
-                                <CommentInput />
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* ── Mobile bottom sheets ──────────────────────────────────── */}
-                {mobileSheet && mobileSheet !== 'share' && (
-                    <>
-                        <div
-                            onClick={() => setMobileSheet(null)}
-                            style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.4)' }}
-                        />
-                        <div
-                            style={{
-                                position: 'fixed',
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                height: mobileSheet === 'comments' ? '55%' : 'auto',
-                                maxHeight: '60%',
-                                background: 'rgba(16,16,16,0.98)',
-                                backdropFilter: 'blur(24px)',
-                                borderRadius: '20px 20px 0 0',
-                                borderTop: '1px solid rgba(255,255,255,0.08)',
-                                zIndex: 50,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
-                                <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 10px' }}>
-                                <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
-                                    {mobileSheet === 'comments' ? `Comments (${fmt(commentsCount)})` : `Products (${video.products?.length})`}
-                                </span>
-                                <button
-                                    onClick={() => setMobileSheet(null)}
-                                    style={{
-                                        background: 'rgba(255,255,255,0.1)',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        color: '#fff',
-                                        width: 30,
-                                        height: 30,
-                                        borderRadius: '50%',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                >
-                                    <RiCloseLine size={18} />
-                                </button>
-                            </div>
-
-                            {mobileSheet === 'products' && (
-                                <div
-                                    style={{ flex: 1, overflowY: 'auto', padding: '0 16px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}
-                                >
-                                    {video.products?.map((p) => (
-                                        <ProductRow key={p.id} product={p} />
-                                    ))}
-                                </div>
-                            )}
-
-                            {mobileSheet === 'comments' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                                    <div
-                                        style={{
-                                            flex: 1,
-                                            overflowY: 'auto',
-                                            padding: '0 16px 8px',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: 2,
-                                        }}
-                                    >
-                                        {loadingCmts && (
-                                            <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-                                                <div
-                                                    style={{
-                                                        width: 24,
-                                                        height: 24,
-                                                        border: '2px solid rgba(255,255,255,0.1)',
-                                                        borderTopColor: '#FF6B35',
-                                                        borderRadius: '50%',
-                                                        animation: 'spin 0.8s linear infinite',
-                                                    }}
-                                                />
-                                            </div>
-                                        )}
-                                        {!loadingCmts && comments.length === 0 && (
-                                            <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 14, padding: '32px 0' }}>
-                                                No comments yet. Be the first!
-                                            </p>
-                                        )}
-                                        {comments.map((c) => (
-                                            <CommentItem
-                                                key={c.id}
-                                                comment={c}
-                                                onReply={handleReply}
-                                                onDelete={handleDeleteComment}
-                                                currentUserId={auth?.user?.id}
-                                                isAdmin={isAdmin}
-                                            />
-                                        ))}
-                                    </div>
-                                    <CommentInput />
-                                </div>
-                            )}
-                        </div>
-                    </>
                 )}
+                <div ref={sentinelRef} style={{ height: 1 }} />
             </div>
-
             <style>{`
                 @media (min-width: 768px) { .video-show-panel { display: flex !important; } }
+                ::-webkit-scrollbar { display: none; }
                 @keyframes spin { to { transform: rotate(360deg); } }
                 @keyframes heartPop { 0%{transform:scale(0);opacity:1} 50%{transform:scale(1.2)} 100%{transform:scale(1);opacity:0} }
                 @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
@@ -1594,5 +789,3 @@ export default function VideoShow({ video, isLiked: initLiked, isSaved: initSave
         </>
     );
 }
-
-// VideoShow.layout = (page) => <AppLayout>{page}</AppLayout>;

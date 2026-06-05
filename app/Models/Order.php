@@ -146,6 +146,8 @@ class Order extends Model
                 $this->seller->increment('revenue_total', $sellerAmount);
             }
         });
+        // Notify the SELLER about the new order
+        $this->seller->notify(new \App\Notifications\NewOrderNotification($this));
     }
 
     public function getFormattedTotalAttribute(): string

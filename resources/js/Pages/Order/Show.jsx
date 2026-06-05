@@ -22,6 +22,9 @@ import {
   RiShoppingBagLine,
   RiFileCopyLine,
   RiCheckLine,
+  RiSecurePaymentLine,
+  RiLoader4Line,
+  RiBankCardLine,
 } from 'react-icons/ri'
 
 const STATUS_CONFIG = {
@@ -45,22 +48,56 @@ const TRACKING_STEPS = [
 ]
 
 function fmt(d) {
-  return new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleDateString('en-NG', {
+    day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
 export default function OrderShow({ order }) {
   const { auth } = usePage().props
-  const [cancelling, setCancelling] = useState(false)
-  const [copied,     setCopied]     = useState(false)
+  const [cancelling,         setCancelling]         = useState(false)
+  const [copied,             setCopied]             = useState(false)
+  const [resumingPayment,    setResumingPayment]    = useState(false)
+  const [toast, setToast] = useState(null) 
+
+  const showToast = (msg, type = 'error') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 4000)
+}
+
 
   const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
   const StatusIcon = cfg.Icon
   const isBuyer    = auth?.user?.id === order.buyer_id
   const isSeller   = auth?.user?.id === order.seller_id
+
+  // Only buyers can cancel/complete; only on cancellable statuses
   const canCancel  = isBuyer && ['pending', 'paid', 'confirmed'].includes(order.status)
+  // Show "Complete Payment" only for buyer on a pending (unpaid) order
+  const canResume  = isBuyer && order.status === 'pending'
 
   const currentStepIdx = TRACKING_STEPS.findIndex(s => s.key === order.status)
   const showTracking   = !['cancelled', 'refunded'].includes(order.status)
+
+  // ── Resume payment ───────────────────────────────────────────────────────────
+  // Re-initializes the Paystack transaction for this order's reference.
+  // The backend checks if the reference already exists on Paystack and either
+  // returns the existing authorization URL or creates a new transaction.
+  const handleResumePayment = async () => {
+    setResumingPayment(true)
+    try {
+      const { data } = await axios.post('/api/orders/resume-payment', {
+        order_id: order.id,
+      })
+      // Redirect to Paystack checkout
+      window.location.href = data.authorization_url
+    } catch (err) {
+      showToast(err.response?.data?.message ?? 'Could not resume payment. Please try again.')
+    } finally {
+      setResumingPayment(false)
+    }
+  }
 
   const handleCancel = async () => {
     if (!confirm('Are you sure you want to cancel this order?')) return
@@ -69,7 +106,7 @@ export default function OrderShow({ order }) {
       await axios.post(`/api/orders/${order.id}/cancel`, { reason: 'Cancelled by buyer' })
       router.reload()
     } catch (err) {
-      alert(err.response?.data?.message ?? 'Failed to cancel order.')
+      showToast(err.response?.data?.message ?? 'Failed to cancel order.')
     } finally { setCancelling(false) }
   }
 
@@ -95,11 +132,59 @@ export default function OrderShow({ order }) {
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>{fmt(order.created_at)}</p>
           </div>
           <button onClick={handleCopyRef} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 12, flexShrink: 0 }}>
-            {copied ? <><RiCheckLine size={13} color="#10B981" /><span style={{ color: '#10B981' }}>Copied</span></> : <><RiFileCopyLine size={13} />Copy ref</>}
+            {copied
+              ? <><RiCheckLine size={13} color="#10B981" /><span style={{ color: '#10B981' }}>Copied</span></>
+              : <><RiFileCopyLine size={13} />Copy ref</>
+            }
           </button>
         </div>
 
         <div style={{ maxWidth: 680, margin: '0 auto', padding: '20px 16px 100px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* ── COMPLETE PAYMENT BANNER — shown prominently for pending orders ── */}
+          {canResume && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(255,107,53,0.15), rgba(255,107,53,0.05))',
+              border: '1px solid rgba(255,107,53,0.3)',
+              borderRadius: 24, padding: '20px',
+              display: 'flex', flexDirection: 'column', gap: 14,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 16, background: 'rgba(255,107,53,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <RiBankCardLine size={24} color="#FF6B35" />
+                </div>
+                <div>
+                  <p style={{ margin: 0, color: '#FF6B35', fontWeight: 700, fontSize: 15 }}>Payment Incomplete</p>
+                  <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: 13, lineHeight: 1.4 }}>
+                    Your order was created but payment wasn't completed. Complete payment to confirm your order.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleResumePayment}
+                disabled={resumingPayment}
+                style={{
+                  width: '100%', padding: '15px',
+                  borderRadius: 16,
+                  background: resumingPayment ? 'rgba(255,107,53,0.5)' : '#FF6B35',
+                  border: 'none', cursor: resumingPayment ? 'not-allowed' : 'pointer',
+                  color: '#fff', fontWeight: 800, fontSize: 15,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                {resumingPayment
+                  ? <><RiLoader4Line size={18} style={{ animation: 'spin 0.8s linear infinite' }} /> Redirecting to Paystack...</>
+                  : <><RiSecurePaymentLine size={18} /> Complete Payment · ₦{Number(order.total).toLocaleString()}</>
+                }
+              </button>
+
+              <p style={{ margin: 0, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
+                You will be redirected to Paystack's secure payment page
+              </p>
+            </div>
+          )}
 
           {/* Status hero */}
           <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 24, padding: '24px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -110,6 +195,9 @@ export default function OrderShow({ order }) {
               <p style={{ margin: '0 0 3px', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Order Status</p>
               <p style={{ margin: 0, color: cfg.text, fontWeight: 800, fontSize: 20 }}>{cfg.label}</p>
               {order.paid_at && <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Paid {fmt(order.paid_at)}</p>}
+              {order.status === 'pending' && !order.paid_at && (
+                <p style={{ margin: '3px 0 0', color: 'rgba(234,179,8,0.7)', fontSize: 11 }}>Awaiting payment</p>
+              )}
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 22 }}>₦{Number(order.total).toLocaleString()}</p>
@@ -129,7 +217,6 @@ export default function OrderShow({ order }) {
                   const isLast  = i === TRACKING_STEPS.length - 1
                   return (
                     <div key={step.key} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                      {/* Line + dot */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, width: 32 }}>
                         <div style={{
                           width: 32, height: 32, borderRadius: '50%',
@@ -144,10 +231,10 @@ export default function OrderShow({ order }) {
                           <div style={{ width: 2, flex: 1, minHeight: 20, background: done && i < currentStepIdx ? '#10B981' : 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
                         )}
                       </div>
-                      {/* Label */}
                       <div style={{ paddingBottom: isLast ? 0 : 20, paddingTop: 5 }}>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: current ? 700 : 500, color: done ? '#fff' : 'rgba(255,255,255,0.3)' }}>{step.label}</p>
-                        {current && <p style={{ margin: '2px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Current status</p>}
+                        {current && order.status !== 'pending' && <p style={{ margin: '2px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Current status</p>}
+                        {current && order.status === 'pending' && <p style={{ margin: '2px 0 0', fontSize: 11, color: 'rgba(234,179,8,0.6)' }}>Awaiting payment</p>}
                       </div>
                     </div>
                   )
@@ -206,9 +293,9 @@ export default function OrderShow({ order }) {
           <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden' }}>
             <p style={{ margin: 0, padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Price Breakdown</p>
             {[
-              { label: 'Subtotal',       value: order.subtotal },
-              { label: 'Shipping',       value: order.shipping_fee },
-              { label: 'Platform fee',   value: order.platform_fee },
+              { label: 'Subtotal',     value: order.subtotal },
+              { label: 'Shipping',     value: order.shipping_fee },
+              { label: 'Platform fee', value: order.platform_fee },
             ].map(({ label, value }) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                 <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{label}</span>
@@ -223,7 +310,7 @@ export default function OrderShow({ order }) {
 
           {/* Seller card */}
           {order.seller && (
-            <Link href={`/@${order.seller.username}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, textDecoration: 'none', transition: 'border-color 0.15s' }}>
+            <Link href={`/@${order.seller.username}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, textDecoration: 'none' }}>
               <img
                 src={order.seller.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(order.seller.name ?? 'S')}&background=1a1a1a`}
                 alt={order.seller.name}
@@ -280,7 +367,7 @@ export default function OrderShow({ order }) {
             </p>
           </div>
 
-          {/* Cancel button */}
+          {/* Cancel button — only for cancellable non-pending orders, or pending if buyer wants to abandon */}
           {canCancel && (
             <button
               onClick={handleCancel}
@@ -292,7 +379,7 @@ export default function OrderShow({ order }) {
             </button>
           )}
 
-          {/* Seller view — different CTA */}
+          {/* Seller view CTA */}
           {isSeller && (
             <Link href="/seller/orders" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', borderRadius: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
               <RiStoreLine size={16} /> View all your orders
@@ -301,6 +388,26 @@ export default function OrderShow({ order }) {
 
         </div>
       </div>
+
+      {toast && (
+    <div style={{
+        position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+        zIndex: 999, pointerEvents: 'none',
+        background: toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(16,185,129,0.95)',
+        backdropFilter: 'blur(12px)',
+        color: '#fff', padding: '12px 20px', borderRadius: 999,
+        fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+        animation: 'slideUp 0.2s ease',
+    }}>
+        {toast.msg}
+    </div>
+)}
+
+      <style>{`
+      @keyframes spin { to { transform: rotate(360deg); } }
+       @keyframes slideUp { from { opacity:0; transform: translateX(-50%) translateY(10px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+      `}</style>
     </>
   )
 }

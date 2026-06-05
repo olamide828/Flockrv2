@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Comment;
+use App\Models\UserBlock;
 use App\Models\Video;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,24 +13,44 @@ class CommentController extends Controller
 {
     /**
      * GET /api/videos/{video}/comments
-     *
-     * FIX: Route uses {video} which binds by primary key (id integer).
-     * The ULID issue was causing 404 because routes were trying to find
-     * by ulid column. We explicitly bind by id here.
+     * Filters out comments from users blocked by the current user,
+     * and users who have blocked the current user.
      */
     public function index(Video $video): JsonResponse
     {
-        $comments = $video->comments()
+        // Get IDs of users involved in a block relationship with current user
+        $blockedIds = collect();
+        if (Auth::check()) {
+            $userId = Auth::id();
+            // Users I blocked
+            $iBlocked = UserBlock::where('blocker_id', $userId)->pluck('blocked_id');
+            // Users who blocked me
+            $blockedMe = UserBlock::where('blocked_id', $userId)->pluck('blocker_id');
+            $blockedIds = $iBlocked->merge($blockedMe)->unique();
+        }
+
+        $query = $video->comments()
             ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
             ->orderByDesc('is_pinned')
-            ->orderByDesc('created_at')
-            ->paginate(30);
+            ->orderByDesc('created_at');
 
-        // Append avatar_url accessor to each user
-        $comments->getCollection()->transform(function ($comment) {
-            $comment->user?->append([]);
+        // Exclude top-level comments from blocked users
+        if ($blockedIds->isNotEmpty()) {
+            $query->whereNotIn('user_id', $blockedIds);
+        }
+
+        $comments = $query->paginate(30);
+
+        // Also filter replies from blocked users
+        $comments->getCollection()->transform(function ($comment) use ($blockedIds) {
             if ($comment->user) {
                 $comment->user->avatar_url = $comment->user->avatar_url;
+            }
+            if ($blockedIds->isNotEmpty() && $comment->relationLoaded('replies')) {
+                $comment->setRelation(
+                    'replies',
+                    $comment->replies->filter(fn($r) => !$blockedIds->contains($r->user_id))->values()
+                );
             }
             return $comment;
         });
@@ -50,11 +71,16 @@ class CommentController extends Controller
             'parent_id' => $validated['parent_id'] ?? null,
         ]);
 
+        if ($video->user_id !== Auth::id()) {
+            try {
+                $video->user->notify(new \App\Notifications\NewCommentNotification(Auth::user(), $comment));
+            } catch (\Throwable) {}
+        }
+
         $video->increment('comments_count');
 
         $comment->load('user:id,name,username,avatar');
 
-        // Manually append avatar_url
         $data = $comment->toArray();
         $data['user']['avatar_url'] = $comment->user?->avatar_url;
 

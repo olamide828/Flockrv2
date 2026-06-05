@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BuyerOnboardingController;
+use App\Http\Controllers\CartController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\VideoController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserDashboardController;
 use App\Http\Controllers\FollowController;
+use App\Http\Controllers\NotificationController;
 
 // ── Public pages ──────────────────────────────────────────────────────────────
 Route::get('/', [VideoController::class, 'index'])->name('home');
@@ -70,6 +72,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/password', [SettingsController::class, 'updatePassword']);
     Route::post('/settings/bank', [SettingsController::class, 'updateBank']);
     Route::patch('/settings/notifications', [SettingsController::class, 'updateNotifications']);
+    Route::get('/cart', [CartController::class, 'index'])->name('cart');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
 
     // Seller onboarding — no role middleware (user IS seller but not yet set up)
     Route::get('/seller/onboarding', [AuthController::class, 'sellerOnboarding'])->name('seller.onboarding');

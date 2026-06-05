@@ -1,16 +1,16 @@
 import { Link, router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import axios from 'axios';
+import { useEffect, useState } from 'react';
+import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
-    // RiAddCircleLine,
     RiBarChart2Line,
     RiHome5Line,
     RiLogoutBoxLine,
-    RiMessage2Line,
     RiSearchLine,
     RiSettings4Line,
     RiShoppingBag2Line,
+    RiShoppingCart2Line,
     RiUploadCloud2Line,
-    // RiUserFill,
     RiUserLine,
 } from 'react-icons/ri';
 
@@ -18,7 +18,7 @@ const NAV_ITEMS = [
     { href: '/', Icon: RiHome5Line, label: 'For You' },
     { href: '/explore', Icon: RiSearchLine, label: 'Explore' },
     { href: '/shop', Icon: RiShoppingBag2Line, label: 'Shop' },
-    { href: '/inbox', Icon: RiMessage2Line, label: 'Inbox' },
+    { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
 ];
 
 export default function AppLayout({ children }) {
@@ -26,11 +26,22 @@ export default function AppLayout({ children }) {
     const currentUrl = usePage().url;
     const [search, setSearch] = useState('');
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [cartCount, setCartCount] = useState(0);
 
-    // Feed and single video pages need full-screen (no chrome)
     const isFeed = currentUrl === '/';
     const isVideoPage = currentUrl.startsWith('/video/');
     const isFullScreen = isFeed || isVideoPage;
+
+    // ── Unread message count from shared props ────────────────────────────────
+    // Make sure HandleInertiaRequests shares this — see note at bottom of file
+    const [unreadMessages, setUnreadMessages] = useState(auth?.user?.unread_messages ?? 0);
+
+    useEffect(() => {
+        const handler = (e) => setUnreadMessages(e.detail ?? 0);
+        window.addEventListener('flockr:unread', handler);
+        return () => window.removeEventListener('flockr:unread', handler);
+    }, []);
+
     const handleLogout = () => router.post('/logout');
     const handleSearch = (e) => {
         e.preventDefault();
@@ -39,21 +50,35 @@ export default function AppLayout({ children }) {
 
     const profileHref = auth?.user ? `/@${auth.user.username}` : '/login';
     const profileActive = auth?.user ? currentUrl.startsWith(`/@${auth.user.username}`) : currentUrl === '/login';
-    const isActive = (href) => {
-        return currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
-    };
+
+    const isActive = (href) => currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
+
+    useEffect(() => {
+        // Load initial count
+        if (auth?.user) {
+            axios
+                .get('/api/cart/count')
+                .then((r) => setCartCount(r.data.count))
+                .catch(() => {});
+        }
+        // Listen for cart updates
+        const handler = () => {
+            if (auth?.user) {
+                axios
+                    .get('/api/cart/count')
+                    .then((r) => setCartCount(r.data.count))
+                    .catch(() => {});
+            }
+        };
+        window.addEventListener('flockr:cart', handler);
+        return () => window.removeEventListener('flockr:cart', handler);
+    }, [auth?.user]);
+
     return (
-        <div
-            style={{
-                display: 'flex',
-                height: '100dvh',
-                background: 'var(--flockr-black)',
-                // KEY FIX: overflow hidden on the root so children control their own scroll
-                overflow: 'hidden',
-            }}
-        >
-            {/* ── Desktop sidebar ─────────────────────────────────────────── */}
+        <div style={{ display: 'flex', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
+            {/* ── Desktop sidebar ──────────────────────────────────────────── */}
             <aside
+                className="md-sidebar"
                 style={{
                     display: 'none',
                     width: 240,
@@ -63,7 +88,6 @@ export default function AppLayout({ children }) {
                     overflowY: 'auto',
                     flexShrink: 0,
                 }}
-                className="md-sidebar"
             >
                 {/* Logo */}
                 <div style={{ padding: '24px 20px 16px' }}>
@@ -95,15 +119,17 @@ export default function AppLayout({ children }) {
                                 color: '#fff',
                                 fontSize: 13,
                                 boxSizing: 'border-box',
+                                outline: 'none',
                             }}
                         />
                     </form>
                 </div>
 
-                {/* Nav links */}
+                {/* Nav */}
                 <nav style={{ flex: 1, padding: '0 8px' }}>
                     {NAV_ITEMS.map(({ href, Icon, label }) => {
-                        const active = currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
+                        const active = isActive(href);
+                        const isInbox = href === '/inbox';
                         return (
                             <Link
                                 key={href}
@@ -123,8 +149,41 @@ export default function AppLayout({ children }) {
                                     transition: 'all 0.15s',
                                 }}
                             >
-                                <Icon size={20} />
+                                {/* Icon with unread badge */}
+                                <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+                                    <Icon size={20} />
+                                    {isInbox && unreadMessages > 0 && (
+                                        <span
+                                            style={{
+                                                position: 'absolute',
+                                                top: -5,
+                                                right: -6,
+                                                minWidth: 16,
+                                                height: 16,
+                                                borderRadius: 999,
+                                                background: '#ff5c00',
+                                                border: '2px solid var(--flockr-surface)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: 9,
+                                                fontWeight: 800,
+                                                color: '#fff',
+                                                padding: '0 3px',
+                                                lineHeight: 1,
+                                            }}
+                                        >
+                                            {unreadMessages > 99 ? '99+' : unreadMessages}
+                                        </span>
+                                    )}
+                                </div>
                                 {label}
+                                {/* Right-side dot for unread — desktop only */}
+                                {/* {isInbox && unreadMessages > 0 && (
+                                    <span style={{ marginLeft: 'auto', background: '#ff5c00', color: '#fff', borderRadius: 999, fontSize: 10, fontWeight: 800, padding: '1px 7px', lineHeight: '16px' }}>
+                                        {unreadMessages > 99 ? '99+' : unreadMessages}
+                                    </span>
+                                )} */}
                             </Link>
                         );
                     })}
@@ -149,6 +208,53 @@ export default function AppLayout({ children }) {
                     >
                         <RiUserLine size={20} />
                         Profile
+                    </Link>
+
+                    <Link
+                        href="/cart"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            marginBottom: 2,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: isActive('/cart') ? 600 : 400,
+                            color: isActive('/cart') ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                            background: isActive('/cart') ? 'rgba(255,92,0,0.08)' : 'transparent',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+                            <RiShoppingCart2Line size={20} />
+                            {cartCount > 0 && (
+                                <span
+                                    style={{
+                                        position: 'absolute',
+                                        top: -7,
+                                        right: -8,
+                                        minWidth: 20,
+                                        height: 20,
+                                        borderRadius: 999,
+                                        background: '#ff5c00',
+                                        border: '2px solid var(--flockr-surface)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 9,
+                                        fontWeight: 800,
+                                        color: '#fff',
+                                        padding: '0 3px',
+                                        lineHeight: 1,
+                                    }}
+                                >
+                                    {cartCount > 99 ? '99+' : cartCount}
+                                </span>
+                            )}
+                        </div>
+                        Cart
                     </Link>
 
                     {/* Seller upload */}
@@ -213,7 +319,6 @@ export default function AppLayout({ children }) {
                                     <p style={{ color: 'var(--flockr-muted)', fontSize: 11, margin: 0 }}>@{auth.user.username}</p>
                                 </div>
                             </button>
-
                             {showUserMenu && (
                                 <div
                                     style={{
@@ -242,6 +347,14 @@ export default function AppLayout({ children }) {
                                         label="Settings"
                                         onClick={() => {
                                             router.visit('/settings/profile');
+                                            setShowUserMenu(false);
+                                        }}
+                                    />
+                                    <MenuItem
+                                        Icon={RiBarChart2Line}
+                                        label="Dashboard"
+                                        onClick={() => {
+                                            router.visit('/dashboard');
                                             setShowUserMenu(false);
                                         }}
                                     />
@@ -299,26 +412,12 @@ export default function AppLayout({ children }) {
                 </div>
             </aside>
 
-            {/* ── Main ────────────────────────────────────────────────────── */}
-            {/*
-        KEY FIX: main is flex:1, overflow:hidden.
-        Each child page controls its OWN scroll.
-        Full-screen pages (feed, video) get no padding.
-        Other pages get top padding for mobile topbar.
-      */}
+            {/* ── Main ─────────────────────────────────────────────────────── */}
             <main
-                style={{
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'hidden', // ← children scroll themselves
-                    position: 'relative',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    // Only add top/bottom padding on mobile for non-fullscreen pages
-                }}
                 className={isFullScreen ? 'main-full' : 'main-paged'}
+                style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
             >
-                {/* Mobile top bar — only on non-fullscreen pages */}
+                {/* Mobile top bar */}
                 {!isFullScreen && (
                     <div
                         className="mobile-topbar"
@@ -351,7 +450,34 @@ export default function AppLayout({ children }) {
                             <Link href="/explore" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
                                 <RiSearchLine size={20} />
                             </Link>
-                            {/* Upload button on mobile for sellers */}
+                            <Link href="/cart" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}>
+                                <RiShoppingCart2Line size={20} />
+                                {cartCount > 0 && (
+                                    <span
+                                        className="animate-bounce"
+                                        style={{
+                                            position: 'absolute',
+                                            top: -1,
+                                            right: -2,
+                                            minWidth: 20,
+                                            height: 20,
+                                            borderRadius: 999,
+                                            background: '#ff5c00',
+                                            border: '2px solid rgba(10,10,10,0.94)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: 9,
+                                            fontWeight: 800,
+                                            color: '#fff',
+                                            padding: '0 3px',
+                                            lineHeight: 1,
+                                        }}
+                                    >
+                                        {cartCount > 99 ? '99+' : cartCount}
+                                    </span>
+                                )}
+                            </Link>
                             {auth?.user?.role === 'seller' && (
                                 <Link
                                     href="/seller/upload"
@@ -381,7 +507,6 @@ export default function AppLayout({ children }) {
                                     </button>
                                     {showUserMenu && (
                                         <div
-                                        className='z-[999px]'
                                             style={{
                                                 position: 'absolute',
                                                 top: 'calc(100% + 8px)',
@@ -391,7 +516,7 @@ export default function AppLayout({ children }) {
                                                 border: '1px solid rgba(255,255,255,0.1)',
                                                 borderRadius: 14,
                                                 overflow: 'hidden',
-                                                // zIndex: 999,
+                                                zIndex: 999,
                                                 boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
                                             }}
                                         >
@@ -454,12 +579,12 @@ export default function AppLayout({ children }) {
                     </div>
                 )}
 
-                {/* Page content — fills remaining height, scrolls itself */}
-                <div style={{ flex: 1, overflow: isFullScreen ? 'hidden' : 'auto', minHeight: 0 }} className="page-content">
+                {/* Page content */}
+                <div className="page-content" style={{ flex: 1, overflow: isFullScreen ? 'hidden' : 'auto', minHeight: 0 }}>
                     {children}
                 </div>
 
-                {/* Mobile bottom nav — only on non-fullscreen pages */}
+                {/* Mobile bottom nav */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
@@ -474,10 +599,9 @@ export default function AppLayout({ children }) {
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                         }}
                     >
-                        {/* Regular nav items */}
                         {NAV_ITEMS.map(({ href, label, Icon }) => {
                             const active = isActive(href);
-
+                            const isInbox = href === '/inbox';
                             return (
                                 <Link
                                     key={href}
@@ -492,58 +616,79 @@ export default function AppLayout({ children }) {
                                         textDecoration: 'none',
                                         color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
                                         transition: 'color 0.15s',
+                                        position: 'relative',
                                     }}
                                 >
-                                    <Icon size={23} />
-                                    <span
-                                        style={{
-                                            fontSize: 10,
-                                            fontWeight: active ? 700 : 400,
-                                            letterSpacing: '0.02em',
-                                        }}
-                                    >
-                                        {label}
-                                    </span>
+                                    <div style={{ position: 'relative' }}>
+                                        <Icon size={23} />
+                                        {/* ── Unread badge on inbox icon ── */}
+                                        {isInbox && unreadMessages > 0 && (
+                                            <span
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: -4,
+                                                    right: -6,
+                                                    minWidth: 16,
+                                                    height: 16,
+                                                    borderRadius: 999,
+                                                    background: '#ff5c00',
+                                                    border: '2px solid rgba(8,8,8,0.96)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: 9,
+                                                    fontWeight: 800,
+                                                    color: '#fff',
+                                                    padding: '0 3px',
+                                                    lineHeight: 1,
+                                                    animation: 'badgePop 0.3s ease',
+                                                }}
+                                            >
+                                                {unreadMessages > 99 ? '99+' : unreadMessages}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, letterSpacing: '0.02em' }}>{label}</span>
                                 </Link>
                             );
                         })}
-
-                        {/* Upload button in middle of nav for sellers, Profile for others */}
-                        
-                            <Link
-                                href={profileHref}
-                                style={{
-                                    flex: 1,
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    gap: 3,
-                                    padding: '8px 4px 6px',
-                                    textDecoration: 'none',
-                                    color: profileActive ? '#ff5c00' : 'rgba(255,255,255,0.4)',
-                                    transition: 'color 0.15s',
-                                }}
-                            >
-                                {profileActive ? <RiUserLine size={23} /> : <RiUserLine size={23} />}
-                                <span style={{ fontSize: 10, fontWeight: 400 }}>Profile</span>
-                            </Link>
-                        
+                        <Link
+                            href={profileHref}
+                            style={{
+                                flex: 1,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 3,
+                                padding: '8px 4px 6px',
+                                textDecoration: 'none',
+                                color: profileActive ? '#ff5c00' : 'rgba(255,255,255,0.4)',
+                                transition: 'color 0.15s',
+                            }}
+                        >
+                            <RiUserLine size={23} />
+                            <span style={{ fontSize: 10, fontWeight: profileActive ? 700 : 400 }}>Profile</span>
+                        </Link>
                     </nav>
                 )}
             </main>
 
             <style>{`
-        @media (min-width: 768px) {
-          .md-sidebar { display: flex !important; }
-          .mobile-topbar { display: none !important; }
-          .mobile-bottom-nav { display: none !important; }
-        }
-        .main-paged .page-content { padding-bottom: 0; }
-        input:focus { border-color: var(--flockr-orange) !important; outline: none; }
-        * { box-sizing: border-box; }
-        /* Remove scrollbar on webkit for clean look */
-        ::-webkit-scrollbar { display: none; }
-      `}</style>
+                @media (min-width: 768px) {
+                    .md-sidebar { display: flex !important; }
+                    .mobile-topbar { display: none !important; }
+                    .mobile-bottom-nav { display: none !important; }
+                }
+                .main-paged .page-content { padding-bottom: 0; }
+                input:focus { border-color: var(--flockr-orange) !important; outline: none; }
+                * { box-sizing: border-box; }
+                ::-webkit-scrollbar { display: none; }
+                @keyframes badgePop {
+                    0%   { transform: scale(0); }
+                    70%  { transform: scale(1.2); }
+                    100% { transform: scale(1); }
+                }
+            `}</style>
         </div>
     );
 }
@@ -551,7 +696,6 @@ export default function AppLayout({ children }) {
 export function AvatarImage({ user, size = 36 }) {
     const [imgError, setImgError] = useState(false);
     const src = user?.avatar_url;
-
     if (src && !imgError) {
         return (
             <img
