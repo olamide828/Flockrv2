@@ -175,6 +175,30 @@ class OrderController extends Controller
             }
         }
 
+        if ($event === 'transfer.success') {
+    \App\Models\Payout::where('reference', $data['reference'])
+        ->where('status', 'pending')
+        ->update(['status' => 'paid', 'paid_at' => now()]);
+}
+
+if ($event === 'transfer.failed') {
+    $payout = \App\Models\Payout::where('reference', $data['reference'])->first();
+    if ($payout && $payout->status !== 'failed') {
+        // Re-credit seller wallet
+        $lastTx = \App\Models\WalletTransaction::where('user_id', $payout->seller_id)->latest()->first();
+        $balanceBefore = $lastTx?->balance_after ?? 0;
+        \App\Models\WalletTransaction::create([
+            'user_id'       => $payout->seller_id,
+            'amount'        => $payout->amount,
+            'type'          => 'credit',
+            'source'        => 'payout_reversal',
+            'description'   => 'Payout failed — funds returned to wallet',
+            'balance_after' => $balanceBefore + $payout->amount,
+        ]);
+        $payout->update(['status' => 'failed', 'failure_reason' => $data['reason'] ?? 'Transfer failed']);
+    }
+}
+
         return response()->json(['ok' => true]);
     }
 

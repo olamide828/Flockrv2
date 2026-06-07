@@ -32,6 +32,9 @@ Route::get('/search', [SearchController::class, 'search']);
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
 });
+     Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
+    Route::get('/videos/download/status',           [VideoDownloadController::class, 'status']);
+    Route::delete('/videos/download/cleanup',       [VideoDownloadController::class, 'cleanup']);
 
 // Route::post('/debug-upload', function (\Illuminate\Http\Request $request) {
 //     return response()->json([
@@ -124,9 +127,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Comments
     Route::post('/videos/{video}/comments', [CommentController::class, 'store']);
     Route::delete('/comments/{comment}', [CommentController::class, 'destroy']);
-     Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
-    Route::get('/videos/download/status',           [VideoDownloadController::class, 'status']);
-    Route::delete('/videos/download/cleanup',       [VideoDownloadController::class, 'cleanup']);
+
 
     // Products
     Route::post('/products', [ProductController::class, 'store']);
@@ -188,6 +189,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 
         // Videos — bind by ulid (matches Video::getRouteKeyName())
+        
         Route::post('/videos/{video}/approve', [AdminController::class, 'approveVideo']);
         Route::post('/videos/{video}/reject', [AdminController::class, 'rejectVideo']);
         Route::post('/videos/{video}/feature', [AdminController::class, 'featureVideo']);

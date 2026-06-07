@@ -51,7 +51,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/dashboard', [UserDashboardController::class, 'index'])
-        ->name('dashboard');
+    ->middleware('role:buyer');
 
     Route::get('/@{username}/followers', [FollowController::class, 'followers'])
         ->name('profile.followers');
@@ -97,6 +97,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/users/{user}', [AdminController::class, 'showUser'])->name('users.show');
         Route::get('/orders', [AdminController::class, 'orders'])->name('orders');
         Route::get('/orders/{order}', [AdminController::class, 'showOrder'])->name('orders.show');
+        Route::get('/videos', [AdminController::class, 'showVideoPage'])->name('videos');
     });
 });
 

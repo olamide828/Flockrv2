@@ -689,16 +689,70 @@ export default function UserProfile({
                             )}
                         </div>
                         <div style={{ display: 'flex', flex: 1, justifyContent: 'space-around' }}>
-                            {[
-                                { label: 'Following', value: profileUser.following_count ?? 0 },
-                                { label: 'Followers', value: followersCount },
-                                { label: 'Likes', value: totalLikes },
-                            ].map((s) => (
-                                <div key={s.label} style={{ textAlign: 'center' }}>
-                                    <p style={{ color: '#fff', fontWeight: 700, fontSize: 16, margin: 0 }}>{fmtCount(s.value)}</p>
-                                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '2px 0 0' }}>{s.label}</p>
-                                </div>
-                            ))}
+                           {[
+    {
+        label: 'Following',
+        value: profileUser.following_count ?? 0,
+        href: anyBlock ? null : `/@${profileUser.username}/following`,
+    },
+    {
+        label: 'Followers',
+        value: followersCount,
+        href: anyBlock ? null : `/@${profileUser.username}/followers`,
+    },
+    {
+        label: 'Likes',
+        value: totalLikes,
+        href: null,
+    },
+].map((s) => {
+    const content = (
+        <div style={{ textAlign: 'center' }}>
+            <p
+                style={{
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 16,
+                    margin: 0,
+                }}
+            >
+                {fmtCount(s.value)}
+            </p>
+
+            <p
+                style={{
+                    color: 'rgba(255,255,255,0.5)',
+                    fontSize: 12,
+                    margin: '2px 0 0',
+                }}
+            >
+                {s.label}
+            </p>
+        </div>
+    );
+
+    return s.href ? (
+        <Link
+            key={s.label}
+            href={s.href}
+            style={{
+                textDecoration: 'none',
+                flex: 1,
+            }}
+        >
+            {content}
+        </Link>
+    ) : (
+        <div
+            key={s.label}
+            style={{
+                flex: 1,
+            }}
+        >
+            {content}
+        </div>
+    );
+})}
                         </div>
                     </div>
 

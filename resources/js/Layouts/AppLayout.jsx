@@ -350,20 +350,30 @@ export default function AppLayout({ children }) {
                                             setShowUserMenu(false);
                                         }}
                                     />
-                                    <MenuItem
+                                    {auth.user.role === "buyer" && (<MenuItem
                                         Icon={RiBarChart2Line}
                                         label="Dashboard"
                                         onClick={() => {
                                             router.visit('/dashboard');
                                             setShowUserMenu(false);
                                         }}
-                                    />
+                                    />)}
                                     {auth.user.role === 'seller' && (
                                         <MenuItem
                                             Icon={RiBarChart2Line}
                                             label="Seller Dashboard"
                                             onClick={() => {
                                                 router.visit('/seller/dashboard');
+                                                setShowUserMenu(false);
+                                            }}
+                                        />
+                                    )}
+                                    {auth.user.role === 'admin' && (
+                                        <MenuItem
+                                            Icon={RiBarChart2Line}
+                                            label="Admin Dashboard"
+                                            onClick={() => {
+                                                router.visit('/admin/dashboard');
                                                 setShowUserMenu(false);
                                             }}
                                         />
@@ -536,24 +546,34 @@ export default function AppLayout({ children }) {
                                                     setShowUserMenu(false);
                                                 }}
                                             />
-                                            <MenuItem
-                                                Icon={RiBarChart2Line}
-                                                label="Dashboard"
-                                                onClick={() => {
-                                                    router.visit('/dashboard');
-                                                    setShowUserMenu(false);
-                                                }}
-                                            />
-                                            {auth.user.role === 'seller' && (
-                                                <MenuItem
-                                                    Icon={RiBarChart2Line}
-                                                    label="Seller Dashboard"
-                                                    onClick={() => {
-                                                        router.visit('/seller/dashboard');
-                                                        setShowUserMenu(false);
-                                                    }}
-                                                />
-                                            )}
+                                            {auth.user.role === "buyer" && (<MenuItem
+                                        Icon={RiBarChart2Line}
+                                        label="Dashboard"
+                                        onClick={() => {
+                                            router.visit('/dashboard');
+                                            setShowUserMenu(false);
+                                        }}
+                                    />)}
+                                    {auth.user.role === 'seller' && (
+                                        <MenuItem
+                                            Icon={RiBarChart2Line}
+                                            label="Seller Dashboard"
+                                            onClick={() => {
+                                                router.visit('/seller/dashboard');
+                                                setShowUserMenu(false);
+                                            }}
+                                        />
+                                    )}
+                                    {auth.user.role === 'admin' && (
+                                        <MenuItem
+                                            Icon={RiBarChart2Line}
+                                            label="Admin Dashboard"
+                                            onClick={() => {
+                                                router.visit('/admin/dashboard');
+                                                setShowUserMenu(false);
+                                            }}
+                                        />
+                                    )}
                                             <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
                                             <MenuItem Icon={RiLogoutBoxLine} label="Log Out" onClick={handleLogout} danger />
                                         </div>

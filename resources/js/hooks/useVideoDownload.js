@@ -1,76 +1,117 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import axios from 'axios'
 
 /**
  * useVideoDownload
  *
- * Handles the full server-side watermark download flow:
- *   1. POST /api/videos/{ulid}/download/prepare  → get job_key
- *   2. Poll GET /api/videos/download/status?job_key=...  every 2s
- *   3. When status === 'done', trigger browser download via <a> click
- *   4. POST cleanup to delete the temp file from storage
- *
- * Usage:
- *   const { download, state } = useVideoDownload(video)
- *   // state: 'idle' | 'preparing' | 'processing' | 'done' | 'error'
+ * Handles server-side watermarked video download.
+ * Fixes:
+ * - Single prepare call (guarded by ref, not state)
+ * - Single polling interval with proper cleanup on unmount
+ * - Single browser download trigger
+ * - Single cleanup call
+ * - No React StrictMode double-invoke issues (uses ref guards)
  */
 export function useVideoDownload(video) {
-  const [state,   setState]   = useState('idle')   // idle | preparing | processing | done | error
-  const [errMsg,  setErrMsg]  = useState('')
-  const pollTimer = useRef(null)
-  const jobKeyRef = useRef(null)
+  const [dlState, setDlState] = useState('idle') // idle | preparing | processing | done | error
+
+  // Refs don't trigger re-renders and survive StrictMode double-invoke
+  const pollRef     = useRef(null)   // interval ID
+  const activeRef   = useRef(false)  // true while a download is in flight
+  const downloadedRef = useRef(false) // prevents double browser download trigger
+
+  // Clean up interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
 
   const stopPolling = () => {
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
   }
 
-  const triggerBrowserDownload = useCallback(async (url, jobKey) => {
-    try {
-      // Fetch as blob so the browser downloads instead of navigating
-      const res  = await fetch(url, { mode: 'cors' })
-      const blob = await res.blob()
-      const burl = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = burl
-      a.download = `flockr-${video.user?.username ?? 'video'}-${video.ulid ?? Date.now()}.mp4`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(burl), 10_000)
+  const triggerBrowserDownload = useCallback((url, jobKey) => {
+    // Guard: only trigger once per download session
+    if (downloadedRef.current) return
+    downloadedRef.current = true
 
-      setState('done')
-      setTimeout(() => setState('idle'), 4000) // reset after 4s
+    const filename = `flockr-${video.user?.username ?? 'video'}-${video.ulid ?? Date.now()}.mp4`
 
-      // Cleanup temp file on server (best-effort)
-      axios.delete(`/api/videos/download/cleanup?job_key=${encodeURIComponent(jobKey)}`).catch(() => {})
-    } catch {
-      setState('error')
-      setErrMsg('Download failed. Try again.')
-      setTimeout(() => setState('idle'), 4000)
-    }
+    // Use fetch to get the file as a blob, then create object URL
+    // This ensures a single file download, not multiple
+    fetch(url, { mode: 'cors' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.blob()
+      })
+      .then(blob => {
+        const burl = URL.createObjectURL(blob)
+        const a    = document.createElement('a')
+        a.href     = burl
+        a.download = filename
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        // Small delay before cleanup so browser has time to start download
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(burl)
+        }, 2000)
+
+        setDlState('done')
+        setTimeout(() => {
+          setDlState('idle')
+          activeRef.current   = false
+          downloadedRef.current = false
+        }, 4000)
+
+        // Cleanup temp file on server — single call
+        axios.delete(`/api/videos/download/cleanup?job_key=${encodeURIComponent(jobKey)}`)
+          .catch(() => {}) // best-effort
+      })
+      .catch(() => {
+        setDlState('error')
+        setTimeout(() => {
+          setDlState('idle')
+          activeRef.current   = false
+          downloadedRef.current = false
+        }, 4000)
+      })
   }, [video.user?.username, video.ulid])
 
   const download = useCallback(async () => {
-    if (state !== 'idle' && state !== 'error') return
-    setState('preparing')
-    setErrMsg('')
+    // Guard: prevent multiple simultaneous download sessions
+    if (activeRef.current) return
+    if (dlState !== 'idle' && dlState !== 'error') return
+
+    activeRef.current   = true
+    downloadedRef.current = false
     stopPolling()
+    setDlState('preparing')
 
     try {
-      const { data } = await axios.post(`/api/videos/${video.ulid}/download/prepare`, {}, { withCredentials: true })
-      const jobKey   = data.job_key
-      jobKeyRef.current = jobKey
+      const { data } = await axios.post(
+        `/api/videos/${video.ulid}/download/prepare`,
+        {},
+        { withCredentials: true }
+      )
 
-      // If already done (cached), download immediately
+      const jobKey = data.job_key
+
+      // Already done (shouldn't happen with new controller but handle it)
       if (data.status === 'done' && data.url) {
-        await triggerBrowserDownload(data.url, jobKey)
+        triggerBrowserDownload(data.url, jobKey)
         return
       }
 
-      setState('processing')
+      setDlState('processing')
 
-      // Poll every 2 seconds
-      pollTimer.current = setInterval(async () => {
+      // Poll every 3 seconds — less aggressive than 2s
+      pollRef.current = setInterval(async () => {
         try {
           const { data: poll } = await axios.get(
             `/api/videos/download/status?job_key=${encodeURIComponent(jobKey)}`,
@@ -79,65 +120,45 @@ export function useVideoDownload(video) {
 
           if (poll.status === 'done' && poll.url) {
             stopPolling()
-            await triggerBrowserDownload(poll.url, jobKey)
-          } else if (poll.status === 'error') {
+            triggerBrowserDownload(poll.url, jobKey)
+          } else if (poll.status === 'error' || poll.status === 'not_found') {
             stopPolling()
-            setState('error')
-            setErrMsg(poll.message ?? 'Processing failed. Try again.')
-            setTimeout(() => setState('idle'), 4000)
+            setDlState('error')
+            setTimeout(() => {
+              setDlState('idle')
+              activeRef.current = false
+            }, 4000)
           }
-          // 'processing' → keep polling
+          // 'processing' or 'queued' → keep polling
         } catch {
-          stopPolling()
-          setState('error')
-          setErrMsg('Connection error. Try again.')
-          setTimeout(() => setState('idle'), 4000)
+          // Network error during poll — keep trying, don't abort
         }
-      }, 2000)
+      }, 3000)
 
-      // Timeout after 5 minutes
+      // Hard timeout: 10 minutes
       setTimeout(() => {
-        if (pollTimer.current) {
+        if (pollRef.current) {
           stopPolling()
-          setState('error')
-          setErrMsg('Processing timed out. Try again.')
-          setTimeout(() => setState('idle'), 4000)
+          setDlState('error')
+          setTimeout(() => {
+            setDlState('idle')
+            activeRef.current = false
+          }, 4000)
         }
-      }, 300_000)
+      }, 600_000)
 
     } catch (err) {
-      setState('error')
-      setErrMsg(err.response?.data?.message ?? 'Failed to start download.')
-      setTimeout(() => setState('idle'), 4000)
+      activeRef.current = false
+      setDlState('error')
+      setTimeout(() => setDlState('idle'), 4000)
     }
-  }, [state, video.ulid, triggerBrowserDownload])
+  }, [dlState, video.ulid, triggerBrowserDownload])
 
-  // Label and color helpers for the button
-  const label = {
-    idle:       'Download',
-    preparing:  'Preparing…',
-    processing: 'Processing…',
-    done:       '✓ Downloaded!',
-    error:      'Retry Download',
-  }[state]
+  const label = { idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Done!', error: 'Retry' }[state]
+  const color = { idle: '#fff', preparing: '#aaa', processing: '#aaa', done: '#10B981', error: '#EF4444' }[state]
+  const bg = { idle: 'rgba(255,255,255,0.06)', preparing: 'rgba(255,255,255,0.04)', processing: 'rgba(255,255,255,0.04)', done: 'rgba(16,185,129,0.12)', error: 'rgba(239,68,68,0.12)' }[state]
+  const busy = dlState === 'preparing' || dlState === 'processing'
 
-  const color = {
-    idle:       '#fff',
-    preparing:  'rgba(255,255,255,0.5)',
-    processing: 'rgba(255,255,255,0.5)',
-    done:       '#10B981',
-    error:      '#EF4444',
-  }[state]
 
-  const bg = {
-    idle:       'rgba(255,255,255,0.06)',
-    preparing:  'rgba(255,255,255,0.04)',
-    processing: 'rgba(255,255,255,0.04)',
-    done:       'rgba(16,185,129,0.12)',
-    error:      'rgba(239,68,68,0.12)',
-  }[state]
-
-  const busy = state === 'preparing' || state === 'processing'
-
-  return { download, state, label, color, bg, busy, errMsg }
+  return { download, dlState, label, color, bg, busy, errMsg  }
 }

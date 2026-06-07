@@ -15,34 +15,35 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasFactory, Notifiable, SoftDeletes;
 
     protected $fillable = [
-        'name',
-        'username',
-        'email',
-        'phone',
-        'password',
-        'role',
-        'avatar',
-        'cover_image',
-        'bio',
-        'location',
-        'country',
-        'currency',
-        'is_verified',
-        'is_active',
-        'paystack_customer_code',
-        'paystack_subaccount_code',
-        'notification_preferences',
-        'followers_count',
-        'following_count',
-        'total_sales',
-        'preferences',
-        'paystack_recipient_code',
-        'bank_name',
-        'bank_code',
-        'account_name',
-        'account_last4',
-        'last_seen_at',
-    ];
+    'name',
+    'username',
+    'email',
+    'phone',
+    'password',
+    'role',
+    'avatar',
+    'cover_image',
+    'bio',
+    'location',
+    'country',
+    'currency',
+    'is_verified',
+    'is_active',
+    'last_seen_at',
+    'paystack_customer_code',
+    'paystack_subaccount_code',
+    'notification_preferences',
+    'followers_count',
+    'following_count',
+    'total_sales',
+    'preferences',
+    'paystack_recipient_code',
+    'bank_name',
+    'bank_code',
+    'account_name',
+    'account_last4',
+    'account_number',   // ← this was missing
+];
 
     protected $hidden = ['password', 'remember_token'];
 
@@ -216,4 +217,9 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return UserBlock::where('blocker_id', $this->id)->where('blocked_id', $user->id)->exists();
     }
+
+    public function sellerOrders(): HasMany
+{
+    return $this->hasMany(Order::class, 'seller_id');
+}
 }

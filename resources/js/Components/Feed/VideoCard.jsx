@@ -342,6 +342,7 @@ export default function VideoCard({ video, isActive }) {
   const watchStartRef   = useRef(null)
   const commentInputRef = useRef(null)
   const lastTap         = useRef(0)
+  const viewTimerRef = useRef(null)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
@@ -373,23 +374,33 @@ export default function VideoCard({ video, isActive }) {
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
   const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
 
-  useEffect(() => {
+ useEffect(() => {
     const el = videoRef.current
     if (!el) return
     if (isActive) {
-      el.muted = true
-      el.play().then(() => { setPlaying(true); setTimeout(() => { el.muted = false; setMuted(false) }, 300) }).catch(() => {})
-      watchStartRef.current = Date.now()
+        el.muted = true
+        el.play().then(() => { setPlaying(true); setTimeout(() => { el.muted = false; setMuted(false) }, 300) }).catch(() => {})
+        watchStartRef.current = Date.now()
+
+        // Fire view after 5 seconds of watching — catches users who never scroll away
+        viewTimerRef.current = setTimeout(() => {
+            const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+            if (secs >= 3) {
+                axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+                watchStartRef.current = null // prevent double-firing on scroll away
+            }
+        }, 5000)
     } else {
-      el.pause(); el.currentTime = 0
-      setShowComments(false); setShowProducts(false); setShowShare(false)
-      if (watchStartRef.current) {
-        const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
-        if (secs > 1) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-        watchStartRef.current = null
-      }
+        clearTimeout(viewTimerRef.current)
+        el.pause(); el.currentTime = 0
+        setShowComments(false); setShowProducts(false); setShowShare(false)
+        if (watchStartRef.current) {
+            const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+            if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+            watchStartRef.current = null
+        }
     }
-  }, [isActive])
+}, [isActive])
 
   useEffect(() => {
     const el = videoRef.current; if (!el) return

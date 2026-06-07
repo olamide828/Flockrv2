@@ -36,9 +36,32 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Request::HEADER_X_FORWARDED_PROTO
         );
     })
-    ->withExceptions(function (Exceptions $exceptions) {
-        // Render Inertia 404/403 nicely
-        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
+     ->withExceptions(function (Exceptions $exceptions) {
+
+        $exceptions->render(function (
+            \Symfony\Component\HttpKernel\Exception\HttpException $e,
+            $request
+        ) {
+
+            if ($e->getStatusCode() === 403) {
+
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'message' => 'Unauthorized.',
+                    ], 403);
+                }
+
+                if ($request->inertia()) {
+                    return \Inertia\Inertia::render('Error', [
+                        'status'  => 403,
+                        'message' => 'You do not have access to that page.',
+                    ])->toResponse($request)->setStatusCode(403);
+                }
+
+                return redirect('/')
+                    ->with('error', 'You do not have access to that page.');
+            }
+
             if ($request->inertia()) {
                 return \Inertia\Inertia::render('Error', [
                     'status'  => $e->getStatusCode(),
@@ -46,5 +69,6 @@ return Application::configure(basePath: dirname(__DIR__))
                 ])->toResponse($request)->setStatusCode($e->getStatusCode());
             }
         });
+
     })
     ->create();

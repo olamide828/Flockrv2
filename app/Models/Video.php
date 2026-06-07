@@ -182,22 +182,42 @@ class Video extends Model
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    public function recordView(?int $userId, ?string $sessionId, int $watchSeconds): void
-    {
-        $percent = $this->duration_seconds > 0
-            ? min(100, ($watchSeconds / $this->duration_seconds) * 100)
-            : 0;
+  public function recordView(?int $userId, ?string $sessionId, int $watchSeconds): void
+{
+    // Require minimum watch time
+    if ($watchSeconds < 3) {
+        return;
+    }
 
-        VideoView::create([
-            'video_id' => $this->id,
-            'user_id' => $userId,
-            'session_id' => $sessionId,
-            'watch_seconds' => $watchSeconds,
-            'watch_percent' => $percent,
-        ]);
+    $percent = $this->duration_seconds > 0
+        ? min(100, ($watchSeconds / $this->duration_seconds) * 100)
+        : 0;
 
+    // Prevent duplicate views within cooldown period
+    $recentView = VideoView::query()
+        ->where('video_id', $this->id)
+        ->when(
+            $userId,
+            fn ($q) => $q->where('user_id', $userId),
+            fn ($q) => $q->where('session_id', $sessionId)
+        )
+        ->where('created_at', '>=', now()->subMinutes(30))
+        ->exists();
+
+    // Still store analytics event if you want deeper metrics
+    VideoView::create([
+        'video_id'      => $this->id,
+        'user_id'       => $userId,
+        'session_id'    => $sessionId,
+        'watch_seconds' => $watchSeconds,
+        'watch_percent' => $percent,
+    ]);
+
+    // Only increment public view count if cooldown passed
+    if (!$recentView) {
         $this->increment('views_count');
     }
+}
 
     public function tagProduct(Product $product, array $pivot = []): void
     {

@@ -45,6 +45,17 @@ function fmtDate(dateStr) {
     return d.toLocaleDateString('en-NG', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+function dotStyle(i) {
+    return {
+        display: 'inline-block',
+        width: 7, height: 7,
+        borderRadius: '50%',
+        background: 'rgba(255,255,255,0.5)',
+        animation: `typingDot 1.2s ease-in-out infinite`,
+        animationDelay: `${i * 0.2}s`,
+    }
+}
+
 // ── Avatar — shows question mark placeholder for blocked users ────────────────
 function Avatar({ user, size = 40, showStatus = false, isBlocked = false }) {
   const [err, setErr] = useState(false)
@@ -184,6 +195,23 @@ export default function Inbox({ conversations: initialConvs = [], blockedByMeIds
   const [reportTarget,   setReportTarget]   = useState(null)
   const [notifUnread, setNotifUnread]   = useState(false)
 const [latestNotif, setLatestNotif]   = useState(null)
+const [otherTyping, setOtherTyping] = useState(false)
+const typingTimeoutRef = useRef(null)
+const lastTypingSentRef = useRef(0)
+
+
+const broadcastTyping = () => {
+    if (!active || !window.Echo) return
+    const now = Date.now()
+    // Throttle — only send every 2 seconds
+    if (now - lastTypingSentRef.current < 2000) return
+    lastTypingSentRef.current = now
+    // Use Pusher/Reverb client event (must enable client events in config)
+    try {
+        window.Echo.private(`conversation.${active.id}`)
+            .whisper('typing', { user_id: auth.user.id })
+    } catch {}
+}
 
   // blockedByMe: users I blocked. blockedByOther: users who blocked me.
   const [blockedByMe,    setBlockedByMe]    = useState(() => {
@@ -248,15 +276,26 @@ const [latestNotif, setLatestNotif]   = useState(null)
     setConversations(prev => prev.map(c => c.id === active.id ? { ...c, unread_count: 0 } : c))
 
     if (window.Echo) {
-      channelRef.current?.unsubscribe()
-      channelRef.current = window.Echo
+    channelRef.current?.unsubscribe()
+    channelRef.current = window.Echo
         .private(`conversation.${active.id}`)
         .listen('MessageSent', (e) => {
-          setMessages(prev => [...prev, e.message])
-          setConversations(prev => prev.map(c => c.id === active.id ? { ...c, last_message: e.message } : c))
+            setMessages(prev => [...prev, e.message])
+            setConversations(prev => prev.map(c =>
+                c.id === active.id ? { ...c, last_message: e.message } : c
+            ))
         })
-    }
-    return () => channelRef.current?.unsubscribe()
+        .listenForWhisper('typing', (e) => {
+            if (e.user_id !== auth?.user?.id) {
+                setOtherTyping(true)
+                clearTimeout(typingTimeoutRef.current)
+                typingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000)
+            }
+        })
+}
+return () => channelRef.current?.unsubscribe()
+
+    
   }, [active?.id])
 
   useEffect(() => {
@@ -505,9 +544,14 @@ const [latestNotif, setLatestNotif]   = useState(null)
                       <p style={{ color: blocked ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 14, fontWeight: unread > 0 ? 700 : 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal' }}>{displayName}</p>
                       <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, flexShrink: 0, margin: 0 }}>{timeAgo(conv.last_message?.created_at)}</p>
                     </div>
-                    <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {iBlocked ? 'You blocked this user' : blocked ? 'Message unavailable' : (conv.last_message?.sender_id === auth?.user?.id ? 'You: ' : '') + (conv.last_message?.body ?? 'Say hello!')}
-                    </p>
+                   <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    {iBlocked ? 'You blocked this user' 
+        : blocked ? 'Message unavailable' 
+        : active?.id === conv.id && otherTyping ? (
+            <span style={{ color: '#10B981', fontStyle: 'italic', fontSize: 12 }}>typing...</span>
+        )
+        : (conv.last_message?.sender_id === auth?.user?.id ? 'You: ' : '') + (conv.last_message?.body ?? 'Say hello!')}
+</p>
                   </div>
                 </button>
               )
@@ -653,6 +697,19 @@ const [latestNotif, setLatestNotif]   = useState(null)
         </div>
     )
 })}
+
+{otherTyping && (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, justifyContent: 'flex-start', marginTop: 8 }}>
+        <div style={{ width: 28, flexShrink: 0 }}>
+            <Avatar user={other} size={28} isBlocked={blocked} />
+        </div>
+        <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px 18px 18px 18px', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={dotStyle(0)} />
+            <span style={dotStyle(1)} />
+            <span style={dotStyle(2)} />
+        </div>
+    </div>
+)}
                   <div ref={bottomRef} />
                 </div>
 
@@ -674,7 +731,15 @@ const [latestNotif, setLatestNotif]   = useState(null)
                   ) : (
                     <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '0 14px', gap: 8 }}>
-                        <input ref={inputRef} value={body} onChange={e => setBody(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(e)} placeholder="Message..." maxLength={1000} style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '11px 0' }} />
+                        <input
+    ref={inputRef}
+    value={body}
+    onChange={e => { setBody(e.target.value); broadcastTyping() }}
+    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(e)}
+    placeholder="Message..."
+    maxLength={1000}
+    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '11px 0' }}
+/>
                         {body.length > 800 && <span style={{ color: body.length >= 1000 ? '#ff3b5c' : 'rgba(255,255,255,0.25)', fontSize: 10, flexShrink: 0 }}>{1000 - body.length}</span>}
                       </div>
                       <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
@@ -694,6 +759,10 @@ const [latestNotif, setLatestNotif]   = useState(null)
           .inbox-sidebar { display: flex !important; width: 340px !important; }
           .chat-panel    { display: flex !important; }
         }
+          @keyframes typingDot {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-6px); opacity: 1; }
+}
       `}</style>
     </>
   )

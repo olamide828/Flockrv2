@@ -8,19 +8,14 @@ use Illuminate\Http\Request;
 class RoleMiddleware
 {
     public function handle(Request $request, Closure $next, string $role): mixed
-    {
-        // dd([
-        //     'user' => $request->user(),
-        //     'user_role' => $request->user()?->role,
-        //     'required_role' => $role,
-        //     'match' => $request->user()?->role === $role,
-        // ]);
-        if (!$request->user() || $request->user()->role !== $role) {
-            if ($request->expectsJson()) {
-                return response()->json(['message' => 'Unauthorized.'], 403);
-            }
-            abort(403, 'Access denied.');
+{
+    if (!$request->user() || $request->user()->role !== $role) {
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
         }
-        return $next($request);
+        // Redirect to home instead of Laravel's 403 page
+        return redirect('/')->with('error', 'You do not have access to that page.');
     }
+    return $next($request);
+}
 }

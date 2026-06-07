@@ -263,11 +263,14 @@ class AdminController extends Controller
             );
  
             $payout->update([
-                'status'    => 'paid',
-                'reference' => $transfer['reference'] ?? null,
-                'paid_at'   => now(),
-            ]);
- 
+    'status'    => 'paid',
+    'reference' => $transfer['reference'] ?? null,
+    'paid_at'   => now(),
+]);
+
+// Notify seller
+$seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
+
             return response()->json([
                 'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
                 'transfer' => $transfer,
@@ -291,5 +294,9 @@ class AdminController extends Controller
  
             return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
         }
+    }
+
+    public function showVideoPage() {
+        Inertia::render('Admin/Videos');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessProductImage;
 use App\Models\Category;
 use App\Models\Product;
 use App\Services\JinaService;
@@ -215,15 +216,19 @@ class ProductController extends Controller
         abort_unless(Auth::id() === $product->seller_id, 403);
 
         $validated = $request->validate([
-            'name' => 'sometimes|string|max:200',
-            'description' => 'nullable|string|max:5000',
-            'price' => 'sometimes|numeric|min:1',
-            'compare_price' => 'nullable|numeric|min:1',
-            'stock_quantity' => 'sometimes|integer|min:0',
-            'status' => 'sometimes|in:draft,active,archived',
-            'tags' => 'nullable|array',
-            'attributes' => 'nullable|array',
-        ]);
+    'name'             => 'sometimes|string|max:200',
+    'description'      => 'nullable|string|max:5000',
+    'price'            => 'sometimes|numeric|min:1',
+    'compare_price'    => 'nullable|numeric|min:1',
+    'stock_quantity'   => 'sometimes|integer|min:0',
+    'status'           => 'sometimes|in:draft,active,archived',
+    'condition'        => 'sometimes|in:new,used,refurbished',
+    'ships_nationwide' => 'sometimes|boolean',
+    'shipping_fee'     => 'nullable|numeric|min:0',
+    'category_id'      => 'nullable|exists:categories,id',
+    'tags'             => 'nullable|array',
+    'attributes'       => 'nullable|array',
+]);
 
         if (isset($validated['name']) && $validated['name'] !== $product->name) {
             $baseSlug = Str::slug($validated['name']);
@@ -265,32 +270,76 @@ class ProductController extends Controller
     }
 
     /** POST /api/products/{product}/images */
+    /**
+ * REPLACE your existing uploadImages() method in ProductController with this.
+ * Everything else in ProductController stays the same.
+ *
+ * Also add this import at the top of ProductController:
+ *   use App\Jobs\ProcessProductImage;
+ */
+ 
+    /**
+     * POST /api/products/{product}/images
+     *
+     * What changed from original:
+     * - After saving each image, dispatches ProcessProductImage job
+     * - Job runs async (database queue) — remove.bg + Intervention Image
+     * - Returns immediately with the original image URLs
+     * - Frontend polls or user sees "processing" state
+     * - If remove.bg fails, original image stays — graceful degradation
+     */
     public function uploadImages(Request $request, Product $product): JsonResponse
     {
         if (Auth::id() !== $product->seller_id) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
-
+ 
         $request->validate([
-            'images' => 'required|array|max:6',
-            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
+            'images'   => 'required|array|max:6',
+            'images.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120', // 5MB each
         ]);
-
+ 
         try {
-            $keys = [];
+            $existingImages = $product->images ?? [];
+            $newKeys        = [];
+ 
             foreach ($request->file('images') as $file) {
-                $keys[] = $this->storage->uploadImage($file, 'products');
+                // Save original image immediately (fast response to seller)
+                $key       = $this->storage->uploadImage($file, 'products');
+                $newKeys[] = $key;
             }
-
-            $existing = $product->images ?? [];
-            $product->update(['images' => array_merge($existing, $keys)]);
-
+ 
+            // Merge new keys with existing
+            $allImages = array_merge($existingImages, $newKeys);
+            $product->update(['images' => $allImages]);
+ 
+            // Dispatch background processing job for each new image
+            // Job will: remove background → white canvas → shadow → replace key in DB
+            $removeBgEnabled = !empty(config('services.remove_bg.api_key'));
+ 
+            if ($removeBgEnabled) {
+                foreach ($newKeys as $i => $key) {
+                    $imageIndex = count($existingImages) + $i; // position in full array
+                    ProcessProductImage::dispatch($product->id, $key, $imageIndex)
+                        ->onQueue('images'); // separate queue so it doesn't block other jobs
+                }
+            }
+ 
+            // Return URLs immediately — frontend shows originals while jobs run
+            $fresh     = $product->fresh();
             $imageUrls = array_map(
-                fn($key) => $this->storage->url($key),
-                $product->fresh()->images
+                fn ($k) => $this->storage->url($k),
+                $fresh->images
             );
-
-            return response()->json(['images' => $imageUrls]);
+ 
+            return response()->json([
+                'images'     => $imageUrls,
+                'processing' => $removeBgEnabled, // tells frontend whether to show "enhancing" state
+                'message'    => $removeBgEnabled
+                    ? 'Images uploaded. Background removal is running in background.'
+                    : 'Images uploaded successfully.',
+            ]);
+ 
         } catch (\Throwable $e) {
             Log::error('Product image upload failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Image upload failed: ' . $e->getMessage()], 500);
