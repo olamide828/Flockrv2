@@ -135,7 +135,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
     Route::post('/products/{product}/save', [ProductController::class, 'save']);
     Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
-    Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('seller.products.edit');
+    Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
     Route::post('/orders/checkout', [OrderController::class, 'checkout']);
