@@ -135,7 +135,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
     Route::post('/products/{product}/save', [ProductController::class, 'save']);
     Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
-    Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('seller.products.edit');
+    Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
     Route::post('/orders/checkout', [OrderController::class, 'checkout']);
@@ -189,7 +189,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 
         // Videos — bind by ulid (matches Video::getRouteKeyName())
-        
+        Route::get('/videos/{video}/edit', [VideoController::class, 'edit'])->name('admin.videos.edit');
         Route::post('/videos/{video}/approve', [AdminController::class, 'approveVideo']);
         Route::post('/videos/{video}/reject', [AdminController::class, 'rejectVideo']);
         Route::post('/videos/{video}/feature', [AdminController::class, 'featureVideo']);
