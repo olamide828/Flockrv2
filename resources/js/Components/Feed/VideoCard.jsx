@@ -537,16 +537,12 @@ export default function VideoCard({ video, isActive }) {
               }
             </div>
           </Link>
-          {!followed && auth?.user?.id !== video.user_id && (
-            <button onClick={handleFollow} style={{ position: 'absolute', bottom: -11, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: '#ff5c00', border: '2px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}>
-              <RiUserAddLine size={11} color="#fff" />
-            </button>
-          )}
-          {followed && (
+          
+          {/* {followed && (
             <div style={{ position: 'absolute', bottom: -11, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <RiUserFollowLine size={11} color="#fff" />
             </div>
-          )}
+          )} */}
         </div>
         <SideBtn onClick={handleLike} label={fmt(likesCount)}>
           {liked ? <RiHeartFill size={28} color="#ef4444" /> : <RiHeartLine size={28} color="#fff" />}
@@ -565,6 +561,11 @@ export default function VideoCard({ video, isActive }) {
         </button>
       </div>
 
+       {!followed && auth?.user?.id !== video.user_id && (
+            <button onClick={handleFollow} style={{  left: '80%', width: 22, height: 22, borderRadius: '50%', background: '#ff5c00', border: '2px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}>
+              Follow
+            </button>
+          )}     
       <div style={{ position: 'absolute', bottom: 16, left: 14, right: 72, zIndex: 10 }} onClick={e => e.stopPropagation()}>
         <Link href={`/@${video.user?.username}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', marginBottom: 5 }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{video.user?.name}</span>
