@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessVideoJob;
+use App\Models\Product;
 use App\Models\Video;
 use App\Services\FeedService;
 use App\Services\StorageService;
@@ -30,17 +31,56 @@ class VideoController extends Controller
 
     private function serializeVideos($videos): array
     {
+        if ($videos->isEmpty()) return [];
+
+        $userId    = Auth::id();
+        $videoIds  = $videos->pluck('id')->filter()->unique()->toArray();
+        $sellerIds = $videos->pluck('user_id')->filter()->unique()->toArray();
+
+        // ── NEW: Batch-fetch per-user flags in 3 queries total ────────────────
+        // Previously these defaulted to false on every request.
+        // Now we look them up once for the whole batch before the map.
+        $likedIds     = [];
+        $savedIds     = [];
+        $followingIds = [];
+
+        if ($userId && !empty($videoIds)) {
+            $likedIds = \DB::table('video_likes')
+                ->where('user_id', $userId)
+                ->whereIn('video_id', $videoIds)
+                ->pluck('video_id')
+                ->flip()   // flip to [video_id => 0] for O(1) isset() lookup
+                ->toArray();
+
+            $savedIds = \DB::table('video_saves')
+                ->where('user_id', $userId)
+                ->whereIn('video_id', $videoIds)
+                ->pluck('video_id')
+                ->flip()
+                ->toArray();
+
+            if (!empty($sellerIds)) {
+                $followingIds = \DB::table('follows')
+                    ->where('follower_id', $userId)
+                    ->whereIn('following_id', $sellerIds)
+                    ->pluck('following_id')
+                    ->flip()
+                    ->toArray();
+            }
+        }
+        // ── END NEW ───────────────────────────────────────────────────────────
+
         return $videos
-            ->map(function ($v) {
-                // Guard: if somehow a non-object sneaks in, skip it
+            ->map(function ($v) use ($likedIds, $savedIds, $followingIds) {
+                // ── UNCHANGED: your existing guard ────────────────────────────
                 if (!is_object($v)) return null;
 
-                // Always convert via Eloquent if it's a model
+                // ── UNCHANGED: your existing Eloquent/array conversion ────────
                 $arr = ($v instanceof \Illuminate\Database\Eloquent\Model)
                     ? $v->toArray()
                     : (array) $v;
 
-                // Add computed URL accessors directly (safe — no ->append() needed)
+                // ── UNCHANGED: your existing URL accessors ────────────────────
                 $arr['video_stream_url']   = ($v instanceof \Illuminate\Database\Eloquent\Model)
                     ? $v->video_stream_url
                     : ($arr['video_stream_url'] ?? null);
@@ -49,17 +89,22 @@ class VideoController extends Controller
                     ? $v->thumbnail_url_full
                     : ($arr['thumbnail_url_full'] ?? null);
 
-                // Normalise comments_count to include replies
+                // ── UNCHANGED: your existing comments_count normalisation ─────
                 $arr['comments_count'] = $v->all_comments_count ?? $v->comments_count ?? 0;
 
-                // Per-user flags — default false, FeedService sets them when available
-                $arr['is_liked']     = $arr['is_liked']     ?? false;
-                $arr['is_saved']     = $arr['is_saved']     ?? false;
-                $arr['is_following'] = $arr['is_following'] ?? false;
+                // ── CHANGED: was ?? false, now uses batch lookup ───────────────
+                // Old: $arr['is_liked'] = $arr['is_liked'] ?? false;
+                // New: look up from the pre-fetched sets above
+                $videoId  = $arr['id']      ?? null;
+                $sellerId = $arr['user_id'] ?? null;
+
+                $arr['is_liked']     = $videoId  ? isset($likedIds[$videoId])     : false;
+                $arr['is_saved']     = $videoId  ? isset($savedIds[$videoId])      : false;
+                $arr['is_following'] = $sellerId ? isset($followingIds[$sellerId]) : false;
 
                 return $arr;
             })
-            ->filter() // remove any nulls from the guard above
+            ->filter() // ── UNCHANGED: your existing null filter ───────────────
             ->values()
             ->toArray();
     }
@@ -117,13 +162,16 @@ class VideoController extends Controller
 
         // Initial batch of seller's other videos
         $sellerVideos = Video::active()
-            ->where('user_id', $video->user_id)
-            ->where('id', '!=', $video->id)
-            ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
-            ->withCount(['allComments'])
-            ->latest()
-            ->limit(10)
-            ->get();
+    ->where('user_id', $video->user_id)
+    ->where('id', '!=', $video->id)
+    ->with([
+        'user:id,name,username,avatar,is_verified,location',
+        'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+    ])
+    ->withCount(['allComments'])
+    ->latest()
+    ->limit(10)
+    ->get();
 
         return Inertia::render('Video/Show', [
             'video' => array_merge($video->toArray(), [
@@ -215,8 +263,11 @@ class VideoController extends Controller
             if (!$sellerId) return response()->json(['data' => [], 'has_more' => false]);
  
             $query = Video::active()
-                ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
-                ->withCount(['allComments']);
+    ->with([
+        'user:id,name,username,avatar,is_verified,location',
+        'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+    ])
+    ->withCount(['allComments']);
             if ($excludeUlid) $query->where('ulid', '!=', $excludeUlid);
  
             $sellerVideos = $query->where('user_id', $sellerId)->latest()->skip($cursor)->limit($limit)->get();
@@ -250,8 +301,11 @@ class VideoController extends Controller
         if ($type === 'explore') {
             $q     = trim($request->input('q', ''));
             $query = Video::active()
-                ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
-                ->withCount(['allComments']);
+    ->with([
+        'user:id,name,username,avatar,is_verified,location',
+        'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+    ])
+    ->withCount(['allComments']);
             if ($q) {
                 $query->where(fn ($qb) =>
                     $qb->where('title', 'ilike', "%{$q}%")
@@ -419,22 +473,28 @@ return response()->json([
         return response()->json(['message' => 'Video deleted.']);
     }
 
-    public function generateSummary(Video $video): JsonResponse
+    public function generateSummary(Video $video, Product $product): JsonResponse
     {
         try {
             $hashtags = is_array($video->hashtags)
                 ? $video->hashtags
                 : json_decode($video->hashtags ?? '[]', true);
 
-            $prompt = "Create an engaging summary for this video not more than 150 words.
-CRITICAL INSTRUCTION: Return ONLY the summary itself. No introductory phrases.
+            $prompt = "Create an engaging summary for this video not more than 50 words.
+CRITICAL INSTRUCTION: Return ONLY the summary itself. No introductory phrases. If there is no video title, description or hashtags check for the product's title, price and description and give a summary on that.
+
+Product Name: {$product->name}
+Description: {$product->description}
+Price: {$product->price}
 
 Title: {$video->title}
 Description: {$video->description}
 Hashtags: " . implode(', ', $hashtags);
 
+
+
             $response = Http::timeout(60)->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' . env('GEMINI_API_KEY'),
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
                 ['contents' => [['parts' => [['text' => $prompt]]]]]
             );
 
@@ -454,4 +514,26 @@ Hashtags: " . implode(', ', $hashtags);
             return response()->json(['message' => $e->getMessage()], 500);
         }
     }
+
+    public function report(Request $request, Video $video): JsonResponse
+{
+    // Can't report your own video
+    if (Auth::id() === $video->user_id) {
+        return response()->json(['message' => 'You cannot report your own video.'], 422);
+    }
+
+    $request->validate([
+        'reason'      => 'required|string|max:200',
+        'description' => 'nullable|string|max:500',
+    ]);
+
+    \App\Models\Report::upsertReport(
+    reporterId: Auth::id(),
+    reportedId: $video->user_id,
+    reason:     "[Video: {$video->ulid}] {$request->reason}" . ($request->description ? " — {$request->description}" : ''),
+    context:    []
+);
+
+return response()->json(['message' => 'Report submitted.']);
+}
 }

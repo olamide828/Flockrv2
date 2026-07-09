@@ -1,5 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
+import { ShoppingBagIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
@@ -8,7 +9,9 @@ import {
     RiLogoutBoxLine,
     RiSearchLine,
     RiSettings4Line,
+    RiShoppingBag2Fill,
     RiShoppingBag2Line,
+    RiShoppingBasketLine,
     RiShoppingCart2Line,
     RiUploadCloud2Line,
     RiUserLine,
@@ -256,6 +259,29 @@ export default function AppLayout({ children }) {
                         </div>
                         Cart
                     </Link>
+                        
+
+                    <Link
+                        href='/orders'
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            marginBottom: 2,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                           fontWeight: isActive('/orders') ? 600 : 400,
+                            color: isActive('/orders') ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                            background: isActive('/orders') ? 'rgba(255,92,0,0.08)' : 'transparent',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <RiShoppingBasketLine size={20} />
+                        Orders
+                    </Link>
+                    
 
                     {/* Seller upload */}
                     {auth?.user?.role === 'seller' && (
@@ -457,8 +483,8 @@ export default function AppLayout({ children }) {
                             flockr<span style={{ color: '#ff5c00' }}>.</span>
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Link href="/explore" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
-                                <RiSearchLine size={20} />
+                            <Link href="/orders" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+                                <RiShoppingBasketLine size={20} />
                             </Link>
                             <Link href="/cart" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}>
                                 <RiShoppingCart2Line size={20} />
@@ -515,6 +541,7 @@ export default function AppLayout({ children }) {
                                     >
                                         <AvatarImage user={auth.user} size={30} />
                                     </button>
+                                    {!showUserMenu && <span className='h-[8px] w-[8px] block rounded-full absolute top-0 right-0' style={{ backgroundColor: "var(--flockr-orange)" }}></span>}
                                     {showUserMenu && (
                                         <div
                                             style={{

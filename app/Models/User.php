@@ -43,6 +43,10 @@ class User extends Authenticatable implements MustVerifyEmail
     'account_name',
     'account_last4',
     'account_number',   // ← this was missing
+    'pickup_street', 
+    'pickup_city', 
+    'pickup_state', 
+    'pickup_postal_code',
 ];
 
     protected $hidden = ['password', 'remember_token'];

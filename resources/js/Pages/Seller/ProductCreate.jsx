@@ -1,16 +1,40 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { Head, router } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
 import {
-  RiArrowLeftLine,
-  RiImageAddLine,
-  RiCloseLine,
-  RiCheckLine,
-  RiRocketLine,
-  RiVideoLine,
-  RiListCheck2,
+  RiArrowLeftLine, RiImageAddLine, RiCloseLine, RiCheckLine,
+  RiRocketLine, RiVideoLine, RiListCheck2, RiAddLine,
+  RiDeleteBinLine, RiSparklingLine, RiPriceTag3Line,
 } from 'react-icons/ri'
+
+// ── Image enhancement polling ─────────────────────────────────────────────────
+// After upload, if backend says processing=true, we poll /api/products/{id}
+// every 3s to detect when image URLs have changed (background removed).
+// Change the hook to accept productId at poll time, not at init time
+function useImageEnhancement() {
+  const pollRef = useRef(null)
+
+  const startPolling = useCallback((productId, onUpdated) => {  // ← productId param here
+    if (pollRef.current) clearInterval(pollRef.current)
+    let attempts = 0
+    pollRef.current = setInterval(async () => {
+      attempts++
+      try {
+        const { data } = await axios.get(`/api/products/${productId}/images`)
+const urls = data.image_urls ?? []
+        onUpdated(urls)
+      } catch {}
+      if (attempts >= 20) clearInterval(pollRef.current)
+    }, 3000)
+  }, [])  // no dependency on productId
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current)
+  }, [])
+
+  return { startPolling, stopPolling }
+}
 
 export default function ProductCreate({ categories = [] }) {
   const [form, setForm] = useState({
@@ -18,33 +42,69 @@ export default function ProductCreate({ categories = [] }) {
     stock_quantity: 1, category_id: '', condition: 'new',
     shipping_fee: '', ships_nationwide: true,
   })
-  const [images,     setImages]     = useState([])
-  const [previews,   setPreviews]   = useState([])
+
+  // Tags — stored as array, edited as comma string
+  const [tagsInput,  setTagsInput]  = useState('')
+
+  // Attributes — array of { key, value } pairs
+  const [attributes, setAttributes] = useState([{ key: '', value: '' }])
+
+  // Images
+  const [images,        setImages]        = useState([])       // File objects
+  const [previews,      setPreviews]      = useState([])       // local blob URLs
+  const [uploadedUrls,  setUploadedUrls]  = useState([])       // server URLs after upload
+  const [enhancing,     setEnhancing]     = useState(false)    // background removal running
+  const [productId,     setProductId]     = useState(null)
+
   const [submitting, setSubmitting] = useState(false)
+  const [uploading,  setUploading]  = useState(false)
   const [errors,     setErrors]     = useState({})
   const [success,    setSuccess]    = useState(false)
   const fileRef = useRef(null)
 
+  const { startPolling, stopPolling } = useImageEnhancement()  
+
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
 
+  // ── Tags helpers ──────────────────────────────────────────────────────────
+  const parsedTags = tagsInput
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean)
+
+  // ── Attribute helpers ─────────────────────────────────────────────────────
+  const setAttr = (i, field, val) => {
+    setAttributes(prev => prev.map((a, idx) => idx === i ? { ...a, [field]: val } : a))
+  }
+  const addAttr    = () => setAttributes(prev => [...prev, { key: '', value: '' }])
+  const removeAttr = (i) => setAttributes(prev => prev.filter((_, idx) => idx !== i))
+
+  const attributesObject = Object.fromEntries(
+    attributes.filter(a => a.key.trim()).map(a => [a.key.trim(), a.value.trim()])
+  )
+
+  // ── Image handlers ────────────────────────────────────────────────────────
   const handleImages = (e) => {
     const files = Array.from(e.target.files).slice(0, 6 - images.length)
-    const newFiles = [...images, ...files].slice(0, 6)
-    setImages(newFiles)
-    setPreviews(newFiles.map(f => URL.createObjectURL(f)))
+    const next  = [...images, ...files].slice(0, 6)
+    setImages(next)
+    setPreviews(next.map(f => URL.createObjectURL(f)))
+    e.target.value = ''
   }
 
   const removeImage = (i) => {
-    setImages(prev => prev.filter((_, idx) => idx !== i))
+    setImages(prev  => prev.filter((_,  idx) => idx !== i))
     setPreviews(prev => prev.filter((_, idx) => idx !== i))
   }
 
+  // ── Submit ────────────────────────────────────────────────────────────────
   const submit = async (e) => {
-    e.preventDefault()
+    e?.preventDefault()
     setErrors({})
     setSubmitting(true)
 
     try {
+      // 1. Create product
       const { data: product } = await axios.post('/api/products', {
         name:             form.name,
         description:      form.description || null,
@@ -55,16 +115,44 @@ export default function ProductCreate({ categories = [] }) {
         condition:        form.condition,
         shipping_fee:     form.shipping_fee ? Number(form.shipping_fee) : 0,
         ships_nationwide: form.ships_nationwide,
+        tags:             parsedTags,
+        attributes:       attributesObject,
       })
 
+      setProductId(product.id)
+
+      // 2. Upload images if any
       if (images.length > 0) {
+        setUploading(true)
         const fd = new FormData()
         images.forEach(img => fd.append('images[]', img))
-        await axios.post(`/api/products/${product.id}/images`, fd)
+
+        const { data: imgData } = await axios.post(
+          `/api/products/${product.id}/images`, fd,
+          { headers: { 'Content-Type': 'multipart/form-data' } }
+        )
+
+        setUploadedUrls(imgData.images ?? [])
+        setUploading(false)
+
+        // If backend is running background enhancement, show enhancing state
+        if (imgData.processing) {
+  setEnhancing(true)
+  startPolling(product.id, (updatedUrls) => {  // ← pass product.id directly
+    const prev = (imgData.images ?? []).join(',')
+    const next = updatedUrls.join(',')
+    if (next && next !== prev) {
+      setUploadedUrls(updatedUrls)
+      setEnhancing(false)
+      stopPolling()
+    }
+  })
+}
       }
 
       setSuccess(true)
     } catch (err) {
+      setUploading(false)
       if (err.response?.status === 422) {
         setErrors(err.response.data.errors ?? {})
       } else {
@@ -88,6 +176,21 @@ export default function ProductCreate({ categories = [] }) {
             <h2 style={{ color: '#fff', fontWeight: 800, fontSize: 24, margin: '0 0 10px', letterSpacing: '-0.4px' }}>
               Product Created!
             </h2>
+
+            {/* Enhancement status */}
+            {enhancing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', margin: '0 0 16px', padding: '10px 16px', background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 12 }}>
+                <RiSparklingLine size={15} color="#FF6B35" style={{ animation: 'pulse 1.5s ease infinite' }} />
+                <span style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600 }}>Enhancing images in background…</span>
+              </div>
+            )}
+            {!enhancing && uploadedUrls.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', margin: '0 0 16px' }}>
+                <RiCheckLine size={14} color="#10B981" />
+                <span style={{ color: '#10B981', fontSize: 13 }}>Images enhanced</span>
+              </div>
+            )}
+
             <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 14, lineHeight: 1.6, margin: '0 0 28px' }}>
               Your product is live in the shop. Tag it in a video to boost sales!
             </p>
@@ -95,14 +198,14 @@ export default function ProductCreate({ categories = [] }) {
               <button onClick={() => router.visit('/seller/upload')} style={primaryBtn}>
                 <RiVideoLine size={16} /> Upload a Video
               </button>
-              <button
-                onClick={() => {
-                  setSuccess(false)
-                  setForm({ name:'',description:'',price:'',compare_price:'',stock_quantity:1,category_id:'',condition:'new',shipping_fee:'',ships_nationwide:true })
-                  setImages([]); setPreviews([])
-                }}
-                style={ghostBtn}
-              >
+              <button onClick={() => {
+                stopPolling()
+                setSuccess(false)
+                setForm({ name:'',description:'',price:'',compare_price:'',stock_quantity:1,category_id:'',condition:'new',shipping_fee:'',ships_nationwide:true })
+                setImages([]); setPreviews([]); setUploadedUrls([])
+                setTagsInput(''); setAttributes([{ key: '', value: '' }])
+                setEnhancing(false); setProductId(null)
+              }} style={ghostBtn}>
                 Add Another Product
               </button>
               <button onClick={() => router.visit('/seller/products')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 13, cursor: 'pointer', padding: 8 }}>
@@ -111,6 +214,7 @@ export default function ProductCreate({ categories = [] }) {
             </div>
           </div>
         </div>
+        <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }`}</style>
       </>
     )
   }
@@ -128,14 +232,10 @@ export default function ProductCreate({ categories = [] }) {
           <h1 style={{ color: '#fff', fontWeight: 700, fontSize: 17, margin: 0, flex: 1 }}>New Product</h1>
           <button
             onClick={submit}
-            disabled={submitting || !form.name || !form.price}
-            style={{
-              padding: '8px 18px', background: (submitting || !form.name || !form.price) ? 'rgba(255,92,0,0.35)' : '#ff5c00',
-              border: 'none', borderRadius: 999, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
+            disabled={submitting || uploading || !form.name || !form.price}
+            style={{ padding: '8px 18px', background: (submitting || uploading || !form.name || !form.price) ? 'rgba(255,92,0,0.35)' : '#ff5c00', border: 'none', borderRadius: 999, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            {submitting ? 'Saving…' : <><RiCheckLine size={14} />Publish</>}
+            {submitting || uploading ? 'Saving…' : <><RiCheckLine size={14} />Publish</>}
           </button>
         </div>
 
@@ -147,39 +247,67 @@ export default function ProductCreate({ categories = [] }) {
             </div>
           )}
 
-          {/* ── Images ─────────────────────────────────────────────── */}
+          {/* ── Images ───────────────────────────────────────────────── */}
           <Card>
             <SectionTitle icon={<RiImageAddLine size={15} />} title="Product Photos" />
+
+            {/* Enhancement banner */}
+            {enhancing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 12 }}>
+                <RiSparklingLine size={16} color="#FF6B35" style={{ animation: 'pulse 1.5s ease infinite', flexShrink: 0 }} />
+                <div>
+                  <p style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, margin: 0 }}>Enhancing images…</p>
+                  <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '2px 0 0' }}>Removing background, adding clean white canvas</p>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              {previews.map((src, i) => (
+              {/* Show uploaded server URLs if available, else local previews */}
+              {(uploadedUrls.length > 0 ? uploadedUrls : previews).map((src, i) => (
                 <div key={i} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: '#1a1a1a' }}>
                   <img src={src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+
+                  {/* Shimmer overlay while enhancing */}
+                  {enhancing && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent 0%, rgba(255,107,53,0.15) 50%, transparent 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+                  )}
+
                   {i === 0 && (
-                    <div style={{ position: 'absolute', top: 5, left: 5, background: '#ff5c00', borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, color: '#fff' }}>
-                      COVER
+                    <div style={{ position: 'absolute', top: 5, left: 5, background: '#ff5c00', borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, color: '#fff' }}>COVER</div>
+                  )}
+                  {/* Only allow removal before upload */}
+                  {uploadedUrls.length === 0 && (
+                    <button type="button" onClick={() => removeImage(i)}
+                      style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                      <RiCloseLine size={12} />
+                    </button>
+                  )}
+                  {/* Enhanced badge */}
+                  {!enhancing && uploadedUrls.length > 0 && (
+                    <div style={{ position: 'absolute', bottom: 5, right: 5, background: 'rgba(16,185,129,0.9)', borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <RiCheckLine size={9} /> Enhanced
                     </div>
                   )}
-                  <button type="button" onClick={() => removeImage(i)}
-                    style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                    <RiCloseLine size={12} />
-                  </button>
                 </div>
               ))}
-              {previews.length < 6 && (
+
+              {previews.length < 6 && uploadedUrls.length === 0 && (
                 <button type="button" onClick={() => fileRef.current?.click()}
-                  style={{ aspectRatio: '1', borderRadius: 10, border: '2px dashed rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'rgba(255,255,255,0.25)', transition: 'all 0.2s' }}>
+                  style={{ aspectRatio: '1', borderRadius: 10, border: '2px dashed rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'rgba(255,255,255,0.25)' }}>
                   <RiImageAddLine size={22} />
                   <span style={{ fontSize: 11 }}>Add photo</span>
                 </button>
               )}
             </div>
+
             <input ref={fileRef} type="file" multiple accept="image/*" onChange={handleImages} style={{ display: 'none' }} />
             <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, margin: '6px 0 0' }}>
-              Up to 6 photos · First photo is the cover image
+              Up to 6 photos · First photo is cover · Backgrounds auto-removed
             </p>
           </Card>
 
-          {/* ── Product Info ────────────────────────────────────────── */}
+          {/* ── Product Info ──────────────────────────────────────────── */}
           <Card>
             <SectionTitle icon={<RiListCheck2 size={15} />} title="Product Details" />
 
@@ -197,9 +325,7 @@ export default function ProductCreate({ categories = [] }) {
               <Field label="Category" error={errors.category_id}>
                 <select value={form.category_id} onChange={e => set('category_id', e.target.value)} style={inputSt}>
                   <option value="">Select category</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </Field>
               <Field label="Condition *" error={errors.condition}>
@@ -212,7 +338,66 @@ export default function ProductCreate({ categories = [] }) {
             </div>
           </Card>
 
-          {/* ── Pricing ─────────────────────────────────────────────── */}
+          {/* ── Tags ─────────────────────────────────────────────────── */}
+          <Card>
+            <SectionTitle icon={<RiPriceTag3Line size={15} />} title="Tags" />
+            <Field label="Tags (comma separated)" error={errors.tags}>
+              <input
+                value={tagsInput}
+                onChange={e => setTagsInput(e.target.value)}
+                placeholder="e.g. ankara, dress, fashion, women"
+                style={inputSt}
+              />
+            </Field>
+            {parsedTags.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {parsedTags.map((tag, i) => (
+                  <span key={i} style={{ padding: '4px 10px', background: 'rgba(255,92,0,0.1)', border: '1px solid rgba(255,92,0,0.25)', borderRadius: 999, color: '#ff5c00', fontSize: 12, fontWeight: 600 }}>
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, margin: 0 }}>
+              Tags help buyers find your product
+            </p>
+          </Card>
+
+          {/* ── Attributes ───────────────────────────────────────────── */}
+          <Card>
+            <SectionTitle icon={<RiListCheck2 size={15} />} title="Attributes" />
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: '-6px 0 0' }}>
+              Add specs like size, color, material, weight…
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {attributes.map((attr, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    value={attr.key}
+                    onChange={e => setAttr(i, 'key', e.target.value)}
+                    placeholder="e.g. Size"
+                    style={{ ...inputSt, flex: '0 0 38%' }}
+                  />
+                  <input
+                    value={attr.value}
+                    onChange={e => setAttr(i, 'value', e.target.value)}
+                    placeholder="e.g. M, L, XL"
+                    style={{ ...inputSt, flex: 1 }}
+                  />
+                  {attributes.length > 1 && (
+                    <button type="button" onClick={() => removeAttr(i)} style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444', flexShrink: 0 }}>
+                      <RiDeleteBinLine size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={addAttr} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 10, padding: '9px 14px', color: 'rgba(255,255,255,0.4)', fontSize: 13, cursor: 'pointer', width: 'fit-content' }}>
+              <RiAddLine size={15} /> Add attribute
+            </button>
+          </Card>
+
+          {/* ── Pricing ──────────────────────────────────────────────── */}
           <Card>
             <SectionTitle title="Pricing & Stock" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -234,43 +419,31 @@ export default function ProductCreate({ categories = [] }) {
             </Field>
           </Card>
 
-          {/* ── Shipping ────────────────────────────────────────────── */}
+          {/* ── Shipping ─────────────────────────────────────────────── */}
           <Card>
             <SectionTitle title="Shipping" />
             <Field label="Shipping Fee (₦)" error={errors.shipping_fee}>
               <input type="number" value={form.shipping_fee} onChange={e => set('shipping_fee', e.target.value)} placeholder="0 for free shipping" min="0" style={inputSt} />
             </Field>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <div
-                onClick={() => set('ships_nationwide', !form.ships_nationwide)}
-                style={{
-                  width: 44, height: 24, borderRadius: 999,
-                  background: form.ships_nationwide ? '#ff5c00' : 'rgba(255,255,255,0.1)',
-                  position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  position: 'absolute', top: 3, left: form.ships_nationwide ? 23 : 3,
-                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                }} />
+              <div onClick={() => set('ships_nationwide', !form.ships_nationwide)} style={{ width: 44, height: 24, borderRadius: 999, background: form.ships_nationwide ? '#ff5c00' : 'rgba(255,255,255,0.1)', position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer' }}>
+                <div style={{ position: 'absolute', top: 3, left: form.ships_nationwide ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
               </div>
               <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>Ships nationwide across Nigeria</span>
             </label>
           </Card>
 
           {/* Mobile submit */}
-          <button type="submit" disabled={submitting || !form.name || !form.price} style={{
-            ...primaryBtn,
-            opacity: (submitting || !form.name || !form.price) ? 0.5 : 1,
-          }}>
+          <button type="submit" disabled={submitting || uploading || !form.name || !form.price} style={{ ...primaryBtn, opacity: (submitting || uploading || !form.name || !form.price) ? 0.5 : 1 }}>
             <RiRocketLine size={17} />
-            {submitting ? 'Publishing...' : 'Publish Product'}
+            {submitting || uploading ? 'Publishing...' : 'Publish Product'}
           </button>
         </form>
 
         <style>{`
-          @keyframes spin { to { transform: rotate(360deg) } }
+          @keyframes spin     { to { transform: rotate(360deg) } }
+          @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:0.5} }
+          @keyframes shimmer  { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
           input:focus, textarea:focus, select:focus { border-color: rgba(255,92,0,0.6) !important; outline: none; box-shadow: 0 0 0 3px rgba(255,92,0,0.08); }
           input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.2); }
           select option { background: #1a1a1a; }
@@ -282,6 +455,7 @@ export default function ProductCreate({ categories = [] }) {
 
 ProductCreate.layout = page => <AppLayout>{page}</AppLayout>
 
+// ── Sub-components ────────────────────────────────────────────────────────────
 function Card({ children }) {
   return (
     <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -289,7 +463,6 @@ function Card({ children }) {
     </div>
   )
 }
-
 function SectionTitle({ icon, title }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2 }}>
@@ -298,15 +471,12 @@ function SectionTitle({ icon, title }) {
     </div>
   )
 }
-
 function Field({ label, error, children }) {
   return (
     <div>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 7px' }}>
-        {label}
-      </p>
+      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 7px' }}>{label}</p>
       {children}
-      {error && <p style={{ color: '#ff3b5c', fontSize: 12, margin: '5px 0 0' }}>{error}</p>}
+      {error && <p style={{ color: '#ff3b5c', fontSize: 12, margin: '5px 0 0' }}>{Array.isArray(error) ? error[0] : error}</p>}
     </div>
   )
 }
@@ -317,14 +487,12 @@ const inputSt = {
   borderRadius: 10, color: '#fff', fontSize: 14, fontFamily: 'inherit',
   boxSizing: 'border-box', transition: 'border-color 0.2s, box-shadow 0.2s',
 }
-
 const primaryBtn = {
   width: '100%', padding: '15px',
   background: '#ff5c00', border: 'none', borderRadius: 999,
   color: '#fff', fontSize: 15, fontWeight: 700,
   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
 }
-
 const ghostBtn = {
   width: '100%', padding: '13px',
   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',

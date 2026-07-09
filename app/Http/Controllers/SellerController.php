@@ -81,6 +81,7 @@ return Inertia::render('Seller/Dashboard', compact(
     public function videos(): Response
     {
         $videos = Auth::user()->videos()
+        ->with('user:id,username,name,avatar')
             ->withCount(['likes', 'comments'])
             ->orderByDesc('created_at')
             ->paginate(20);

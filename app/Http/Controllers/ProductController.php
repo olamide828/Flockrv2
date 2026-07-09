@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessProductImage;
 use App\Models\Category;
+use App\Models\Order;
 use App\Models\Product;
+use App\Models\Review;
 use App\Services\JinaService;
 use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
@@ -67,12 +69,14 @@ class ProductController extends Controller
     {
         abort_if($product->status !== 'active', 404);
 
-        // If the viewer has blocked this seller (or been blocked by them) — 404
         $blocked = $this->blockedSellerIds();
         abort_if(in_array($product->seller_id, $blocked), 404);
 
         $product->load([
-            'seller:id,name,username,avatar,is_verified,total_sales,location',
+            'seller' => fn($q) => $q->select([
+                'id', 'name', 'username', 'avatar', 'is_verified',
+                'total_sales', 'location', 'avg_rating', 'total_reviews',
+            ]),
             'category:id,name',
             'videos' => fn($q) => $q->where('status', 'active')
                 ->with('user:id,name,username')
@@ -83,23 +87,67 @@ class ProductController extends Controller
 
         $product->increment('views_count');
 
+        // Similar products
         $similar = collect();
         try {
             $similar = $this->jina->similarProducts($product, 6);
-            // Also filter similar products from blocked sellers
             if (!empty($blocked)) {
                 $similar = $similar->filter(fn($p) => !in_array($p->seller_id, $blocked))->values();
             }
             $similar->load('seller:id,name,username,avatar,is_verified');
-        } catch (\Throwable) {
-        }
+        } catch (\Throwable) {}
 
         $isSaved = Auth::check()
             && $product->savedByUsers()->where('user_id', Auth::id())->exists();
 
+        // ── Per-product rating ────────────────────────────────────────────────
+        $productAvgRating    = (float) ($product->avg_rating ?? 0);
+        $productTotalReviews = (int)   ($product->total_reviews ?? 0);
+
+        // ── Initial reviews for this specific product ─────────────────────────
+        $reviews = \App\Models\Review::where('product_id', $product->id)
+            ->with('buyer:id,name,avatar')
+            ->latest()
+            ->limit(10)
+            ->get()
+            ->map(fn($r) => array_merge($r->toArray(), [
+                'photo_urls' => $r->photo_urls,
+                'buyer'      => array_merge($r->buyer?->toArray() ?? [], [
+                    'avatar_url' => $r->buyer?->avatar_url,
+                ]),
+            ]));
+
+        // ── Find an eligible order for the review form ────────────────────────
+        $userOrderId = null;
+        try {
+            if ($user = Auth::user()) {
+                $eligibleOrder = \App\Models\Order::where('buyer_id', $user->id)
+                    ->where('seller_id', $product->seller_id)
+                    ->where('status', 'delivered')
+                    ->whereHas('items', fn($q) => $q->where('product_id', $product->id))
+                    ->whereDoesntHave('review')  // no existing review for this order
+                    ->latest()
+                    ->first();
+                $userOrderId = $eligibleOrder?->id;
+            }
+        } catch (\Throwable) {}
+
         return Inertia::render('Product/Show', [
-            'product' => array_merge($product->toArray(), ['is_saved' => $isSaved]),
+            'product'        => array_merge($product->toArray(), [
+                'is_saved'          => $isSaved,
+                // Per-product rating (shown on this product page)
+                'avg_rating'        => $productAvgRating,
+                'total_reviews'     => $productTotalReviews,
+                // Seller overall rating (shown on seller card)
+                'seller'            => array_merge($product->seller->toArray(), [
+                    'avg_rating'    => (float) ($product->seller->avg_rating ?? 0),
+                    'total_reviews' => (int)   ($product->seller->total_reviews ?? 0),
+                    'avatar_url'    => $product->seller->avatar_url,
+                ]),
+            ]),
             'similarProducts' => $similar,
+            'reviews'         => $reviews,
+            'userOrderId'     => $userOrderId,
         ]);
     }
 
@@ -355,7 +403,7 @@ class ProductController extends Controller
 
             $product = Product::with('seller:id,name,username')->findOrFail($request->product_id);
 
-            $prompt = "Create an engaging ecommerce product summary not more or less than 150 words.
+            $prompt = "Create an engaging ecommerce product summary not more or less than 50 words.
 
 CRITICAL INSTRUCTION: Return ONLY the summary itself. Do NOT include any introductory phrases, conversational fillers, or meta-commentary. Start directly with the summary content.
 
@@ -364,7 +412,7 @@ Description: {$product->description}
 Price: {$product->price}";
 
             $response = Http::timeout(30)->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' . env('GEMINI_API_KEY'),
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
                 ['contents' => [['parts' => [['text' => $prompt]]]]]
             );
 
@@ -384,4 +432,18 @@ Price: {$product->price}";
             return response()->json(['message' => $e->getMessage()], 500);
         }
     }
+
+    public function getImages(Product $product): JsonResponse
+{
+    if (Auth::id() !== $product->seller_id) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    $imageUrls = array_map(
+        fn ($k) => $this->storage->url($k),
+        $product->fresh()->images ?? []
+    );
+
+    return response()->json(['image_urls' => $imageUrls]);
+}
 }

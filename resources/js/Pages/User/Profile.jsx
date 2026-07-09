@@ -478,7 +478,8 @@ export default function UserProfile({
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 32, marginBottom: 24 }}>
                         {/* Avatar */}
                         <div style={{ flexShrink: 0, position: 'relative' }}>
-                            <img
+                           <div style={{ border: "1px solid var(--flockr-subtle)" }} className='h-[120px] w-[120px] block rounded-full'>
+                             <img
                                 src={avatarSrc}
                                 alt={profileUser.name}
                                 style={{
@@ -490,6 +491,7 @@ export default function UserProfile({
                                     filter: anyBlock ? 'grayscale(1) opacity(0.5)' : 'none',
                                 }}
                             />
+                           </div>
                             {anyBlock && (
                                 <div
                                     style={{
@@ -662,7 +664,8 @@ export default function UserProfile({
                 <div className="md:hidden" style={{ padding: '0 16px 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
                         <div style={{ position: 'relative', flexShrink: 0 }}>
-                            <img
+                            <div style={{ border: "2px solid var(--flockr-subtle)" }} className='h-[84px] w-[84px] block rounded-full'>
+                             <img
                                 src={avatarSrc}
                                 alt={profileUser.name}
                                 style={{
@@ -670,9 +673,11 @@ export default function UserProfile({
                                     height: 80,
                                     borderRadius: '50%',
                                     objectFit: 'cover',
+                                    display: 'block',
                                     filter: anyBlock ? 'grayscale(1) opacity(0.5)' : 'none',
                                 }}
                             />
+                           </div>
                             {anyBlock && (
                                 <div
                                     style={{

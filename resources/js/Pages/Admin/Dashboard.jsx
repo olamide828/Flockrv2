@@ -74,7 +74,7 @@ export default function AdminDashboard({ stats, recentUsers, pendingVideos, flag
             <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 18 }}>Flockr</p>
             <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Admin Panel</p>
           </div>
-          <NavItem href="/admin"           icon={RiBarChartLine}          label="Overview"   active={true} />
+          <NavItem href="/admin/dashboard"           icon={RiBarChartLine}          label="Overview"   active={true} />
           <NavItem href="/admin/users"      icon={RiGroupLine}             label="Users" />
           <NavItem href="/admin/videos"     icon={RiVideoLine}             label="Videos" />
           <NavItem href="/admin/orders"     icon={RiShoppingBagLine}       label="Orders" />

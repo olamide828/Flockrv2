@@ -188,10 +188,14 @@ class AdminController extends Controller
 
     /** POST /api/admin/orders/{order}/resolve */
     public function resolveOrder(Order $order): JsonResponse
-    {
-        $order->update(['status' => 'delivered']);
-        return response()->json(['message' => "Order {$order->reference} resolved."]);
+{
+    $updates = ['status' => 'delivered'];
+    if (!$order->delivered_at) {
+        $updates['delivered_at'] = now();
     }
+    $order->update($updates);
+    return response()->json(['message' => "Order {$order->reference} resolved."]);
+}
 
     /** GET /api/admin/stats */
     public function stats(): JsonResponse
@@ -240,63 +244,270 @@ class AdminController extends Controller
         return response()->json(compact('revenueByDay', 'topSellers', 'topProducts', 'userGrowth'));
     }
 
-    public function approvePayout(
-        \App\Models\Payout $payout,
-        \App\Services\PaystackService $paystack,
-    ): JsonResponse {
-        if ($payout->status !== 'pending') {
-            return response()->json(['message' => 'This payout is not pending.'], 422);
-        }
+//     public function approvePayout(
+//         \App\Models\Payout $payout,
+//         \App\Services\PaystackService $paystack,
+//     ): JsonResponse {
+//         if ($payout->status !== 'pending') {
+//             return response()->json(['message' => 'This payout is not pending.'], 422);
+//         }
  
-        $seller = $payout->seller;
+//         $seller = $payout->seller;
  
-        if (!$seller->paystack_recipient_code) {
-            return response()->json(['message' => 'Seller has no Paystack recipient code. They need to reconnect their bank.'], 422);
-        }
+//         if (!$seller->paystack_recipient_code) {
+//             return response()->json(['message' => 'Seller has no Paystack recipient code. They need to reconnect their bank.'], 422);
+//         }
  
+//         try {
+//             $transfer = $paystack->initiateTransfer(
+//                 recipientCode: $seller->paystack_recipient_code,
+//                 amount:        $payout->amount,
+//                 reason:        "Flockr payout to @{$seller->username}",
+//                 reference:     'FLK-PAY-' . $payout->id,
+//             );
+ 
+//             $payout->update([
+//     'status'    => 'paid',
+//     'reference' => $transfer['reference'] ?? null,
+//     'paid_at'   => now(),
+// ]);
+
+// // Notify seller
+// $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
+
+//             return response()->json([
+//                 'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
+//                 'transfer' => $transfer,
+//             ]);
+ 
+//         } catch (\Throwable $e) {
+//             // Re-credit wallet if transfer fails
+//             $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
+//             $balanceBefore = $lastTx?->balance_after ?? 0;
+ 
+//             \App\Models\WalletTransaction::create([
+//                 'user_id'       => $seller->id,
+//                 'amount'        => $payout->amount,
+//                 'type'          => 'credit',
+//                 'source'        => 'payout_reversal',
+//                 'description'   => 'Payout failed — funds returned to wallet',
+//                 'balance_after' => $balanceBefore + $payout->amount,
+//             ]);
+ 
+//             $payout->update(['status' => 'failed']);
+ 
+//             return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
+//         }
+//     }
+
+public function approvePayout(
+    \App\Models\Payout $payout,
+    \App\Services\PaystackService $paystack,
+): JsonResponse {
+    if ($payout->status !== 'pending') {
+        return response()->json(['message' => 'This payout is not pending.'], 422);
+    }
+
+    $seller = $payout->seller;
+
+    if (!$seller->paystack_recipient_code) {
+        return response()->json(['message' => 'Seller has no Paystack recipient code. They need to reconnect their bank.'], 422);
+    }
+
+    // ── TEMPORARY: Mock transfer for Starter Business accounts ──────────────
+    // Paystack Starter Business accounts cannot initiate third-party transfers.
+    // This bypasses the actual transfer and marks the payout as paid for testing.
+    // TODO: Remove this block and uncomment the real transfer below once your
+    //       Paystack account is upgraded to Registered Business.
+    // ────────────────────────────────────────────────────────────────────────
+    $payout->update([
+        'status'    => 'paid',
+        'reference' => 'TEST-FLK-PAY-' . $payout->id . '-' . now()->timestamp,
+        'paid_at'   => now(),
+    ]);
+
+    try {
+        $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
+    } catch (\Throwable) {}
+
+    return response()->json([
+        'message' => "₦" . number_format($payout->amount, 2) . " payout to {$seller->account_name} approved (test mode — no real transfer made).",
+    ]);
+
+    // ── REAL TRANSFER (uncomment when Paystack account is upgraded) ──────────
+    /*
+    try {
+        $transfer = $paystack->initiateTransfer(
+            recipientCode: $seller->paystack_recipient_code,
+            amount:        $payout->amount,
+            reason:        "Flockr payout to @{$seller->username}",
+            reference:     'FLK-PAY-' . $payout->id,
+        );
+
+        $payout->update([
+            'status'    => 'paid',
+            'reference' => $transfer['reference'] ?? null,
+            'paid_at'   => now(),
+        ]);
+
         try {
-            $transfer = $paystack->initiateTransfer(
-                recipientCode: $seller->paystack_recipient_code,
-                amount:        $payout->amount,
-                reason:        "Flockr payout to @{$seller->username}",
-                reference:     'FLK-PAY-' . $payout->id,
-            );
- 
-            $payout->update([
-    'status'    => 'paid',
-    'reference' => $transfer['reference'] ?? null,
-    'paid_at'   => now(),
-]);
+            $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
+        } catch (\Throwable) {}
 
-// Notify seller
-$seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
+        return response()->json([
+            'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
+            'transfer' => $transfer,
+        ]);
 
-            return response()->json([
-                'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
-                'transfer' => $transfer,
-            ]);
+    } catch (\Throwable $e) {
+        // Re-credit wallet if transfer fails
+        $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
+        $balanceBefore = $lastTx?->balance_after ?? 0;
+
+        \App\Models\WalletTransaction::create([
+            'user_id'       => $seller->id,
+            'amount'        => $payout->amount,
+            'type'          => 'credit',
+            'source'        => 'payout_reversal',
+            'description'   => 'Payout failed — funds returned to wallet',
+            'balance_after' => $balanceBefore + $payout->amount,
+        ]);
+
+        $payout->update(['status' => 'failed']);
+
+        return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
+    }
+    */
+}
+    public function videos(Request $request): Response
+{
+    $query = Video::with('user:id,name,username,avatar')->latest();
  
-        } catch (\Throwable $e) {
-            // Re-credit wallet if transfer fails
-            $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
-            $balanceBefore = $lastTx?->balance_after ?? 0;
+    if ($request->filled('status')) $query->where('status', $request->status);
+    if ($request->filled('search')) {
+        $s = $request->search;
+        $query->where(fn($q) => $q->where('title', 'ilike', "%{$s}%")
+            ->orWhereHas('user', fn($q2) => $q2->where('username', 'ilike', "%{$s}%")));
+    }
  
-            \App\Models\WalletTransaction::create([
-                'user_id'       => $seller->id,
-                'amount'        => $payout->amount,
-                'type'          => 'credit',
-                'source'        => 'payout_reversal',
-                'description'   => 'Payout failed — funds returned to wallet',
-                'balance_after' => $balanceBefore + $payout->amount,
-            ]);
+    $videos = $query->withCount(['likes', 'comments'])->paginate(24);
  
-            $payout->update(['status' => 'failed']);
+    return Inertia::render('Admin/Videos', [
+        'videos'  => $videos,
+        'filters' => $request->only('status', 'search'),
+    ]);
+}
  
-            return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
-        }
+public function payouts(Request $request): Response
+{
+    $query = \App\Models\Payout::with('seller:id,name,username,avatar,bank_name,account_last4,account_name,paystack_recipient_code')->latest();
+ 
+    if ($request->filled('status')) $query->where('status', $request->status);
+    if ($request->filled('search')) {
+        $s = $request->search;
+        $query->whereHas('seller', fn($q) => $q->where('username', 'ilike', "%{$s}%")->orWhere('name', 'ilike', "%{$s}%"));
+    }
+ 
+    $payouts = $query->paginate(30);
+ 
+    $stats = [
+        'pending_count'    => \App\Models\Payout::where('status', 'pending')->count(),
+        'pending_amount'   => \App\Models\Payout::where('status', 'pending')->sum('amount'),
+        'paid_count_30d'   => \App\Models\Payout::where('status', 'paid')->where('created_at', '>=', now()->subDays(30))->count(),
+        'paid_amount_30d'  => \App\Models\Payout::where('status', 'paid')->where('created_at', '>=', now()->subDays(30))->sum('amount'),
+    ];
+ 
+    return Inertia::render('Admin/Payouts', [
+        'payouts' => $payouts,
+        'filters' => $request->only('status', 'search'),
+        'stats'   => $stats,
+    ]);
+}
+ 
+public function reports(Request $request): Response
+{
+    $query = \App\Models\Report::with([
+        'reporter:id,name,username,avatar',
+        'reported:id,name,username,avatar,role',
+        'conversation',
+    ]);
+
+    if ($request->filled('status')) {
+        $query->where('status', $request->status);
     }
 
-    public function showVideoPage() {
-        Inertia::render('Admin/Videos');
+    match ($request->input('type', '')) {
+        'video' => $query->where('reason', 'like', '[Video:%'),
+        'chat'  => $query->whereNotNull('conversation_id'),
+        'order' => $query->whereNotNull('order_id'),
+        'user'  => $query->where(function ($q) {
+            $q->whereNull('conversation_id')
+              ->whereNull('order_id')
+              ->where('reason', 'not like', '[Video:%');
+        }),
+        default => null,
+    };
+
+    match ($request->input('sort', 'latest')) {
+        'oldest' => $query->oldest('updated_at'),
+        'az'     => $query->join('users as ru', 'reports.reported_id', '=', 'ru.id')
+                          ->orderBy('ru.username')->select('reports.*'),
+        'za'     => $query->join('users as ru', 'reports.reported_id', '=', 'ru.id')
+                          ->orderByDesc('ru.username')->select('reports.*'),
+        default  => $query->latest('updated_at'), // updated_at so re-reported bubble up
+    };
+
+    return Inertia::render('Admin/Reports', [
+        'reports' => $query->paginate(30),
+        'filters' => [
+            'status' => $request->input('status', ''),
+            'sort'   => $request->input('sort', 'latest'),
+            'type'   => $request->input('type', ''),
+        ],
+    ]);
+}
+public function analyticsPage(): Response
+{
+    return Inertia::render('Admin/Analytics');
+}
+ 
+// ── API methods to ADD ────────────────────────────────────────────────────────
+ 
+/** PATCH /api/admin/orders/{order}/status */
+public function updateOrderStatus(Request $request, Order $order): JsonResponse
+{
+    $request->validate(['status' => 'required|in:confirmed,processing,shipped,delivered,cancelled,refunded']);
+    
+    $updates = ['status' => $request->status];
+    if ($request->status === 'delivered' && !$order->delivered_at) {
+        $updates['delivered_at'] = now();
     }
+    
+    $order->update($updates);
+    return response()->json(['message' => "Order marked as {$request->status}.", 'status' => $order->status]);
+}
+ 
+/** POST /api/admin/reports/{report}/actioned */
+public function actionReport(\App\Models\Report $report): JsonResponse
+{
+    $report->update(['status' => 'actioned']);
+    return response()->json(['message' => 'Report marked as actioned.']);
+}
+ 
+/** POST /api/admin/reports/{report}/dismissed */
+public function dismissReport(\App\Models\Report $report): JsonResponse
+{
+    $report->update(['status' => 'dismissed']);
+    return response()->json(['message' => 'Report dismissed.']);
+}
+
+public function conversationMessages(\App\Models\Conversation $conversation): JsonResponse
+{
+    $messages = $conversation->messages()
+        ->with('sender:id,name,username,avatar')
+        ->orderBy('created_at', 'asc')
+        ->get();
+ 
+    return response()->json($messages);
+}
 }

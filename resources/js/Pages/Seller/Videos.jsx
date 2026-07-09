@@ -1,301 +1,309 @@
-import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link, usePage } from '@inertiajs/react';
-import axios from 'axios';
-import { useState } from 'react';
+import AppLayout from '@/Layouts/AppLayout'
+import { Head, Link, router } from '@inertiajs/react'
+import axios from 'axios'
+import { useState } from 'react'
 import {
-    RiArrowLeftLine,
-    RiChat1Line,
-    RiCheckboxCircleLine,
-    RiDeleteBinLine,
-    RiEyeLine,
-    RiHeartLine,
-    RiLoader4Line,
-    RiPlayCircleLine,
-    RiSearchLine,
-    RiShoppingBag2Line,
-    RiTimeLine,
-    RiUploadCloud2Line,
-    RiVideoLine,
-} from 'react-icons/ri';
+    RiAddLine, RiArrowLeftLine, RiDeleteBinLine, RiEditLine,
+    RiEyeLine, RiHeartLine, RiChat1Line, RiLoader4Line,
+    RiPlayCircleLine, RiUploadCloud2Line, RiVideoLine,
+    RiAlertLine, RiCheckLine, RiBarChartLine,
+} from 'react-icons/ri'
 
-const STATUS_COLOR = {
-    active: { bg: 'rgba(16,185,129,0.15)', text: '#10B981' },
-    pending: { bg: 'rgba(234,179,8,0.15)', text: '#EAB308' },
-    processing: { bg: 'rgba(139,92,246,0.15)', text: '#8B5CF6' },
-    failed: { bg: 'rgba(239,68,68,0.15)', text: '#EF4444' },
-    archived: { bg: 'rgba(156,163,175,0.15)', text: '#9CA3AF' },
-};
-
-function fmt(n) {
-    const num = Number(n ?? 0);
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
-    return String(num);
+function formatCount(n) {
+    if (!n) return '0'
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+    if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K'
+    return String(n)
 }
 
-export default function SellerVideos({ videos: initialVideos = { data: [] } }) {
-    const [videos, setVideos] = useState(initialVideos.data ?? []);
-    const [search, setSearch] = useState('');
-    const [status, setStatus] = useState('all');
-    const [view, setView] = useState('grid'); // grid | list
-    const [deleting, setDeleting] = useState(null);
+function timeAgo(dateStr) {
+    if (!dateStr) return ''
+    const diff = (Date.now() - new Date(dateStr)) / 1000
+    if (diff < 3600)   return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86400)  return `${Math.floor(diff / 3600)}h ago`
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
+    return new Date(dateStr).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
-    const { auth } = usePage().props;
+const STATUS_STYLE = {
+    active:     { bg: 'rgba(16,185,129,0.12)',  text: '#10B981', label: 'Active'      },
+    processing: { bg: 'rgba(139,92,246,0.12)',  text: '#8B5CF6', label: 'Processing'  },
+    draft:      { bg: 'rgba(234,179,8,0.12)',   text: '#EAB308', label: 'Draft'       },
+    failed:     { bg: 'rgba(239,68,68,0.12)',   text: '#EF4444', label: 'Failed'      },
+    inactive:   { bg: 'rgba(156,163,175,0.12)', text: '#9CA3AF', label: 'Inactive'    },
+}
 
-    const filtered = videos.filter((v) => {
-        const matchStatus = status === 'all' || v.status === status;
-        const matchSearch =
-            !search || v.title?.toLowerCase().includes(search.toLowerCase()) || v.description?.toLowerCase().includes(search.toLowerCase());
-        return matchStatus && matchSearch;
-    });
+// ── Delete Confirmation Modal ─────────────────────────────────────────────────
+function DeleteModal({ video, onConfirm, onCancel, deleting }) {
+    return (
+        <>
+            <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', animation: 'fadeIn 0.2s ease' }} />
+            <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 'min(400px, 90vw)', background: '#161616', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 24, padding: 28, zIndex: 101, animation: 'slideUp 0.25s ease' }}>
 
-    const totalViews = videos.reduce((s, v) => s + Number(v.views_count ?? 0), 0);
-    const totalLikes = videos.reduce((s, v) => s + Number(v.likes_count ?? 0), 0);
+                {/* Icon */}
+                <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                    <RiDeleteBinLine size={24} color="#EF4444" />
+                </div>
 
-    const handleDelete = async (video) => {
-        if (!confirm(`Delete "${video.title || 'this video'}"? This cannot be undone.`)) return;
-        setDeleting(video.id);
+                <h3 style={{ color: '#fff', fontSize: 18, fontWeight: 700, margin: '0 0 8px', textAlign: 'center' }}>Delete Video?</h3>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: '0 0 20px', textAlign: 'center', lineHeight: 1.5 }}>
+                    This will permanently delete <strong style={{ color: '#fff' }}>"{video.title ?? 'Untitled'}"</strong> and all its data. This cannot be undone.
+                </p>
+
+                {/* Stats preview */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
+                    {[
+                        { Icon: RiEyeLine,   value: formatCount(video.views_count),   label: 'Views'    },
+                        { Icon: RiHeartLine, value: formatCount(video.likes_count),   label: 'Likes'    },
+                        { Icon: RiChat1Line, value: formatCount(video.comments_count), label: 'Comments' },
+                    ].map(s => (
+                        <div key={s.label} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+                            <s.Icon size={14} color="rgba(255,255,255,0.3)" style={{ display: 'block', margin: '0 auto 4px' }} />
+                            <p style={{ color: '#fff', fontWeight: 700, fontSize: 15, margin: 0 }}>{s.value}</p>
+                            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: '2px 0 0' }}>{s.label}</p>
+                        </div>
+                    ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={onCancel} disabled={deleting} style={{ flex: 1, padding: '13px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                        Cancel
+                    </button>
+                    <button onClick={onConfirm} disabled={deleting} style={{ flex: 1, padding: '13px', borderRadius: 999, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', fontSize: 14, fontWeight: 700, cursor: deleting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: deleting ? 0.7 : 1 }}>
+                        {deleting ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(239,68,68,0.3)', borderTopColor: '#EF4444', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Deleting…</> : <><RiDeleteBinLine size={14} /> Delete</>}
+                    </button>
+                </div>
+            </div>
+        </>
+    )
+}
+
+// ── Video Card ────────────────────────────────────────────────────────────────
+function VideoCard({ video, onDeleteClick }) {
+    const status = STATUS_STYLE[video.status] ?? STATUS_STYLE.inactive
+
+    return (
+        <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden', transition: 'border-color 0.2s' }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
+        >
+            {/* Thumbnail */}
+            <div style={{ position: 'relative', aspectRatio: '9/16', maxHeight: 240, background: '#1a1a1a', overflow: 'hidden' }}>
+                {video.thumbnail_url_full
+                    ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiPlayCircleLine size={32} color="rgba(255,255,255,0.2)" /></div>
+                }
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%)' }} />
+
+                {/* Status badge */}
+                <div style={{ position: 'absolute', top: 10, left: 10 }}>
+                    <span style={{ background: status.bg, color: status.text, borderRadius: 999, padding: '3px 8px', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {video.status === 'processing' && <RiLoader4Line size={10} style={{ animation: 'spin 1s linear infinite' }} />}
+                        {status.label}
+                    </span>
+                </div>
+
+                {/* Views overlay */}
+                <div style={{ position: 'absolute', bottom: 8, left: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <RiEyeLine size={11} color="rgba(255,255,255,0.7)" />
+                    <span style={{ color: '#fff', fontSize: 11, fontWeight: 600 }}>{formatCount(video.views_count)}</span>
+                </div>
+
+                {/* Play overlay */}
+                <Link href={`/@${video.user?.username}/video/${video.ulid}`} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s', background: 'rgba(0,0,0,0.3)' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={e => e.currentTarget.style.opacity = 0}
+                >
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <RiPlayCircleLine size={22} color="#fff" />
+                    </div>
+                </Link>
+            </div>
+
+            {/* Info */}
+            <div style={{ padding: '14px 14px 12px' }}>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {video.title ?? 'Untitled'}
+                </p>
+
+                {/* Stats row */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                    {[
+                        { Icon: RiHeartLine, value: formatCount(video.likes_count)    },
+                        { Icon: RiChat1Line, value: formatCount(video.comments_count) },
+                    ].map((s, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <s.Icon size={12} color="rgba(255,255,255,0.35)" />
+                            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{s.value}</span>
+                        </div>
+                    ))}
+                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, marginLeft: 'auto' }}>{timeAgo(video.published_at ?? video.created_at)}</span>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <Link
+                        href={`/seller/videos/${video.ulid}/edit`}
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600, textDecoration: 'none', transition: 'all 0.15s' }}
+                    >
+                        <RiEditLine size={13} /> Edit
+                    </Link>
+                    <button
+                        onClick={() => onDeleteClick(video)}
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px', borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                    >
+                        <RiDeleteBinLine size={13} /> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+export default function SellerVideos({ videos: initialVideos = [], stats = {} }) {
+    const [videos, setVideos] = useState(initialVideos.data ?? [])
+    const [deleteTarget,  setDeleteTarget]  = useState(null)
+    const [deleting,      setDeleting]      = useState(false)
+    const [filter,        setFilter]        = useState('all')
+
+    const filteredVideos = filter === 'all'
+        ? videos
+        : videos.filter(v => v.status === filter)
+
+    const handleDelete = async () => {
+        if (!deleteTarget) return
+        setDeleting(true)
         try {
-            await axios.delete(`/api/videos/${video.id}`);
-            setVideos((prev) => prev.filter((v) => v.id !== video.id));
+            await axios.delete(`/api/videos/${deleteTarget.ulid}`)
+            setVideos(prev => prev.filter(v => v.id !== deleteTarget.id))
+            setDeleteTarget(null)
         } catch {
-            alert('Failed to delete video.');
+            alert('Failed to delete video. Please try again.')
         } finally {
-            setDeleting(null);
+            setDeleting(false)
         }
-    };
+    }
+
+    const FILTERS = [
+        { value: 'all',        label: 'All',        count: videos.length },
+        { value: 'active',     label: 'Active',     count: videos.filter(v => v.status === 'active').length },
+        { value: 'processing', label: 'Processing', count: videos.filter(v => v.status === 'processing').length },
+        { value: 'draft',      label: 'Draft',      count: videos.filter(v => v.status === 'draft').length },
+    ]
 
     return (
         <>
-            <Head title="Videos" />
+            <Head title="My Videos" />
 
-            <div className="seller-page">
-                <header className="page-header">
-                    <div className="page-header-inner">
-                        <div className="page-header-left">
-                            <Link href="/seller/dashboard" className="back-btn">
-                                <RiArrowLeftLine size={18} />
-                            </Link>
-                            <div>
-                                <h1>Videos</h1>
-                                <p>
-                                    {filtered.length} video{filtered.length !== 1 ? 's' : ''}
-                                </p>
-                            </div>
+            <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff' }}>
+
+                {/* Header */}
+                <header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'rgba(10,10,10,0.96)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '0 24px' }}>
+                    <div style={{ maxWidth: 1100, margin: '0 auto', height: 60, display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <Link href="/seller/dashboard" style={iconBtn}><RiArrowLeftLine size={18} /></Link>
+                        <div style={{ flex: 1 }}>
+                            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>My Videos</h1>
+                            <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{videos.length} video{videos.length !== 1 ? 's' : ''}</p>
                         </div>
-                        <Link href="/seller/upload" className="primary-btn">
-                            <RiUploadCloud2Line size={16} /> Upload
+                        <Link href="/seller/upload" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 999, background: '#FF6B35', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                            <RiAddLine size={16} /> Upload
                         </Link>
                     </div>
                 </header>
 
-                <main className="page-content">
-                    {/* SUMMARY */}
-                    <div className="summary-strip">
-                        <div className="summary-card">
-                            <RiVideoLine size={18} />
-                            <div>
-                                <span>{videos.length}</span>
-                                <p>Total Videos</p>
-                            </div>
-                        </div>
-                        <div className="summary-card">
-                            <RiEyeLine size={18} />
-                            <div>
-                                <span>{fmt(totalViews)}</span>
-                                <p>Total Views</p>
-                            </div>
-                        </div>
-                        <div className="summary-card highlight">
-                            <RiHeartLine size={18} />
-                            <div>
-                                <span>{fmt(totalLikes)}</span>
-                                <p>Total Likes</p>
-                            </div>
-                        </div>
-                    </div>
+                <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 80px' }}>
 
-                    {/* FILTERS */}
-                    <div className="filters-row">
-                        <div className="search-wrap">
-                            <RiSearchLine size={15} />
-                            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search videos..." />
-                            <div className="view-toggle">
-                                <button onClick={() => setView('grid')} className={view === 'grid' ? 'active' : ''}>
-                                    Grid
-                                </button>
-                                <button onClick={() => setView('list')} className={view === 'list' ? 'active' : ''}>
-                                    List
-                                </button>
-                            </div>
+                    {/* Stats row */}
+                    {videos.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
+                            {[
+                                { label: 'Total Views',    value: formatCount(videos.reduce((s, v) => s + (v.views_count ?? 0), 0)),    Icon: RiEyeLine,        color: '#3B82F6' },
+                                { label: 'Total Likes',    value: formatCount(videos.reduce((s, v) => s + (v.likes_count ?? 0), 0)),    Icon: RiHeartLine,      color: '#EF4444' },
+                                { label: 'Total Comments', value: formatCount(videos.reduce((s, v) => s + (v.comments_count ?? 0), 0)), Icon: RiChat1Line,      color: '#10B981' },
+                                { label: 'Active Videos',  value: videos.filter(v => v.status === 'active').length,                     Icon: RiVideoLine,      color: '#FF6B35' },
+                            ].map(s => (
+                                <div key={s.label} style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '16px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{ width: 38, height: 38, borderRadius: 11, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <s.Icon size={17} color={s.color} />
+                                    </div>
+                                    <div>
+                                        <p style={{ color: '#fff', fontWeight: 800, fontSize: 18, margin: 0 }}>{s.value}</p>
+                                        <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, margin: '1px 0 0' }}>{s.label}</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                        <div className="status-tabs">
-                            {['all', 'active', 'pending', 'processing', 'failed', 'archived'].map((s) => (
-                                <button key={s} onClick={() => setStatus(s)} className={status === s ? 'active' : ''}>
-                                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                    )}
+
+                    {/* Filter tabs */}
+                    {videos.length > 0 && (
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                            {FILTERS.filter(f => f.count > 0 || f.value === 'all').map(f => (
+                                <button key={f.value} onClick={() => setFilter(f.value)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${filter === f.value ? 'rgba(255,107,53,0.5)' : 'rgba(255,255,255,0.08)'}`, background: filter === f.value ? 'rgba(255,107,53,0.1)' : 'rgba(255,255,255,0.03)', color: filter === f.value ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    {f.label}
+                                    <span style={{ background: filter === f.value ? '#FF6B35' : 'rgba(255,255,255,0.08)', color: filter === f.value ? '#fff' : 'rgba(255,255,255,0.4)', borderRadius: 999, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{f.count}</span>
                                 </button>
                             ))}
                         </div>
-                    </div>
+                    )}
 
-                    {/* CONTENT */}
-                    {!filtered.length ? (
-                        <div className="table-card">
-                            <div className="empty-state">
-                                <RiVideoLine size={40} />
-                                <h4>No videos found</h4>
-                                <p>Upload your first video to start selling.</p>
-                                <Link href="/seller/upload" className="empty-btn">
-                                    <RiUploadCloud2Line /> Upload Video
+                    {/* Empty state */}
+                    {filteredVideos.length === 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 16, textAlign: 'center' }}>
+                            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <RiVideoLine size={30} color="rgba(255,255,255,0.2)" />
+                            </div>
+                            <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>{filter === 'all' ? 'No videos yet' : `No ${filter} videos`}</p>
+                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0 }}>Upload your first video to grow your audience.</p>
+                            {filter === 'all' && (
+                                <Link href="/seller/upload" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '11px 24px', borderRadius: 999, background: '#FF6B35', color: '#fff', textDecoration: 'none', fontSize: 14, fontWeight: 700 }}>
+                                    <RiUploadCloud2Line size={16} /> Upload first video
                                 </Link>
-                            </div>
+                            )}
                         </div>
-                    ) : view === 'grid' ? (
-                        <div className="video-grid">
-                            {filtered.map((video) => (
-                                <div key={video.id} className="video-card">
-                                    <Link href={`/@${auth.user?.username}/video/${video.ulid}`} className="video-thumb">
-                                        {video.thumbnail_url_full ? (
-                                            <img src={video.thumbnail_url_full} alt={video.title} />
-                                        ) : (
-                                            <div className="thumb-empty">
-                                                <RiPlayCircleLine size={32} />
-                                            </div>
-                                        )}
-                                        <div className="thumb-overlay">
-                                            <div className="thumb-stats">
-                                                <span>
-                                                    <RiEyeLine size={11} />
-                                                    {fmt(video.views_count)}
-                                                </span>
-                                                <span>
-                                                    <RiHeartLine size={11} />
-                                                    {fmt(video.likes_count)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="video-status-badge" style={STATUS_COLOR[video.status] ?? {}}>
-                                            {video.status === 'processing' && <RiLoader4Line size={9} />}
-                                            {video.status === 'active' && <RiCheckboxCircleLine size={9} />}
-                                            {video.status === 'pending' && <RiTimeLine size={9} />}
-                                            {video.status}
-                                        </div>
-                                        {video.is_for_sale && (
-                                            <div className="shop-badge">
-                                                <RiShoppingBag2Line size={10} />
-                                            </div>
-                                        )}
-                                    </Link>
-                                    <div className="video-info">
-                                        <p className="video-title">{video.title || 'Untitled'}</p>
-                                        <div className="video-meta">
-                                            <span>
-                                                <RiChat1Line size={11} />
-                                                {fmt(video.comments_count)}
-                                            </span>
-                                            <button onClick={() => handleDelete(video)} className="del-btn" disabled={deleting === video.id}>
-                                                <RiDeleteBinLine size={13} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="table-card">
-                            {filtered.map((video, i) => (
-                                <div key={video.id} className="list-row" style={i > 0 ? { borderTop: '1px solid rgba(255,255,255,0.04)' } : {}}>
-                                    <Link href={`/@${auth.user?.username}/video/${video.ulid}`} className="list-thumb">
-                                        {video.thumbnail_url_full ? (
-                                            <img src={video.thumbnail_url_full} alt={video.title} />
-                                        ) : (
-                                            <div className="list-thumb-empty">
-                                                <RiPlayCircleLine size={20} />
-                                            </div>
-                                        )}
-                                    </Link>
-                                    <div className="list-meta">
-                                        <h4>{video.title || 'Untitled'}</h4>
-                                        <p className="list-desc">{video.description?.slice(0, 80) ?? ''}</p>
-                                        <div className="list-stats">
-                                            <span>
-                                                <RiEyeLine size={12} />
-                                                {fmt(video.views_count)}
-                                            </span>
-                                            <span>
-                                                <RiHeartLine size={12} />
-                                                {fmt(video.likes_count)}
-                                            </span>
-                                            <span>
-                                                <RiChat1Line size={12} />
-                                                {fmt(video.comments_count)}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="list-status" style={{ color: (STATUS_COLOR[video.status] ?? {}).text }}>
-                                        {video.status}
-                                    </div>
-                                    <button onClick={() => handleDelete(video)} className="del-btn-lg" disabled={deleting === video.id}>
-                                        <RiDeleteBinLine size={15} />
-                                    </button>
-                                </div>
+                    )}
+
+                    {/* Video grid */}
+                    {filteredVideos.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
+                            {filteredVideos.map(video => (
+                                <VideoCard
+                                    key={video.id}
+                                    video={video}
+                                    onDeleteClick={setDeleteTarget}
+                                />
                             ))}
                         </div>
                     )}
                 </main>
             </div>
 
-            {/* <style>{pageStyles}</style> */}
+            {/* Delete modal */}
+            {deleteTarget && (
+                <DeleteModal
+                    video={deleteTarget}
+                    onConfirm={handleDelete}
+                    onCancel={() => setDeleteTarget(null)}
+                    deleting={deleting}
+                />
+            )}
+
             <style>{`
-        .summary-strip { display: flex; gap: 14px; }
-        .summary-card { flex: 1; background: #111; border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; padding: 18px 20px; display: flex; align-items: center; gap: 14px; color: rgba(255,255,255,0.4); }
-        .summary-card.highlight { color: #ff6b35; }
-        .summary-card div span { display: block; font-size: 22px; font-weight: 800; color: white; }
-        .summary-card.highlight div span { color: #ff6b35; }
-        .summary-card div p { margin: 2px 0 0; font-size: 12px; }
-        .filters-row { display: flex; flex-direction: column; gap: 12px; }
-        .search-wrap { display: flex; align-items: center; gap: 10px; background: #111; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 12px 16px; color: rgba(255,255,255,0.4); }
-        .search-wrap input { flex: 1; background: none; border: none; outline: none; color: white; font-size: 14px; }
-        .view-toggle { display: flex; background: rgba(255,255,255,0.06); border-radius: 8px; padding: 3px; gap: 2px; }
-        .view-toggle button { padding: 4px 10px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.4); font-size: 12px; cursor: pointer; }
-        .view-toggle button.active { background: rgba(255,255,255,0.12); color: white; }
-        .status-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-        .status-tabs button { padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.07); background: #111; color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: all 0.15s; }
-        .status-tabs button.active { background: white; color: black; border-color: white; }
-        .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
-        .video-card { background: #111; border: 1px solid rgba(255,255,255,0.05); border-radius: 22px; overflow: hidden; transition: border-color 0.15s; }
-        .video-card:hover { border-color: rgba(255,255,255,0.1); }
-        .video-thumb { position: relative; aspect-ratio: 9/16; display: block; background: #181818; overflow: hidden; text-decoration: none; }
-        .video-thumb img { width: 100%; height: 100%; object-fit: cover; }
-        .thumb-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.25); }
-        .thumb-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%); display: flex; align-items: flex-end; padding: 10px; }
-        .thumb-stats { display: flex; gap: 8px; }
-        .thumb-stats span { display: flex; align-items: center; gap: 3px; font-size: 11px; color: rgba(255,255,255,0.8); }
-        .video-status-badge { position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.65); text-transform: capitalize; }
-        .shop-badge { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,107,53,0.9); display: flex; align-items: center; justify-content: center; color: white; }
-        .video-info { padding: 10px 12px 12px; }
-        .video-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .video-meta { display: flex; align-items: center; justify-content: space-between; }
-        .video-meta span { display: flex; align-items: center; gap: 3px; font-size: 11px; color: rgba(255,255,255,0.4); }
-        .del-btn { background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; padding: 4px; border-radius: 6px; display: flex; transition: color 0.15s; }
-        .del-btn:hover { color: #ef4444; }
-        .list-row { display: flex; align-items: center; gap: 16px; padding: 14px 20px; }
-        .list-thumb { width: 72px; height: 128px; border-radius: 12px; overflow: hidden; background: #181818; flex-shrink: 0; display: block; }
-        .list-thumb img, .list-thumb-empty { width: 100%; height: 100%; object-fit: cover; }
-        .list-thumb-empty { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.25); }
-        .list-meta { flex: 1; min-width: 0; }
-        .list-meta h4 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-        .list-desc { margin: 0 0 8px; font-size: 12px; color: rgba(255,255,255,0.4); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-        .list-stats { display: flex; gap: 12px; }
-        .list-stats span { display: flex; align-items: center; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.45); }
-        .list-status { font-size: 12px; font-weight: 700; text-transform: capitalize; flex-shrink: 0; }
-        .del-btn-lg { background: none; border: none; color: rgba(255,255,255,0.25); cursor: pointer; padding: 8px; border-radius: 8px; display: flex; transition: color 0.15s; flex-shrink: 0; }
-        .del-btn-lg:hover { color: #ef4444; }
-        .empty-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; padding: 10px 18px; border-radius: 999px; background: white; color: black; text-decoration: none; font-weight: 700; font-size: 13px; }
-        @media (max-width: 640px) { .video-grid { grid-template-columns: repeat(2, 1fr); } .summary-strip { flex-wrap: wrap; } }
-      `}</style>
+                @keyframes spin    { to { transform: rotate(360deg); } }
+                @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes slideUp { from { opacity: 0; transform: translate(-50%, -44%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+            `}</style>
         </>
-    );
+    )
 }
 
-SellerVideos.layout = (page) => <AppLayout>{page}</AppLayout>;
+SellerVideos.layout = page => <AppLayout>{page}</AppLayout>
+
+const iconBtn = {
+    width: 36, height: 36, borderRadius: 10,
+    background: 'rgba(255,255,255,0.06)', border: 'none',
+    cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', color: '#fff', flexShrink: 0,
+    textDecoration: 'none',
+}

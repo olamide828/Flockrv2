@@ -25,7 +25,9 @@ import {
   RiSecurePaymentLine,
   RiLoader4Line,
   RiBankCardLine,
+  RiAlertLine,
 } from 'react-icons/ri'
+import DisputeModal from './Disputemodal'
 
 const STATUS_CONFIG = {
   pending:    { label: 'Pending',    bg: 'rgba(234,179,8,0.12)',    text: '#EAB308', Icon: RiTimeLine           },
@@ -36,6 +38,7 @@ const STATUS_CONFIG = {
   delivered:  { label: 'Delivered',  bg: 'rgba(16,185,129,0.12)',   text: '#10B981', Icon: RiGiftLine           },
   cancelled:  { label: 'Cancelled',  bg: 'rgba(239,68,68,0.12)',    text: '#EF4444', Icon: RiCloseCircleLine    },
   refunded:   { label: 'Refunded',   bg: 'rgba(156,163,175,0.12)', text: '#9CA3AF', Icon: RiArrowGoBackLine    },
+  disputed:   { label: 'Disputed',   color: 'rgba(156,163,175,0.12)',text: '#F59E0B', Icon: RiAlertLine    },
 }
 
 const TRACKING_STEPS = [
@@ -56,41 +59,35 @@ function fmt(d) {
 
 export default function OrderShow({ order }) {
   const { auth } = usePage().props
-  const [cancelling,         setCancelling]         = useState(false)
-  const [copied,             setCopied]             = useState(false)
-  const [resumingPayment,    setResumingPayment]    = useState(false)
-  const [toast, setToast] = useState(null) 
+  const [cancelling,      setCancelling]      = useState(false)
+  const [copied,          setCopied]          = useState(false)
+  const [resumingPayment, setResumingPayment] = useState(false)
+  const [toast,           setToast]           = useState(null)
+  const [showDispute,     setShowDispute]     = useState(false)
 
   const showToast = (msg, type = 'error') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 4000)
-}
-
+  }
 
   const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
   const StatusIcon = cfg.Icon
   const isBuyer    = auth?.user?.id === order.buyer_id
   const isSeller   = auth?.user?.id === order.seller_id
 
-  // Only buyers can cancel/complete; only on cancellable statuses
   const canCancel  = isBuyer && ['pending', 'paid', 'confirmed'].includes(order.status)
-  // Show "Complete Payment" only for buyer on a pending (unpaid) order
   const canResume  = isBuyer && order.status === 'pending'
+
+  // Show "Report a Problem" for buyers on active paid orders
+  const canDispute = isBuyer && ['paid', 'confirmed', 'processing', 'shipped', 'delivered'].includes(order.status)
 
   const currentStepIdx = TRACKING_STEPS.findIndex(s => s.key === order.status)
   const showTracking   = !['cancelled', 'refunded'].includes(order.status)
 
-  // ── Resume payment ───────────────────────────────────────────────────────────
-  // Re-initializes the Paystack transaction for this order's reference.
-  // The backend checks if the reference already exists on Paystack and either
-  // returns the existing authorization URL or creates a new transaction.
   const handleResumePayment = async () => {
     setResumingPayment(true)
     try {
-      const { data } = await axios.post('/api/orders/resume-payment', {
-        order_id: order.id,
-      })
-      // Redirect to Paystack checkout
+      const { data } = await axios.post('/api/orders/resume-payment', { order_id: order.id })
       window.location.href = data.authorization_url
     } catch (err) {
       showToast(err.response?.data?.message ?? 'Could not resume payment. Please try again.')
@@ -141,14 +138,9 @@ export default function OrderShow({ order }) {
 
         <div style={{ maxWidth: 680, margin: '0 auto', padding: '20px 16px 100px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* ── COMPLETE PAYMENT BANNER — shown prominently for pending orders ── */}
+          {/* Complete payment banner */}
           {canResume && (
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(255,107,53,0.15), rgba(255,107,53,0.05))',
-              border: '1px solid rgba(255,107,53,0.3)',
-              borderRadius: 24, padding: '20px',
-              display: 'flex', flexDirection: 'column', gap: 14,
-            }}>
+            <div style={{ background: 'linear-gradient(135deg, rgba(255,107,53,0.15), rgba(255,107,53,0.05))', border: '1px solid rgba(255,107,53,0.3)', borderRadius: 24, padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ width: 48, height: 48, borderRadius: 16, background: 'rgba(255,107,53,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <RiBankCardLine size={24} color="#FF6B35" />
@@ -160,26 +152,16 @@ export default function OrderShow({ order }) {
                   </p>
                 </div>
               </div>
-
               <button
                 onClick={handleResumePayment}
                 disabled={resumingPayment}
-                style={{
-                  width: '100%', padding: '15px',
-                  borderRadius: 16,
-                  background: resumingPayment ? 'rgba(255,107,53,0.5)' : '#FF6B35',
-                  border: 'none', cursor: resumingPayment ? 'not-allowed' : 'pointer',
-                  color: '#fff', fontWeight: 800, fontSize: 15,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  transition: 'opacity 0.2s',
-                }}
+                style={{ width: '100%', padding: '15px', borderRadius: 16, background: resumingPayment ? 'rgba(255,107,53,0.5)' : '#FF6B35', border: 'none', cursor: resumingPayment ? 'not-allowed' : 'pointer', color: '#fff', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'opacity 0.2s' }}
               >
                 {resumingPayment
                   ? <><RiLoader4Line size={18} style={{ animation: 'spin 0.8s linear infinite' }} /> Redirecting to Paystack...</>
                   : <><RiSecurePaymentLine size={18} /> Complete Payment · ₦{Number(order.total).toLocaleString()}</>
                 }
               </button>
-
               <p style={{ margin: 0, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
                 You will be redirected to Paystack's secure payment page
               </p>
@@ -218,18 +200,10 @@ export default function OrderShow({ order }) {
                   return (
                     <div key={step.key} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, width: 32 }}>
-                        <div style={{
-                          width: 32, height: 32, borderRadius: '50%',
-                          background: done ? (current ? '#FF6B35' : '#10B981') : 'rgba(255,255,255,0.06)',
-                          border: `2px solid ${done ? (current ? '#FF6B35' : '#10B981') : 'rgba(255,255,255,0.1)'}`,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          transition: 'all 0.2s', flexShrink: 0,
-                        }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: done ? (current ? '#FF6B35' : '#10B981') : 'rgba(255,255,255,0.06)', border: `2px solid ${done ? (current ? '#FF6B35' : '#10B981') : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', flexShrink: 0 }}>
                           <Icon size={15} color={done ? '#fff' : 'rgba(255,255,255,0.25)'} />
                         </div>
-                        {!isLast && (
-                          <div style={{ width: 2, flex: 1, minHeight: 20, background: done && i < currentStepIdx ? '#10B981' : 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
-                        )}
+                        {!isLast && <div style={{ width: 2, flex: 1, minHeight: 20, background: done && i < currentStepIdx ? '#10B981' : 'rgba(255,255,255,0.08)', margin: '4px 0' }} />}
                       </div>
                       <div style={{ paddingBottom: isLast ? 0 : 20, paddingTop: 5 }}>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: current ? 700 : 500, color: done ? '#fff' : 'rgba(255,255,255,0.3)' }}>{step.label}</p>
@@ -367,7 +341,14 @@ export default function OrderShow({ order }) {
             </p>
           </div>
 
-          {/* Cancel button — only for cancellable non-pending orders, or pending if buyer wants to abandon */}
+          {/* Seller view CTA */}
+          {isSeller && (
+            <Link href="/seller/orders" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', borderRadius: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
+              <RiStoreLine size={16} /> View all your orders
+            </Link>
+          )}
+
+          {/* Cancel button */}
           {canCancel && (
             <button
               onClick={handleCancel}
@@ -379,34 +360,50 @@ export default function OrderShow({ order }) {
             </button>
           )}
 
-          {/* Seller view CTA */}
-          {isSeller && (
-            <Link href="/seller/orders" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', borderRadius: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
-              <RiStoreLine size={16} /> View all your orders
-            </Link>
+          {/* Report a Problem — shown for buyers on active paid orders */}
+          {canDispute && (
+            <button
+              onClick={() => setShowDispute(true)}
+              style={{
+                width: '100%', padding: '13px',
+                borderRadius: 16,
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.45)',
+                fontWeight: 600, fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <RiAlertLine size={16} />
+              Report a Problem
+            </button>
           )}
 
         </div>
       </div>
 
+      {/* Toast */}
       {toast && (
-    <div style={{
-        position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
-        zIndex: 999, pointerEvents: 'none',
-        background: toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(16,185,129,0.95)',
-        backdropFilter: 'blur(12px)',
-        color: '#fff', padding: '12px 20px', borderRadius: 999,
-        fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-        animation: 'slideUp 0.2s ease',
-    }}>
-        {toast.msg}
-    </div>
-)}
+        <div style={{
+          position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 999, pointerEvents: 'none',
+          background: toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(16,185,129,0.95)',
+          backdropFilter: 'blur(12px)',
+          color: '#fff', padding: '12px 20px', borderRadius: 999,
+          fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          animation: 'slideUp 0.2s ease',
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
+      {showDispute && <DisputeModal order={order} onClose={() => setShowDispute(false)} />}
 
       <style>{`
-      @keyframes spin { to { transform: rotate(360deg); } }
-       @keyframes slideUp { from { opacity:0; transform: translateX(-50%) translateY(10px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { opacity:0; transform: translateX(-50%) translateY(10px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
       `}</style>
     </>
   )

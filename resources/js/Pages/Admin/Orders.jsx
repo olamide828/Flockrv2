@@ -10,7 +10,7 @@ import {
 
 function AdminLayout({ children, active }) {
   const links = [
-    { href: '/admin',           icon: RiBarChartLine,    label: 'Overview'  },
+    { href: '/admin/dashboard',           icon: RiBarChartLine,    label: 'Overview'  },
     { href: '/admin/users',     icon: RiGroupLine,       label: 'Users'     },
     { href: '/admin/videos',    icon: RiVideoLine,       label: 'Videos'    },
     { href: '/admin/orders',    icon: RiShoppingBagLine, label: 'Orders'    },

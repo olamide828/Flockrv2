@@ -195,9 +195,12 @@ export default function Inbox({ conversations: initialConvs = [], blockedByMeIds
   const [reportTarget,   setReportTarget]   = useState(null)
   const [notifUnread, setNotifUnread]   = useState(false)
 const [latestNotif, setLatestNotif]   = useState(null)
-const [otherTyping, setOtherTyping] = useState(false)
+// const [otherTyping, setOtherTyping] = useState(false)
 const typingTimeoutRef = useRef(null)
 const lastTypingSentRef = useRef(0)
+const [typingUsers, setTypingUsers] = useState({})
+
+
 
 
 const broadcastTyping = () => {
@@ -261,42 +264,130 @@ const broadcastTyping = () => {
     return () => window.removeEventListener('flockr:notif-read', handler)
 }, [auth?.user])
 
-  // Load messages
-  useEffect(() => {
+
+
+
+// Realtime updates for ALL conversations
+useEffect(() => {
+    if (!window.Echo || !initialConvs.length) return
+
+    const activeChannels = []
+
+    initialConvs.forEach((conv) => {
+        const channel = window.Echo.private(`conversation.${conv.id}`)
+
+        channel.listen('.MessageSent', (e) => {
+            // Sidebar update
+            setConversations(prev => {
+                const updated = prev.map(c => {
+                    if (c.id !== conv.id) return c
+
+                    return {
+                        ...c,
+                        last_message: e.message,
+                        unread_count:
+                            active?.id === conv.id
+                                ? 0
+                                : (c.unread_count ?? 0) + 1,
+                    }
+                })
+
+                const found = updated.find(c => c.id === conv.id)
+
+                return [
+                    found,
+                    ...updated.filter(c => c.id !== conv.id),
+                ]
+            })
+
+            // Active chat panel update
+            if (active?.id === conv.id) {
+                setMessages(prev => {
+                    if (prev.some(m => m.id === e.message.id)) {
+                        return prev
+                    }
+
+                    const optimisticIndex = prev.findIndex(
+                        m =>
+                            String(m.id).startsWith('opt-') &&
+                            m.body === e.message.body &&
+                            m.sender_id === e.message.sender_id
+                    )
+
+                    if (optimisticIndex !== -1) {
+                        const copy = [...prev]
+                        copy[optimisticIndex] = e.message
+                        return copy
+                    }
+
+                    return [...prev, e.message]
+                })
+            }
+        })
+
+        channel.listenForWhisper('typing', (e) => {
+            if (e.user_id === auth.user.id) return
+
+            setTypingUsers(prev => ({
+                ...prev,
+                [conv.id]: true,
+            }))
+
+            setTimeout(() => {
+                setTypingUsers(prev => ({
+                    ...prev,
+                    [conv.id]: false,
+                }))
+            }, 2000)
+        })
+
+        activeChannels.push(channel)
+    })
+
+    return () => {
+        activeChannels.forEach(channel => {
+            channel.stopListening('.MessageSent')
+        })
+    }
+}, [active?.id])
+
+// Load messages when active conversation changes
+useEffect(() => {
     if (!active) return
+
     setLoadingMsgs(true)
     setMessages([])
     setMsgSearch('')
     setMsgSearchOpen(false)
 
     axios.get(`/api/conversations/${active.id}/messages`)
-      .then(r => { const d = r.data; setMessages(Array.isArray(d) ? d : (d.data ?? [])) })
-      .finally(() => { setLoadingMsgs(false); setTimeout(() => inputRef.current?.focus(), 100) })
+        .then(({ data }) => {
+            const msgs = Array.isArray(data)
+                ? data
+                : (data.data ?? [])
 
-    setConversations(prev => prev.map(c => c.id === active.id ? { ...c, unread_count: 0 } : c))
+            setMessages(msgs)
 
-    if (window.Echo) {
-    channelRef.current?.unsubscribe()
-    channelRef.current = window.Echo
-        .private(`conversation.${active.id}`)
-        .listen('MessageSent', (e) => {
-            setMessages(prev => [...prev, e.message])
-            setConversations(prev => prev.map(c =>
-                c.id === active.id ? { ...c, last_message: e.message } : c
-            ))
+            // Clear unread count
+            setConversations(prev =>
+                prev.map(c =>
+                    c.id === active.id
+                        ? { ...c, unread_count: 0 }
+                        : c
+                )
+            )
         })
-        .listenForWhisper('typing', (e) => {
-            if (e.user_id !== auth?.user?.id) {
-                setOtherTyping(true)
-                clearTimeout(typingTimeoutRef.current)
-                typingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000)
-            }
+        .catch(() => {
+            setMessages([])
         })
-}
-return () => channelRef.current?.unsubscribe()
+        .finally(() => {
+            setLoadingMsgs(false)
 
-    
-  }, [active?.id])
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 100)
+        })
+}, [active?.id])
 
   useEffect(() => {
     if (!msgSearch) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -358,11 +449,20 @@ return () => channelRef.current?.unsubscribe()
     } catch { alert('Failed. Try again.') }
   }
 
-  const handleReport = async (reason) => {
-    const other = otherUser(reportTarget ?? active)
-    if (!other) return
-    await axios.post(`/api/users/${other.id}/report`, { reason })
+   const handleReport = async (reason) => {
+    const conv  = reportTarget ?? active
+    const other = otherUser(conv)
+    if (!other || !conv) return
+
+    if (conv?.id) {
+      // Conversation report — attaches conversation_id for admin review
+      await axios.post(`/api/conversations/${conv.id}/report`, { reason })
+    } else {
+      // Fallback: generic user report (e.g. from profile page)
+      await axios.post(`/api/users/${other.id}/report`, { reason })
+    }
   }
+
 
   const otherUser = useCallback((conv) =>
     conv?.participants?.find(p => p.id !== auth?.user?.id),
@@ -389,6 +489,8 @@ return () => channelRef.current?.unsubscribe()
   const showAvatar = (msgs, i) => !isMine(msgs[i]) && msgs[i + 1]?.sender_id !== msgs[i].sender_id
   const isFirst    = (msgs, i) => i === 0 || msgs[i - 1]?.sender_id !== msgs[i].sender_id
   const isLast     = (msgs, i) => i === msgs.length - 1 || msgs[i + 1]?.sender_id !== msgs[i].sender_id
+
+
 
   return (
     <>
@@ -547,9 +649,18 @@ return () => channelRef.current?.unsubscribe()
                    <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
     {iBlocked ? 'You blocked this user' 
         : blocked ? 'Message unavailable' 
-        : active?.id === conv.id && otherTyping ? (
-            <span style={{ color: '#10B981', fontStyle: 'italic', fontSize: 12 }}>typing...</span>
-        )
+        : typingUsers[conv.id] ? (
+    <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        height: 14,
+    }}>
+        <span style={dotStyle(0)} />
+        <span style={dotStyle(1)} />
+        <span style={dotStyle(2)} />
+    </div>
+)
         : (conv.last_message?.sender_id === auth?.user?.id ? 'You: ' : '') + (conv.last_message?.body ?? 'Say hello!')}
 </p>
                   </div>
@@ -640,7 +751,7 @@ return () => channelRef.current?.unsubscribe()
                   {loadingMsgs && <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
                   {!loadingMsgs && filteredMsgs.length === 0 && (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
-                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>{msgSearch ? `No messages matching "${msgSearch}"` : 'No messages yet — say hello! 👋'}</p>
+                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>{msgSearch ? `No messages matching "${msgSearch}"` : <img src="/images/No-Messages-Blank-State.png" alt="no-messages-blank-state" /> }</p>
                     </div>
                   )}
                   {filteredMsgs.map((msg, i) => {
@@ -698,7 +809,7 @@ return () => channelRef.current?.unsubscribe()
     )
 })}
 
-{otherTyping && (
+{typingUsers[active?.id] && (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, justifyContent: 'flex-start', marginTop: 8 }}>
         <div style={{ width: 28, flexShrink: 0 }}>
             <Avatar user={other} size={28} isBlocked={blocked} />
@@ -734,7 +845,7 @@ return () => channelRef.current?.unsubscribe()
                         <input
     ref={inputRef}
     value={body}
-    onChange={e => { setBody(e.target.value); broadcastTyping() }}
+    onChange={e => { setBody(e.target.value); broadcastTyping(); }}
     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(e)}
     placeholder="Message..."
     maxLength={1000}

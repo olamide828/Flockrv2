@@ -7,17 +7,23 @@ use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SellerController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VideoController;
 use App\Http\Controllers\VideoDownloadController;
+use App\Models\Product;
+use App\Http\Controllers\AddressController;
+ use App\Http\Controllers\TerminalWebhookController;
 // use App\Models\Product;
 // use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Broadcast;
 // use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Route;
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
 |--------------------------------------------------------------------------
@@ -28,6 +34,9 @@ use Illuminate\Support\Facades\Route;
 // ── Public API ────────────────────────────────────────────────────────────────
 Route::get('/feed', [VideoController::class, 'feed']);
 Route::get('/search', [SearchController::class, 'search']);
+Route::post('/videos/{video}/view', [VideoController::class, 'recordView']);
+  Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
+    Route::post('/products/summary', [ProductController::class, 'generateSummary']);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
@@ -36,18 +45,34 @@ Route::prefix('shop')->group(function () {
     Route::get('/videos/download/status',           [VideoDownloadController::class, 'status']);
     Route::delete('/videos/download/cleanup',       [VideoDownloadController::class, 'cleanup']);
 
-// Route::post('/debug-upload', function (\Illuminate\Http\Request $request) {
-//     return response()->json([
-//         'has_file' => $request->hasFile('video'),
-//         'file_valid' => $request->file('video')?->isValid(),
-//         'error_code' => $request->file('video')?->getError(),
-//         'error_msg' => $request->file('video')?->getErrorMessage(),
-//         'size' => $request->file('video')?->getSize(),
-//         'mime' => $request->file('video')?->getMimeType(),
-//         'post_max' => ini_get('post_max_size'),
-//         'upload_max' => ini_get('upload_max_filesize'),
-//     ]);
-// });
+Route::get('/products/{product}/reviews', function (Product $product, \Illuminate\Http\Request $request) {
+    $page    = max(1, (int) $request->input('page', 1));
+    $perPage = min((int) $request->input('per_page', 10), 50);
+
+    // Query by product_id — falls back to seller_id for old reviews without product_id
+    $reviews = \App\Models\Review::where(function($q) use ($product) {
+            $q->where('product_id', $product->id)
+              ->orWhere(function($q2) use ($product) {
+                  $q2->whereNull('product_id')
+                     ->where('seller_id', $product->seller_id);
+              });
+        })
+        ->with('buyer:id,name,avatar')
+        ->latest()
+        ->paginate($perPage, ['*'], 'page', $page);
+
+    return response()->json([
+        'reviews'  => collect($reviews->items())->map(fn($r) => array_merge($r->toArray(), [
+            'photo_urls' => $r->photo_urls,
+            'buyer'      => $r->buyer ? array_merge($r->buyer->toArray(), [
+                'avatar_url' => $r->buyer->avatar_url,
+            ]) : null,
+        ])),
+        'total'    => $reviews->total(),
+        'has_more' => $reviews->hasMorePages(),
+    ]);
+});
+
 
 Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
     $q = trim($request->input('q', ''));
@@ -115,11 +140,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/{video}/like', [VideoController::class, 'like']);
     Route::post('/videos/{video}/save', [VideoController::class, 'save']);
-    Route::post('/videos/{video}/view', [VideoController::class, 'recordView']);
+    Route::post('/videos/{video:ulid}/report', [VideoController::class, 'report']);
+
     Route::post('/videos/{video}/tag-products', [VideoController::class, 'tagProducts']);
     Route::delete('/videos/{video}', [VideoController::class, 'destroy']);
-    Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
-    Route::post('/products/summary', [ProductController::class, 'generateSummary']);
+  
     Route::post('/users/{user}/block', [UserController::class, 'block']);
     Route::post('/users/{user}/report', [UserController::class, 'report']);
     Route::delete('/users/me', [UserController::class, 'deleteAccount']);
@@ -128,6 +153,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/videos/{video}/comments', [CommentController::class, 'store']);
     Route::delete('/comments/{comment}', [CommentController::class, 'destroy']);
 
+    Route::post('/comments/{comment}/like', [CommentController::class, 'like']);
+Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
 
     // Products
     Route::post('/products', [ProductController::class, 'store']);
@@ -135,6 +162,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
     Route::post('/products/{product}/save', [ProductController::class, 'save']);
     Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
+    Route::get('/products/{product}/images', [ProductController::class, 'getImages']); 
     Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
@@ -142,6 +170,30 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders/{order}', [OrderController::class, 'apiShow']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('/orders/resume-payment', [OrderController::class, 'resumePayment']);
+    Route::get('/orders/{order}/review',  [ReviewController::class, 'show']);
+Route::post('/orders/{order}/review', [ReviewController::class, 'store']);
+Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
+    $total  = (float) $request->input('total', 0);
+    $userId = Auth::id();
+ 
+    $coupon = \App\Models\Coupon::where('buyer_id', $userId)
+        ->whereNull('used_at')
+        ->where(function ($q) {
+            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+        })
+        ->where('min_order', '<=', $total)
+        ->orderByDesc('amount')
+        ->first();
+ 
+    return response()->json([
+        'coupon' => $coupon ? [
+            'code'      => $coupon->code,
+            'amount'    => $coupon->amount,
+            'min_order' => $coupon->min_order,
+            'expires_at'=> $coupon->expires_at?->toDateString(),
+        ] : null,
+    ]);
+});
     // Cart
     Route::get('/cart/count', [CartController::class, 'count']);
     Route::post('/cart', [CartController::class, 'add']);
@@ -154,11 +206,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications/count', [NotificationController::class, 'count']);
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    // Delivery addresses
+Route::get('/addresses', [AddressController::class, 'index']);
+Route::post('/addresses', [AddressController::class, 'store']);
+Route::put('/addresses/{address}', [AddressController::class, 'update']);
+Route::delete('/addresses/{address}', [AddressController::class, 'destroy']);
+Route::post('/addresses/{address}/set-default', [AddressController::class, 'setDefault']);
+ 
+// Shipping rates (called by checkout modal)
+Route::post('/shipping/rates', [AddressController::class, 'getRates']);
+ 
+// Coupon validation
+Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
+ 
 
 
     // Paystack webhook (no auth — verified by signature)
     Route::post('/webhooks/paystack', [OrderController::class, 'paystackWebhook'])
         ->withoutMiddleware('auth:sanctum');
+
+    Route::post('/webhooks/terminal', [TerminalWebhookController::class, 'handle'])
+    ->withoutMiddleware('auth:sanctum');
 
     // Users / follow
     Route::post('/users/{user}/follow', [UserController::class, 'follow']);
@@ -169,6 +237,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+      Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
+      Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {
@@ -176,6 +246,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/payouts', [SellerController::class, 'payoutsApi']);
         Route::delete('/settings/bank', [SettingsController::class, 'removeBank']);
         Route::post('/payouts', [SellerController::class, 'requestPayout']);
+        Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
+    $request->validate([
+        'pickup_street'      => 'required|string|max:200',
+        'pickup_city'        => 'required|string|max:100',
+        'pickup_state'       => 'required|string|max:100',
+        'pickup_postal_code' => 'nullable|string|max:20',
+    ]);
+ 
+    \Illuminate\Support\Facades\Auth::user()->update([
+        'pickup_street'      => $request->pickup_street,
+        'pickup_city'        => $request->pickup_city,
+        'pickup_state'       => $request->pickup_state,
+        'pickup_postal_code' => $request->pickup_postal_code,
+    ]);
+ 
+    return response()->json(['message' => 'Pickup address saved.']);
+})->middleware('auth:sanctum');
 
     });
 
@@ -197,10 +284,19 @@ Route::middleware('auth:sanctum')->group(function () {
         // Orders
         Route::post('/orders/{order}/refund', [AdminController::class, 'refundOrder']);
         Route::post('/orders/{order}/resolve', [AdminController::class, 'resolveOrder']);
+            Route::patch('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
 
         // Stats & analytics
         Route::get('/stats', [AdminController::class, 'stats']);
         Route::get('/analytics', [AdminController::class, 'analytics']);
+
+        // Payouts   
+   Route::post('/payouts/{payout}/approve', [AdminController::class, 'approvePayout']);
+
+       // Reports
+    Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
+    Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
+    Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
     });
 
     Route::get('/users/search', function (\Illuminate\Http\Request $request) {

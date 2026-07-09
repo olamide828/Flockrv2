@@ -23,6 +23,11 @@ Schedule::command('flockr:process-payouts')
     ->withoutOverlapping()
     ->emailOutputOnFailure(config('mail.from.address'));
 
+// Send rating reminders at 24h, 72h, and 7d after delivery
+Schedule::command('flockr:send-rating-reminders')
+    ->hourly()
+    ->withoutOverlapping();
+
 Schedule::command('model:prune', ['--model' => 'App\\Models\\VideoView'])
     ->weekly();
 

@@ -13,6 +13,7 @@ import {
   RiArrowGoBackLine,
   RiStoreLine,
   RiArrowRightSLine,
+  RiAlertLine,
 } from 'react-icons/ri'
 
 const STATUS_CONFIG = {
@@ -24,6 +25,7 @@ const STATUS_CONFIG = {
   delivered:  { label: 'Delivered',  color: 'rgba(16,185,129,0.12)', text: '#10B981', Icon: RiGiftLine           },
   cancelled:  { label: 'Cancelled',  color: 'rgba(239,68,68,0.12)',   text: '#EF4444', Icon: RiCloseCircleLine    },
   refunded:   { label: 'Refunded',   color: 'rgba(156,163,175,0.12)',text: '#9CA3AF', Icon: RiArrowGoBackLine    },
+  disputed:   { label: 'Disputed',   color: 'rgba(156,163,175,0.12)',text: '#F59E0B', Icon: RiAlertLine    },
 }
 
 const TRACKING_STEPS = ['confirmed', 'processing', 'shipped', 'delivered']
@@ -45,7 +47,7 @@ export default function OrdersList({ orders = [] }) {
 
         {/* Filter tabs */}
         <div style={{ display: 'flex', gap: 8, padding: '12px 20px', overflowX: 'auto', scrollbarWidth: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {['all', 'paid', 'shipped', 'delivered', 'cancelled'].map(s => {
+          {['all', 'pending', 'paid', 'shipped', 'delivered', 'cancelled', 'refunded', 'disputed'].map(s => {
             const cfg = STATUS_CONFIG[s]
             const active = filter === s
             return (

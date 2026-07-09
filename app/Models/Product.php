@@ -36,6 +36,8 @@ class Product extends Model
         'orders_count',
         'is_for_sale',
         'is_in_stock',
+        'avg_rating',
+'total_reviews',
     ];
 
     protected $casts = [

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Conversation;
-use App\Models\Message;
+use App\Models\Report;
 use App\Models\User;
 use App\Models\UserBlock;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +21,7 @@ class ConversationController extends Controller
     {
         $user = Auth::user();
 
-        $blockedIds  = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
+        $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
         $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
 
         $conversations = $user
@@ -44,10 +44,9 @@ class ConversationController extends Controller
             });
 
         return Inertia::render('Inbox/Index', [
-            'conversations'   => $conversations,
-            'blockedUserIds'  => $blockedIds,
-            'blockedByMeIds'  => $blockedIds,     // ids I blocked
-            'blockedByOtherIds' => $blockedByIds, // ids that blocked me
+            'conversations'     => $conversations,
+            'blockedByMeIds'    => $blockedIds,
+            'blockedByOtherIds' => $blockedByIds,
         ]);
     }
 
@@ -60,7 +59,6 @@ class ConversationController extends Controller
             return response()->json(['message' => 'Cannot message yourself.'], 422);
         }
 
-        // Prevent messaging if either party has blocked the other
         $blocked = UserBlock::where(function ($q) use ($other) {
             $q->where('blocker_id', Auth::id())->where('blocked_id', $other->id);
         })->orWhere(function ($q) use ($other) {
@@ -121,7 +119,6 @@ class ConversationController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        // Block check — don't allow sending if either party blocked the other
         $otherParticipant = $conversation->participants()
             ->where('user_id', '!=', Auth::id())
             ->first();
@@ -153,5 +150,43 @@ class ConversationController extends Controller
         } catch (\Throwable) {}
 
         return response()->json($message, 201);
+    }
+
+    /**
+     * POST /api/conversations/{conversation}/report
+     * Reports a user from within a conversation.
+     * Attaches conversation_id so admin can load the full chat history.
+     */
+    public function reportConversation(Request $request, Conversation $conversation): JsonResponse
+    {
+        if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $other = $conversation->participants()
+            ->where('user_id', '!=', Auth::id())
+            ->first();
+
+        if (!$other) {
+            return response()->json(['message' => 'Could not identify reported user.'], 422);
+        }
+
+        if ($other->id === Auth::id()) {
+            return response()->json(['message' => 'Cannot report yourself.'], 422);
+        }
+
+        // Prevent the same user spamming duplicate reports on the same conversation
+        Report::upsertReport(
+    reporterId: Auth::id(),
+    reportedId: $other->id,
+    reason:     $validated['reason'],
+    context:    ['conversation_id' => $conversation->id]
+);
+
+return response()->json(['message' => 'Report submitted.']);
     }
 }

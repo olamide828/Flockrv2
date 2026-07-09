@@ -49,6 +49,11 @@ class ProcessProductImage implements ShouldQueue
 
     public function handle(StorageService $storage): void
     {
+        Log::info('ProcessProductImage: handle started', [
+        'productId'  => $this->productId,
+        'imageKey'   => $this->imageKey,
+        'imageIndex' => $this->imageIndex,
+    ]);
         $product = Product::find($this->productId);
         if (!$product) return;
 
@@ -131,11 +136,11 @@ class ProcessProductImage implements ShouldQueue
 
             // Slightly grey-ify the shadow by overlaying a semi-transparent rectangle
             // This is the simplest shadow approach that works without complex GD operations
-            $canvas->drawRectangle($shadowOffsetX, $shadowOffsetY, function ($draw) use ($newW, $newH, $shadowOffsetX, $shadowOffsetY) {
-                $draw->size($newW, $newH);
-                $draw->background('rgba(0, 0, 0, 0.18)');
-                $draw->border(0, 'transparent');
-            });
+           $canvas->drawRectangle($shadowOffsetX, $shadowOffsetY, function ($draw) use ($newW, $newH) {
+    $draw->size($newW, $newH);
+    $draw->background('rgba(0, 0, 0, 0.18)');
+    $draw->border(0, 'rgba(0,0,0,0)');
+});
 
             // Place actual product centered on top of shadow
             $canvas->place($product_img, 'top-left', $offsetX, $offsetY);
@@ -154,9 +159,19 @@ class ProcessProductImage implements ShouldQueue
             $product->refresh();
             $images = $product->images ?? [];
 
+            
+
             if (isset($images[$this->imageIndex]) && $images[$this->imageIndex] === $this->imageKey) {
-                $images[$this->imageIndex] = $processedKey;
-                $product->update(['images' => $images]);
+    $images[$this->imageIndex] = $processedKey;
+
+    Log::info('ProcessProductImage: about to update', [
+        'new_key' => $processedKey,
+        'images'  => $images,
+    ]);
+
+    $product->update(['images' => $images]);
+
+    Log::info('ProcessProductImage: update done');
 
                 // Clean up original image to save storage space
                 try {

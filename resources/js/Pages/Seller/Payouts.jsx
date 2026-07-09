@@ -247,7 +247,7 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
         .input-wrap { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 12px 16px; }
         .input-wrap span { color: rgba(255,255,255,0.4); font-size: 16px; font-weight: 700; }
         .input-wrap input { flex: 1; background: none; border: none; outline: none; color: white; font-size: 16px; font-weight: 700; }
-        .form-error { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: rgba(239,68,68,0.1); color: #ef4444; font-size: 13px; }
+        .form-error { display: flex; a lign-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: rgba(239,68,68,0.1); color: #ef4444; font-size: 13px; }
         .form-note { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.35); }
         .form-actions { display: flex; gap: 10px; }
         .cancel-btn { flex: 1; padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.05); border: none; color: rgba(255,255,255,0.5); cursor: pointer; font-size: 14px; font-weight: 600; }

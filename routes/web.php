@@ -93,11 +93,14 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
-        Route::get('/users', [AdminController::class, 'users'])->name('users');
         Route::get('/users/{user}', [AdminController::class, 'showUser'])->name('users.show');
-        Route::get('/orders', [AdminController::class, 'orders'])->name('orders');
         Route::get('/orders/{order}', [AdminController::class, 'showOrder'])->name('orders.show');
-        Route::get('/videos', [AdminController::class, 'showVideoPage'])->name('videos');
+    Route::get('/users',      [AdminController::class, 'users'])->name('admin.users');
+    Route::get('/videos',     [AdminController::class, 'videos'])->name('admin.videos');
+    Route::get('/orders',     [AdminController::class, 'orders'])->name('admin.orders');
+    Route::get('/payouts',    [AdminController::class, 'payouts'])->name('admin.payouts');
+    Route::get('/reports',    [AdminController::class, 'reports'])->name('admin.reports');
+    Route::get('/analytics',  [AdminController::class, 'analyticsPage'])->name('admin.analytics');
     });
 });
 

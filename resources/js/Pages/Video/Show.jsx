@@ -1,4 +1,4 @@
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -33,7 +33,10 @@ import {
     RiVolumeUpLine,
     RiWhatsappLine,
     RiRedditLine,
+    RiFlag2Line,
 } from 'react-icons/ri';
+import ReportVideoModal from './ReportVideoModal';
+import CommentSheet from '../../Components/Video/CommentSheet';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -52,6 +55,50 @@ const timeAgo = (d) => {
     if (s < 86400) return `${Math.floor(s / 3600)}h`;
     return new Date(d).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' });
 };
+
+function MoreSheet({ onClose, onReport, videoRef }) {
+    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    const [currentSpeed, setCurrentSpeed] = useState(videoRef.current?.playbackRate ?? 1)
+
+    const setSpeed = (s) => {
+        if (videoRef.current) videoRef.current.playbackRate = s
+        setCurrentSpeed(s)
+    }
+
+    return (
+        <>
+            <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.5)' }} />
+            <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
+                    <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 14px' }}>
+                    <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Video Options</span>
+                    <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <RiCloseLine size={18} />
+                    </button>
+                </div>
+                <div style={{ padding: '0 16px 18px' }}>
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px' }}>Playback Speed</p>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {speeds.map(s => (
+                            <button key={s} onClick={() => setSpeed(s)}
+                                style={{ padding: '8px 16px', borderRadius: 999, border: `1px solid ${currentSpeed === s ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, background: currentSpeed === s ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.04)', color: currentSpeed === s ? '#FF6B35' : '#fff', fontSize: 13, fontWeight: currentSpeed === s ? 700 : 400, cursor: 'pointer' }}>
+                                {s === 1 ? 'Normal' : `${s}x`}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '4px 0' }}>
+                    <button onClick={() => { onClose(); onReport(); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 600 }}>
+                        <RiFlag2Line size={18} /> Report video
+                    </button>
+                </div>
+            </div>
+        </>
+    )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useVideoDownload — server-side watermark download hook
@@ -173,137 +220,59 @@ const ExpandableDescription = ({ text, maxLines = 2 }) => {
     );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CommentInput
-// ─────────────────────────────────────────────────────────────────────────────
-const CommentInput = ({ auth, commentBody, setCommentBody, sending, sendComment, replyTo, setReplyTo, inputRef }) => {
-    if (!auth?.user) return (
-        <div style={{ padding: '10px 14px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-            <button onClick={() => router.visit('/login')} style={{ width: '100%', padding: '11px', background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.3)', borderRadius: 12, color: '#FF6B35', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Log in to comment</button>
-        </div>
-    );
+const DescriptionPanel = ({ text }) => {
+    const [expanded, setExpanded] = useState(false)
+    const isLong = text.length > 150
+
     return (
-        <div style={{ padding: '10px 14px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-            {replyTo && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, padding: '6px 10px', background: 'rgba(255,107,53,0.08)', borderRadius: 8, border: '1px solid rgba(255,107,53,0.2)' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Replying to <span style={{ color: '#FF6B35' }}>@{replyTo.user?.username}</span></span>
-                    <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex', padding: 0 }}><RiCloseLine size={14} /></button>
-                </div>
-            )}
-            <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-                <img src={auth.user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(auth.user.name)}&background=222`} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                <input
-                    ref={inputRef} value={commentBody} onChange={e => setCommentBody(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); } }}
-                    onTouchStart={e => e.stopPropagation()} onClick={e => e.stopPropagation()}
-                    placeholder={replyTo ? `Reply to @${replyTo.user?.username}...` : 'Add a comment...'}
-                    maxLength={500}
-                    style={{ flex: 1, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, padding: '9px 16px', color: '#fff', fontSize: 13, outline: 'none' }}
-                />
-                <button onClick={sendComment} disabled={!commentBody.trim() || sending}
-                    style={{ background: commentBody.trim() && !sending ? '#FF6B35' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: commentBody.trim() && !sending ? 'pointer' : 'default', flexShrink: 0, transition: 'background 0.2s' }}>
-                    {sending ? <RiLoader4Line size={15} color="#fff" style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiSendPlaneFill size={15} color="#fff" />}
+        <div>
+            <div style={{
+                maxHeight: expanded ? 120 : 'auto',
+                overflowY: expanded ? 'auto' : 'visible',
+                paddingRight: expanded ? 4 : 0,
+            }}>
+                <p style={{
+                    color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.5, margin: 0,
+                    whiteSpace: 'pre-wrap',
+                    display: !expanded && isLong ? '-webkit-box' : 'block',
+                    WebkitLineClamp: !expanded && isLong ? 3 : 'unset',
+                    WebkitBoxOrient: 'vertical',
+                    overflow: !expanded && isLong ? 'hidden' : 'visible',
+                }}>
+                    {text}
+                </p>
+            </div>
+            {isLong && (
+                <button onClick={() => setExpanded(e => !e)} style={{ background: 'none', border: 'none', color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '4px 0 0', display: 'block' }}>
+                    {expanded ? 'Show less' : 'Show more'}
                 </button>
-            </div>
-        </div>
-    );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CommentItem
-// ─────────────────────────────────────────────────────────────────────────────
-const CommentItem = ({ comment, onReply, onDelete, currentUserId, isAdmin }) => {
-    const avatar = comment.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.user?.name || 'U')}&background=222&color=fff`;
-    const canDelete = currentUserId && (comment.user?.id === currentUserId || isAdmin);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
-    const longPressTimer = useRef(null);
-
-    const handleLongPressStart = () => {
-        if (!canDelete) return;
-        longPressTimer.current = setTimeout(() => { if (window.innerWidth < 768) setDeleteSheetOpen(true); }, 500);
-    };
-    const handleLongPressEnd = () => clearTimeout(longPressTimer.current);
-    const doDelete = () => { setMenuOpen(false); setDeleteSheetOpen(false); onDelete(comment); };
-
-    return (
-        <>
-            <div onMouseDown={handleLongPressStart} onMouseUp={handleLongPressEnd}
-                onTouchStart={handleLongPressStart} onTouchEnd={handleLongPressEnd} onTouchCancel={handleLongPressEnd}
-                style={{ display: 'flex', gap: 10, padding: '10px 0', opacity: comment._opt ? 0.6 : 1, position: 'relative' }}>
-                <img src={avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{comment.user?.name || comment.user?.username}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(comment.created_at)}</span>
-                    </div>
-                    <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, margin: '3px 0 6px', lineHeight: 1.4 }}>{comment.body}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <button onClick={() => onReply(comment)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 11, padding: 0 }}>
-                            <RiReplyLine size={13} /> Reply
-                        </button>
-                        {canDelete && (
-                            <div style={{ position: 'relative' }}>
-                                <button onClick={() => setMenuOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.35)', padding: 0 }}>
-                                    <RiMoreLine size={15} />
-                                </button>
-                                {menuOpen && (
-                                    <>
-                                        <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-                                        <div style={{ position: 'absolute', bottom: '100%', left: 0, zIndex: 99, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden', minWidth: 120, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', marginBottom: 4 }}>
-                                            <button onClick={doDelete} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 13, fontWeight: 600 }}>
-                                                <RiDeleteBinLine size={15} /> Delete
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                    {comment.replies?.length > 0 && (
-                        <div style={{ marginTop: 10, paddingLeft: 12, borderLeft: '2px solid rgba(255,255,255,0.06)' }}>
-                            {comment.replies.map(r => <CommentItem key={r.id} comment={r} onReply={onReply} onDelete={onDelete} currentUserId={currentUserId} isAdmin={isAdmin} />)}
-                        </div>
-                    )}
-                </div>
-            </div>
-            {deleteSheetOpen && (
-                <>
-                    <div onClick={() => setDeleteSheetOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.5)' }} />
-                    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'slideUp 0.25s ease', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 6px' }}><div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} /></div>
-                        <div style={{ padding: '8px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                            <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{comment.user?.name}</p>
-                            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{comment.body}</p>
-                        </div>
-                        <button onClick={doDelete} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 15, fontWeight: 700 }}>
-                            <RiDeleteBinLine size={20} /> Delete Comment
-                        </button>
-                        <button onClick={() => setDeleteSheetOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 'calc(100% - 32px)', margin: '0 16px 12px', padding: '13px', background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 600, borderRadius: 14 }}>
-                            Cancel
-                        </button>
-                    </div>
-                </>
             )}
-        </>
-    );
-};
+        </div>
+    )
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ProductRow
 // ─────────────────────────────────────────────────────────────────────────────
-const ProductRow = ({ product }) => (
-    <button onClick={() => router.visit(product.seller?.username ? `/@${product.seller.username}/products/${product.slug ?? product.id}` : '/shop')} style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}>
-        <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', flexShrink: 0 }}>
-            {product.primary_image && <img src={product.primary_image} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</p>
-            <p style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14, margin: '3px 0 0' }}>₦{Number(product.price).toLocaleString()}</p>
-        </div>
-        <div style={{ padding: '7px 14px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>Buy</div>
-    </button>
-);
+const ProductRow = ({ product }) => {
+    const sellerUsername = product.seller?.username
+    const href = sellerUsername
+        && `/@${sellerUsername}/products/${product.slug ?? product.id}`
+     
+    return (
+        <Link href={href}>
+            <button style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}>
+                <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', flexShrink: 0 }}>
+                    {product.primary_image && <img src={product.primary_image} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</p>
+                    <p style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14, margin: '3px 0 0' }}>₦{Number(product.price).toLocaleString()}</p>
+                </div>
+                <div style={{ padding: '7px 14px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>Buy</div>
+            </button>
+        </Link>
+    )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ShareSheet — all original options + Download button
@@ -381,6 +350,8 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
     );
 };
 
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // VideoSlide — one full-screen slide
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,16 +376,14 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [followed,      setFollowed]      = useState(video.is_following ?? false);
     const [commentsCount, setCommentsCount] = useState(Number(video.comments_count ?? 0));
     const [tab,           setTab]           = useState('comments');
-    const [comments,      setComments]      = useState([]);
-    const [cmtsLoaded,    setCmtsLoaded]    = useState(false);
-    const [loadingCmts,   setLoadingCmts]   = useState(false);
-    const [commentBody,   setCommentBody]   = useState('');
-    const [sending,       setSending]       = useState(false);
-    const [replyTo,       setReplyTo]       = useState(null);
     const [mobileSheet,   setMobileSheet]   = useState(null);
     const [showSearch,    setShowSearch]    = useState(false);
     const [searchQuery,   setSearchQuery]   = useState('');
     const searchInputRef = useRef(null);
+
+    const [moreSheetOpen, setMoreSheetOpen] = useState(false);
+const [reportOpen, setReportOpen] = useState(false);
+
 
     // ── Download hook ─────────────────────────────────────────────────────────
     const { download, dlState } = useVideoDownload(video);
@@ -463,7 +432,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         return () => el.removeEventListener('timeupdate', onTime);
     }, []);
 
-    useEffect(() => { loadComments(); }, []);
+    
     useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
 
     const lastTap = useRef(0);
@@ -475,7 +444,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             setTapFlash(true); setTimeout(() => setTapFlash(false), 700);
         } else {
             videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause();
-            setShowPP(true); setTimeout(() => setShowPP(false), 700);
+setShowPP(true);
         }
         lastTap.current = now;
     }, [liked, mobileSheet, showSearch]);
@@ -512,67 +481,41 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; }); }, []);
     const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
 
-    const loadComments = useCallback(async () => {
-        if (cmtsLoaded) return; setLoadingCmts(true);
-        try {
-            const { data } = await axios.get(`/api/videos/${video.ulid}/comments`);
-            const list = data.data ?? data;
-            setComments(list);
-            const total = data.meta?.total ?? list.reduce((sum, c) => sum + 1 + (c.replies?.length ?? 0), 0);
-            setCommentsCount(total);
-            setCmtsLoaded(true);
-        } catch {} finally { setLoadingCmts(false); }
-    }, [cmtsLoaded, video.id]);
 
-    const sendComment = useCallback(async () => {
-        if (!commentBody.trim() || !auth?.user || sending) return;
-        setSending(true);
-        const text = commentBody.trim(); const parentId = replyTo?.id ?? null;
-        const optimistic = { id: `opt-${Date.now()}`, body: text, user: auth.user, created_at: new Date().toISOString(), _opt: true };
-        if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: [...(c.replies ?? []), optimistic] } : c)); }
-        else { setComments(prev => [optimistic, ...prev]); setCommentsCount(c => c + 1); }
-        setCommentBody(''); setReplyTo(null);
-        try {
-            const { data } = await axios.post(`/api/videos/${video.ulid}/comments`, { body: text, parent_id: parentId }, { withCredentials: true });
-            if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).map(r => r.id === optimistic.id ? data : r) } : c)); }
-            else { setComments(prev => prev.map(c => c.id === optimistic.id ? data : c)); }
-        } catch {
-            if (parentId) { setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).filter(r => r.id !== optimistic.id) } : c)); }
-            else { setComments(prev => prev.filter(c => c.id !== optimistic.id)); setCommentsCount(c => Math.max(0, c - 1)); }
-            setCommentBody(text);
-        } finally { setSending(false); }
-    }, [commentBody, auth, sending, replyTo, video.id]);
 
-    const handleDeleteComment = useCallback(async (comment) => {
-        const isTop = comments.some(c => c.id === comment.id);
-        if (isTop) { const rc = comment.replies?.length ?? 0; setComments(prev => prev.filter(c => c.id !== comment.id)); setCommentsCount(c => Math.max(0, c - 1 - rc)); }
-        else { setComments(prev => prev.map(c => ({ ...c, replies: (c.replies ?? []).filter(r => r.id !== comment.id) }))); setCommentsCount(c => Math.max(0, c - 1)); }
-        try { await axios.delete(`/api/comments/${comment.id}`, { withCredentials: true }); }
-        catch { loadComments(); }
-    }, [comments, loadComments]);
 
-    const handleReply = useCallback((comment) => { setReplyTo(comment); commentInputRef.current?.focus(); }, []);
-    const openSheet = (sheet) => { setMobileSheet(sheet); if (sheet === 'comments') loadComments(); };
+
+
+ const openSheet = (sheet) => { setMobileSheet(sheet); };
 
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
 
             {/* ShareSheet — passes download props */}
-            {mobileSheet === 'share' && (
-                <ShareSheet
-                    videoUrl={videoUrl}
-                    videoTitle={video.title}
-                    onClose={() => setMobileSheet(null)}
-                    onDownload={download}
-                    dlState={dlState}
-                />
-            )}
+          {mobileSheet === 'share' && (
+    <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
+)}
+{moreSheetOpen && (
+    <MoreSheet
+        onClose={() => setMoreSheetOpen(false)}
+        onReport={() => setReportOpen(true)}
+        videoRef={videoRef}
+    />
+)}
+{reportOpen && (
+    <ReportVideoModal
+        video={video}
+        onClose={() => setReportOpen(false)}
+    />
+)}
+
+            
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
                 <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted loop playsInline preload="metadata"
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
-                    onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+                    onPlay={() => { setPlaying(true); setShowPP(false) }} onPause={() => setPlaying(false)}
                     onClick={handleVideoTap}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
                 />
@@ -584,10 +527,11 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     <button onClick={showBackBtn ? onBack : () => window.history.back()} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
                         <RiArrowLeftLine size={20} />
                     </button>
-                    {showSearch ? (
-                        <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, margin: '0 10px' }}>
+                    <div className="flex flex-row gap-3">
+                        {showSearch ? (
+                        <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
                             <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
-                            <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', padding: '8px 12px', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0 }}>
+                            <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
                                 <RiCloseFill size={20} />
                             </button>
                         </form>
@@ -595,7 +539,12 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                             <RiSearchLine size={20} />
                         </button>
+                        
                     )}
+       <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
+    <RiMoreLine size={20} />
+</button>
+                    </div>
                 </div>
 
                 {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
@@ -620,10 +569,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 {/* Right actions */}
                 <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
                     <div style={{ position: 'relative', marginBottom: 4 }}>
-                        <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
-                        {!followed && !isOwner && auth?.user && <button onClick={handleFollow} style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: '#FF6B35', border: '2px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}><RiUserAddLine size={11} color="#fff" /></button>}
-                        {followed && <div style={{ position: 'absolute', bottom: -10, left: '50%', transform: 'translateX(-50%)', width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiUserFollowLine size={11} color="#fff" /></div>}
-                    </div>
+    <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
+</div>
                     <SideBtn onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
                     <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
                         <RiChat1Line size={28} color={tab === 'comments' ? '#FF6B35' : '#fff'} />
@@ -638,6 +585,11 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
                 {/* Bottom info */}
                 <div className='lg:w-[50%]' style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {!isOwner && (
+        <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
+            {followed ? 'Following' : 'Follow'}
+        </button>
+    )}
                     <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
                         {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
@@ -662,11 +614,16 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{video.user?.username}</p>
                     </div>
                     {!isOwner && <button onClick={auth?.user ? handleFollow : () => router.visit('/login')} style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, border: 'none', background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed ? 'rgba(255,255,255,0.5)' : '#fff' }}>{followed ? 'Following' : 'Follow'}</button>}
+          <button onClick={() => setMoreSheetOpen(true)} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+    <RiMoreLine size={16} color="rgba(255,255,255,0.5)" />
+</button>
                 </div>
                 {(video.title || video.description) && (
                     <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
                         {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
-                        {video.description && <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{video.description}</p>}
+                        {video.description && (
+            <DescriptionPanel text={video.description} />
+        )}
                         {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => <span key={i} style={{ color: '#FF6B35', fontSize: 12, fontWeight: 600 }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}</div>}
                         {/* Desktop share/download button row */}
                         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -689,15 +646,13 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     {tab === 'products' && hasProducts && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{video.products.map(p => <ProductRow key={p.id} product={p} />)}</div>}
                     {tab === 'comments' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
-                                {loadingCmts && <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: '24px 0' }}>Loading...</p>}
-                                {!loadingCmts && comments.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0' }}><p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, margin: 0 }}>No comments yet</p></div>}
-                                {comments.map(c => <CommentItem key={c.id} comment={c} onReply={handleReply} onDelete={handleDeleteComment} currentUserId={auth?.user?.id} isAdmin={isAdmin} />)}
-                            </div>
-                            <CommentInput auth={auth} commentBody={commentBody} setCommentBody={setCommentBody} sending={sending} sendComment={sendComment} replyTo={replyTo} setReplyTo={setReplyTo} inputRef={commentInputRef} />
-                        </div>
-                    )}
+    <CommentSheet
+        videoId={video.ulid}
+        videoOwnerId={video.user_id}
+        onClose={() => setTab('products')}  // or whatever default tab fallback you want
+        onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
+    />
+)}
                 </div>
             </div>
 
@@ -713,15 +668,13 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         </div>
                         {mobileSheet === 'products' && <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>{video.products?.map(p => <ProductRow key={p.id} product={p} />)}</div>}
                         {mobileSheet === 'comments' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                                <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    {loadingCmts && <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
-                                    {!loadingCmts && comments.length === 0 && <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 14, padding: '32px 0' }}>No comments yet. Be the first!</p>}
-                                    {comments.map(c => <CommentItem key={c.id} comment={c} onReply={handleReply} onDelete={handleDeleteComment} currentUserId={auth?.user?.id} isAdmin={isAdmin} />)}
-                                </div>
-                                <CommentInput auth={auth} commentBody={commentBody} setCommentBody={setCommentBody} sending={sending} sendComment={sendComment} replyTo={replyTo} setReplyTo={setReplyTo} inputRef={commentInputRef} />
-                            </div>
-                        )}
+    <CommentSheet
+        videoId={video.ulid}
+        videoOwnerId={video.user_id}
+        onClose={() => setTab('products')}  // or whatever default tab fallback you want
+        onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
+    />
+)}
                     </div>
                 </>
             )}

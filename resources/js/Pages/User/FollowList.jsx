@@ -54,7 +54,7 @@ export default function FollowList({ profileUser, followers = [], following = []
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
           {[
-            { key: 'followers', label: 'Followers', count: profileUser.followers_count ?? followers.length },
+            { key: 'followers', label: followers.length === 1 ? 'Follower' : 'Followers', count: profileUser.followers_count ?? followers.length },
             { key: 'following', label: 'Following', count: profileUser.following_count ?? following.length },
           ].map(t => (
             <button

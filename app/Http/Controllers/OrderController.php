@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -61,59 +62,111 @@ class OrderController extends Controller
 
     /**
      * POST /api/orders/checkout
-     * Create an order and return a Paystack authorization URL.
+     *
+     * Auto-applies a valid coupon if buyer has one and cart qualifies.
+     * Coupon discount split: 50% off seller payout, 50% off platform fee.
      */
     public function checkout(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'quantity' => 'required|integer|min:1|max:100',
-        ]);
+        
+       $validated = $request->validate([
+    'product_id'  => 'required|integer|exists:products,id',
+    'quantity'    => 'required|integer|min:1|max:100',
+    'address_id'  => 'nullable|integer|exists:user_addresses,id',
+    'rate_id'     => 'nullable|string',
+    'carrier'     => 'nullable|string|max:100',
+    'courier_fee' => 'nullable|numeric|min:0',
+    'coupon_code' => 'nullable|string',
+    'video_id'         => 'nullable|integer|exists:videos,id',
+]);
 
         $product = Product::active()->inStock()->findOrFail($validated['product_id']);
-        $qty = $validated['quantity'];
+        $qty     = $validated['quantity'];
 
         if ($product->stock_quantity < $qty) {
             return response()->json(['message' => 'Not enough stock available.'], 422);
         }
 
-        $subtotal = $product->price * $qty;
-        $shipping = $product->shipping_fee;
+        $subtotal    = $product->price * $qty;
+        $shipping    = $product->shipping_fee;
         $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
-        $total = $subtotal + $shipping;
+        $total       = $subtotal + $shipping;
 
-        $order = DB::transaction(function () use ($product, $qty, $subtotal, $shipping, $platformFee, $total, $request) {
+        // ── Coupon auto-apply ─────────────────────────────────────────────────
+        // Find the buyer's best valid unused coupon that fits this order total
+        $coupon         = null;
+        $couponDiscount = 0;
+
+        $applicableCoupon = Coupon::where('buyer_id', Auth::id())
+            ->whereNull('used_at')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->where('min_order', '<=', $total)
+            ->orderByDesc('amount') // apply biggest coupon if multiple
+            ->first();
+
+        if ($applicableCoupon) {
+            $coupon         = $applicableCoupon;
+            $couponDiscount = min((float) $coupon->amount, $total); // never discount more than total
+
+            // Split the discount 50/50 between seller and Flockr
+            $sellerShare   = round($couponDiscount / 2, 2);
+            $flockrShare   = $couponDiscount - $sellerShare; // remainder to avoid rounding gap
+
+            $platformFee   = max(0, $platformFee - $flockrShare);
+            $total         = max(0, $total - $couponDiscount);
+        }
+
+        $order = DB::transaction(function () use (
+            $product, $qty, $subtotal, $shipping, $platformFee,
+            $total, $request, $coupon, $couponDiscount, $validated
+        ) {
             $order = Order::create([
-                'buyer_id' => Auth::id(),
-                'seller_id' => $product->seller_id,
-                'video_id' => $request->input('video_id'),
-                'subtotal' => $subtotal,
-                'shipping_fee' => $shipping,
-                'platform_fee' => $platformFee,
-                'total' => $total,
-                'shipping_address' => $request->input('shipping_address'),
+                'buyer_id'         => Auth::id(),
+                'seller_id'        => $product->seller_id,
+                'video_id'         => $validated['video_id'] ?? null,
+                'subtotal'         => $subtotal,
+                'shipping_fee'     => $shipping,
+                'platform_fee'     => $platformFee,
+                'total'            => $total,
+                'shipping_address' => $validated['shipping_address'] ?? null,
+                'delivery_address_id' => $validated['address_id'] ?? null,
+    'courier_name'        => $validated['carrier'] ?? null,
+    'courier_fee'         => $validated['courier_fee'] ?? 0,
+    'terminal_rate_id'    => $validated['rate_id'] ?? null,
+    'shipping_fee'        => $validated['courier_fee'] ?? $shipping,
+    'shipping_address'    => $validated['address_id']
+        ? \App\Models\UserAddress::find($validated['address_id'])?->toTerminalFormat()
+        : null,
             ]);
 
             OrderItem::create([
-                'order_id' => $order->id,
-                'product_id' => $product->id,
+                'order_id'     => $order->id,
+                'product_id'   => $product->id,
                 'product_name' => $product->name,
-                'unit_price' => $product->price,
-                'quantity' => $qty,
-                'total' => $subtotal,
+                'unit_price'   => $product->price,
+                'quantity'     => $qty,
+                'total'        => $subtotal,
             ]);
 
-            
+            // Reserve the coupon immediately so it can't be used on another order
+            // We'll mark used_at when payment is confirmed (in markAsPaid)
+            if ($coupon) {
+                $coupon->update(['used_on_order_id' => $order->id]);
+            }
 
             return $order;
         });
 
-        // Replace from line 108 onwards:
         try {
             $payment = $this->paystack->initializeTransaction($order->load(['buyer', 'seller']));
         } catch (\Throwable $e) {
-            // Paystack failed — delete the order so it doesn't sit as pending
             $order->forceDelete();
+            // Release the coupon reservation if payment init failed
+            if ($coupon) {
+                $coupon->update(['used_on_order_id' => null]);
+            }
             Log::error('Paystack initialization failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'message' => 'Payment initialization failed. Please check your connection and try again.',
@@ -121,9 +174,13 @@ class OrderController extends Controller
         }
 
         return response()->json([
-            'order_id' => $order->id,
-            'reference' => $order->reference,
+            'order_id'          => $order->id,
+            'reference'         => $order->reference,
             'authorization_url' => $payment['authorization_url'],
+            'coupon_applied'    => $coupon ? [
+                'code'     => $coupon->code,
+                'discount' => $couponDiscount,
+            ] : null,
         ]);
     }
 
@@ -137,7 +194,7 @@ class OrderController extends Controller
             return redirect()->route('home')->with('error', 'Invalid payment reference.');
 
         try {
-            $data = $this->paystack->verifyTransaction($reference);
+            $data  = $this->paystack->verifyTransaction($reference);
             $order = Order::where('reference', $reference)->firstOrFail();
 
             if ($data['status'] === 'success' && $order->status === 'pending') {
@@ -157,7 +214,7 @@ class OrderController extends Controller
      */
     public function paystackWebhook(Request $request): JsonResponse
     {
-        $payload = $request->getContent();
+        $payload   = $request->getContent();
         $signature = $request->header('x-paystack-signature', '');
 
         if (!$this->paystack->verifyWebhook($payload, $signature)) {
@@ -166,7 +223,7 @@ class OrderController extends Controller
         }
 
         $event = $request->json('event');
-        $data = $request->json('data');
+        $data  = $request->json('data');
 
         if ($event === 'charge.success') {
             $order = Order::where('reference', $data['reference'])->first();
@@ -176,28 +233,27 @@ class OrderController extends Controller
         }
 
         if ($event === 'transfer.success') {
-    \App\Models\Payout::where('reference', $data['reference'])
-        ->where('status', 'pending')
-        ->update(['status' => 'paid', 'paid_at' => now()]);
-}
+            \App\Models\Payout::where('reference', $data['reference'])
+                ->where('status', 'pending')
+                ->update(['status' => 'paid', 'paid_at' => now()]);
+        }
 
-if ($event === 'transfer.failed') {
-    $payout = \App\Models\Payout::where('reference', $data['reference'])->first();
-    if ($payout && $payout->status !== 'failed') {
-        // Re-credit seller wallet
-        $lastTx = \App\Models\WalletTransaction::where('user_id', $payout->seller_id)->latest()->first();
-        $balanceBefore = $lastTx?->balance_after ?? 0;
-        \App\Models\WalletTransaction::create([
-            'user_id'       => $payout->seller_id,
-            'amount'        => $payout->amount,
-            'type'          => 'credit',
-            'source'        => 'payout_reversal',
-            'description'   => 'Payout failed — funds returned to wallet',
-            'balance_after' => $balanceBefore + $payout->amount,
-        ]);
-        $payout->update(['status' => 'failed', 'failure_reason' => $data['reason'] ?? 'Transfer failed']);
-    }
-}
+        if ($event === 'transfer.failed') {
+            $payout = \App\Models\Payout::where('reference', $data['reference'])->first();
+            if ($payout && $payout->status !== 'failed') {
+                $lastTx        = \App\Models\WalletTransaction::where('user_id', $payout->seller_id)->latest()->first();
+                $balanceBefore = $lastTx?->balance_after ?? 0;
+                \App\Models\WalletTransaction::create([
+                    'user_id'       => $payout->seller_id,
+                    'amount'        => $payout->amount,
+                    'type'          => 'credit',
+                    'source'        => 'payout_reversal',
+                    'description'   => 'Payout failed — funds returned to wallet',
+                    'balance_after' => $balanceBefore + $payout->amount,
+                ]);
+                $payout->update(['status' => 'failed', 'failure_reason' => $data['reason'] ?? 'Transfer failed']);
+            }
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -214,9 +270,14 @@ if ($event === 'transfer.failed') {
         }
 
         $order->update([
-            'status' => 'cancelled',
+            'status'              => 'cancelled',
             'cancellation_reason' => $request->input('reason', 'Cancelled by buyer'),
         ]);
+
+        // Release any reserved coupon so buyer can use it on another order
+        Coupon::where('used_on_order_id', $order->id)
+            ->whereNull('used_at')
+            ->update(['used_on_order_id' => null]);
 
         return response()->json(['message' => 'Order cancelled.']);
     }
@@ -229,9 +290,13 @@ if ($event === 'transfer.failed') {
         return response()->json($order->load(['items.product', 'seller', 'buyer']));
     }
 
+    /**
+     * PATCH /api/orders/{order}/status
+     *
+     * Sets delivered_at automatically when status → delivered.
+     */
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
-        // Only the seller of this order can update it
         if (Auth::id() !== $order->seller_id) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
@@ -240,40 +305,86 @@ if ($event === 'transfer.failed') {
             'status' => 'required|in:processing,shipped,delivered,cancelled',
         ]);
 
-        $order->update(['status' => $validated['status']]);
+        $updates = ['status' => $validated['status']];
+
+        // Auto-set delivered_at when seller marks as delivered
+        if ($validated['status'] === 'delivered' && !$order->delivered_at) {
+            $updates['delivered_at'] = now();
+        }
+
+        $order->update($updates);
 
         return response()->json(['status' => $order->status]);
     }
 
     /**
- * POST /api/orders/resume-payment
- * Re-initializes a Paystack transaction for a pending order.
- * Used when buyer exits Paystack without completing payment.
- */
-public function resumePayment(Request $request): JsonResponse
-{
-    $validated = $request->validate([
-        'order_id' => 'required|integer|exists:orders,id',
-    ]);
+     * POST /api/orders/resume-payment
+     */
+    public function resumePayment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_id' => 'required|integer|exists:orders,id',
+        ]);
 
-    $order = Order::where('id', $validated['order_id'])
-        ->where('buyer_id', Auth::id())
-        ->where('status', 'pending')
-        ->with(['buyer', 'seller'])
-        ->firstOrFail();
+        $order = Order::where('id', $validated['order_id'])
+            ->where('buyer_id', Auth::id())
+            ->where('status', 'pending')
+            ->with(['buyer', 'seller'])
+            ->firstOrFail();
 
-    // Generate fresh payment reference
-    $newReference = 'FLK_' . Str::upper(Str::random(16));
+        $newReference = 'FLK_' . Str::upper(Str::random(16));
+        $order->update(['reference' => $newReference]);
 
-    $order->update([
-        'reference' => $newReference,
-    ]);
+        $payment = $this->paystack->initializeTransaction($order->fresh());
 
-    $payment = $this->paystack->initializeTransaction($order->fresh());
+        return response()->json([
+            'authorization_url' => $payment['authorization_url'],
+            'reference'         => $newReference,
+        ]);
+    }
 
-    return response()->json([
-        'authorization_url' => $payment['authorization_url'],
-        'reference'         => $newReference,
-    ]);
-}
+    public function openDispute(Request $request, Order $order): JsonResponse
+    {
+        if ($order->buyer_id !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $eligible = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
+        if (!in_array($order->status, $eligible)) {
+            return response()->json([
+                'message' => 'You can only dispute a paid or in-progress order.',
+            ], 422);
+        }
+
+        if ($order->status === 'disputed') {
+            return response()->json(['message' => 'A dispute is already open for this order.'], 422);
+        }
+
+        $validated = $request->validate([
+            'reason'      => 'required|string|max:200',
+            'description' => 'nullable|string|max:1000',
+        ]);
+
+        $fullReason = $validated['reason']
+            . ($validated['description'] ? ': ' . $validated['description'] : '');
+
+        $order->update([
+            'status'              => 'disputed',
+            'cancellation_reason' => $fullReason,
+        ]);
+
+        \App\Models\Report::upsertReport(
+    reporterId: Auth::id(),
+    reportedId: $order->seller_id,
+    reason:     "Order dispute ({$order->reference}): {$fullReason}",
+    context:    ['order_id' => $order->id]
+);
+        try {
+            $order->seller->notify(new \App\Notifications\NewOrderNotification($order));
+        } catch (\Throwable) {}
+
+        return response()->json([
+            'message' => 'Dispute submitted. Our team will review within 24–48 hours.',
+        ]);
+    }
 }

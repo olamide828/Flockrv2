@@ -23,18 +23,21 @@ class SettingsController extends Controller
     }
 
     public function profile(): Response
-    {
-        $banks = [];
-        if (Auth::user()->isSeller()) {
-            try {
-                $banks = $this->paystack->listBanks();
-            } catch (\Throwable $e) {
-                Log::error('Paystack listBanks failed: ' . $e->getMessage());
-            }
-        }
-
-        return Inertia::render('Settings/Profile', ['banks' => $banks]);
+{
+    $banks = [];
+    if (Auth::user()->isSeller()) {
+        try { $banks = $this->paystack->listBanks(); }
+        catch (\Throwable $e) { Log::error('Paystack listBanks failed: ' . $e->getMessage()); }
     }
+
+    return Inertia::render('Settings/Profile', [
+        'banks'     => $banks,
+        'addresses' => \App\Models\UserAddress::where('user_id', Auth::id())
+                        ->orderByDesc('is_default')
+                        ->orderByDesc('updated_at')
+                        ->get(),
+    ]);
+}
 
     public function updateProfile(Request $request): RedirectResponse
     {
@@ -43,7 +46,7 @@ class SettingsController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:100',
             'username' => "required|string|max:30|alpha_dash|unique:users,username,{$user->id}",
-            'bio' => 'nullable|string|max:200',
+            'bio' => 'nullable|string|max:500',
             'location' => 'nullable|string|max:100',
             'phone' => "nullable|string|max:20|unique:users,phone,{$user->id}",
             'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',

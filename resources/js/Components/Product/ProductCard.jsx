@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
-import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiVerifiedBadgeLine } from 'react-icons/ri';
+import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeLine } from 'react-icons/ri';
 
 export default function ProductCard({ product, layout = 'grid' }) {
     const { auth } = usePage().props;
@@ -20,19 +20,29 @@ export default function ProductCard({ product, layout = 'grid' }) {
     };
 
     const handleBuy = (e) => {
-  e.preventDefault()
-  e.stopPropagation()
-  router.visit(`/@${product.seller?.username}/products/${product.slug}`)
-}
+        e.preventDefault();
+        e.stopPropagation();
+        router.visit(`/@${product.seller?.username}/products/${product.slug}`);
+    };
 
     // Primary image — use accessor (full URL) or fall back
     const imgSrc = !imgErr && product.primary_image ? product.primary_image : null;
 
     // Seller avatar — use accessor
     const sellerAvatar =
-        product.seller?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(product.seller?.name ?? 'S')}&background=1a1a1a&size=32`;
+        product.seller?.avatar_url ??
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(product.seller?.name ?? 'S')}&background=1a1a1a&size=32`;
 
-    const sellerHandle = product.seller?.username ? `@${product.seller.username}` : product.seller?.name ? product.seller.name : null;
+    const sellerHandle = product.seller?.username
+        ? `@${product.seller.username}`
+        : product.seller?.name
+        ? product.seller.name
+        : null;
+
+    // ── Rating helpers ────────────────────────────────────────────────────────
+    const avgRating   = parseFloat(product.seller?.avg_rating ?? 0);
+    const totalReviews = Number(product.seller?.total_reviews ?? 0);
+    const showRating  = avgRating > 0 && totalReviews > 0;
 
     if (layout === 'list') {
         return (
@@ -46,17 +56,17 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     ) : (
                         <Placeholder />
                     )}
-                    
-
                 </div>
                 <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 text-sm leading-snug font-medium text-white">{product.name}</p>
                     {sellerHandle && <p className="text-flockr-muted mt-0.5 text-xs">{sellerHandle}</p>}
                     <div className="mt-2 flex items-center justify-between">
                         <span className="text-flockr-orange font-bold">₦{Number(product.price).toLocaleString()}</span>
-                        {product.is_in_stock && <button onClick={handleBuy} className="btn-primary px-3 py-1.5 text-xs">
-                            Buy
-                        </button>}
+                        {product.is_in_stock && (
+                            <button onClick={handleBuy} className="btn-primary px-3 py-1.5 text-xs">
+                                Buy
+                            </button>
+                        )}
                     </div>
                 </div>
                 {!product.is_in_stock && (
@@ -103,16 +113,14 @@ export default function ProductCard({ product, layout = 'grid' }) {
             <div className="space-y-2 p-3">
                 <p className="line-clamp-2 text-sm leading-snug font-medium text-white">{product.name}</p>
 
-                {/* Seller row — always show if seller data exists */}
+                {/* Seller row */}
                 {product.seller && (
                     <div className="flex items-center gap-1.5">
                         <img
                             src={sellerAvatar}
                             alt={product.seller.name}
                             className="h-4 w-4 shrink-0 rounded-full object-cover"
-                            onError={(e) => {
-                                e.target.style.display = 'none';
-                            }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
                         />
                         {sellerHandle && <span className="text-flockr-muted truncate text-xs">{sellerHandle}</span>}
                         {product.seller.is_verified && <RiVerifiedBadgeLine size={11} color="#FF6B35" className="shrink-0" />}
@@ -122,24 +130,42 @@ export default function ProductCard({ product, layout = 'grid' }) {
                 <div className="flex items-end justify-between gap-3">
                     <div className="min-w-0">
                         <div className="text-flockr-orange leading-tight font-bold">₦{Number(product.price).toLocaleString()}</div>
-
                         {product.compare_price && (
                             <div className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</div>
                         )}
                     </div>
 
                     {product.is_in_stock && (
-                       <button
-    onClick={handleBuy}
-    className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold whitespace-nowrap shrink-0 btn-primary"
->
-    Buy
-</button>
+                        <button
+                            onClick={handleBuy}
+                            className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold whitespace-nowrap shrink-0 btn-primary"
+                        >
+                            Buy
+                        </button>
                     )}
                 </div>
 
-                {product.orders_count > 0 && (
-                    <p className="text-flockr-muted text-[11px]">{product.orders_count > 50 ? '50+' : product.orders_count} sold</p>
+                {/* Sold count + Rating row */}
+                {(product.orders_count > 0 || showRating) && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        {product.orders_count > 0 ? (
+                            <p className="text-flockr-muted text-[11px]">
+                                {product.orders_count > 50 ? '50+' : product.orders_count} sold
+                            </p>
+                        ) : <span />}
+
+                        {showRating && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                                <RiStarFill size={10} color="#FBBF24" />
+                                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 600, lineHeight: 1 }}>
+                                    {avgRating.toFixed(1)}
+                                </span>
+                                <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10, lineHeight: 1 }}>
+                                    ({totalReviews > 99 ? '99+' : totalReviews})
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
         </Link>

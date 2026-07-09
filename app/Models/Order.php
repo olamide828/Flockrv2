@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,18 +21,20 @@ class Order extends Model
         'subtotal', 'shipping_fee', 'platform_fee', 'total', 'currency',
         'paystack_reference', 'paystack_transaction_id', 'paid_at',
         'shipping_address', 'tracking_number', 'courier',
-        'shipped_at', 'delivered_at', 'cancellation_reason',
+        'shipped_at', 'delivered_at', 'last_rating_reminder_at',
+        'cancellation_reason', 'delivery_address_id', 'courier_name', 'courier_fee', 'terminal_rate_id',
     ];
 
     protected $casts = [
-        'subtotal'         => 'decimal:2',
-        'shipping_fee'     => 'decimal:2',
-        'platform_fee'     => 'decimal:2',
-        'total'            => 'decimal:2',
-        'shipping_address' => 'array',
-        'paid_at'          => 'datetime',
-        'shipped_at'       => 'datetime',
-        'delivered_at'     => 'datetime',
+        'subtotal'                 => 'decimal:2',
+        'shipping_fee'             => 'decimal:2',
+        'platform_fee'             => 'decimal:2',
+        'total'                    => 'decimal:2',
+        'shipping_address'         => 'array',
+        'paid_at'                  => 'datetime',
+        'shipped_at'               => 'datetime',
+        'delivered_at'             => 'datetime',
+        'last_rating_reminder_at'  => 'datetime',
     ];
 
     protected static function boot(): void
@@ -67,6 +70,17 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function review(): HasOne
+    {
+        return $this->hasOne(Review::class);
+    }
+
+    
+    public function coupon(): HasOne
+    {
+        return $this->hasOne(Coupon::class, 'used_on_order_id');
+    }
+
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopePaid($query)
@@ -83,7 +97,6 @@ class Order extends Model
 
     public function markAsPaid(string $paystackReference, string $transactionId): void
     {
-        // Guard against double-processing (webhook + callback race condition)
         if ($this->status !== 'pending') {
             Log::info("Order #{$this->id} already processed, skipping markAsPaid.");
             return;
@@ -99,14 +112,12 @@ class Order extends Model
                 'paid_at'                 => now(),
             ]);
 
-            // 2. Decrement stock for each item in the order
-            //    Uses DB-level decrement with a floor of 0 to prevent negative stock
+            // 2. Decrement stock
             $this->load('items.product');
 
             foreach ($this->items as $item) {
                 if (!$item->product) continue;
 
-                // Atomic decrement — safe against race conditions
                 Product::where('id', $item->product_id)
                     ->where('stock_quantity', '>=', $item->quantity)
                     ->update([
@@ -114,13 +125,12 @@ class Order extends Model
                         'orders_count'   => DB::raw('orders_count + 1'),
                     ]);
 
-                // Reload to check if now out of stock
                 $item->product->refresh();
 
                 Log::info("Stock decremented", [
-                    'product_id'    => $item->product_id,
-                    'qty_sold'      => $item->quantity,
-                    'stock_left'    => $item->product->stock_quantity,
+                    'product_id' => $item->product_id,
+                    'qty_sold'   => $item->quantity,
+                    'stock_left' => $item->product->stock_quantity,
                 ]);
             }
 
@@ -145,8 +155,14 @@ class Order extends Model
             if (in_array('revenue_total', $this->seller->getFillable())) {
                 $this->seller->increment('revenue_total', $sellerAmount);
             }
+
+            // 5. Mark coupon as used now that payment is confirmed
+            Coupon::where('used_on_order_id', $this->id)
+                ->whereNull('used_at')
+                ->update(['used_at' => now()]);
         });
-        // Notify the SELLER about the new order
+
+        // Notify seller
         $this->seller->notify(new \App\Notifications\NewOrderNotification($this));
     }
 
@@ -159,4 +175,6 @@ class Order extends Model
     {
         return in_array($this->status, ['pending', 'paid', 'confirmed']);
     }
+
+    
 }
