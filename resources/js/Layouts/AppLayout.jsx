@@ -15,11 +15,12 @@ import {
     RiShoppingCart2Line,
     RiUploadCloud2Line,
     RiUserLine,
+    RiTeamLine,
 } from 'react-icons/ri';
 
 const NAV_ITEMS = [
     { href: '/', Icon: RiHome5Line, label: 'For You' },
-    { href: '/explore', Icon: RiSearchLine, label: 'Explore' },
+    { href: '/community', Icon: RiTeamLine, label: 'Community' },
     { href: '/shop', Icon: RiShoppingBag2Line, label: 'Shop' },
     { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
 ];

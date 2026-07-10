@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BuyerOnboardingController;
 use App\Http\Controllers\CartController;
+use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
@@ -24,6 +25,7 @@ Route::get('/shop', [ProductController::class, 'shop'])->name('shop');
 Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])->name('videos.show');
 Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
+Route::get('/community', [CommunityController::class, 'index'])->name('community');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {

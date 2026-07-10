@@ -198,6 +198,8 @@ class VideoController extends Controller
             'title' => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
             'hashtags' => 'nullable|json',
+            'text_overlays'      => 'nullable|string',  // JSON string
+            'duration_seconds'   => 'nullable|integer|min:1',
         ], [
             'video.max' => 'Video must be under 500MB.',
             'video.mimes' => 'Only MP4, MOV, WebM, AVI and MKV files are allowed.',
@@ -218,6 +220,14 @@ class VideoController extends Controller
             'status' => 'active',
             'published_at' => now(),
         ]);
+
+        if ($request->filled('text_overlays')) {
+        $video->update(['text_overlays' => json_decode($request->text_overlays, true)]);
+        }
+
+        if ($request->filled('duration_seconds')) {
+        $video->update(['duration_seconds' => (int) $request->duration_seconds]);
+        }
 
         // After video is activated — notify followers
         $seller = Auth::user();

@@ -35,6 +35,7 @@ class Video extends Model
         'hashtags',
         'is_for_sale',
         'published_at',
+        'text_overlays',
     ];
 
     protected $casts = [
@@ -43,6 +44,7 @@ class Video extends Model
         'hashtags' => 'array',
         'is_for_sale' => 'boolean',
         'published_at' => 'datetime',
+        'text_overlays' => 'array',
     ];
 
     protected $appends = [

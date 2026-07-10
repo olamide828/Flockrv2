@@ -226,4 +226,16 @@ class User extends Authenticatable implements MustVerifyEmail
 {
     return $this->hasMany(Order::class, 'seller_id');
 }
+
+public function rooms(): BelongsToMany
+{
+    return $this->belongsToMany(Room::class, 'room_user')
+        ->withPivot(['role', 'last_read_at'])
+        ->withTimestamps();
+}
+
+public function posts(): HasMany
+{
+    return $this->hasMany(\App\Models\Post::class);
+}
 }

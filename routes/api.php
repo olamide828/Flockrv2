@@ -16,7 +16,8 @@ use App\Http\Controllers\VideoController;
 use App\Http\Controllers\VideoDownloadController;
 use App\Models\Product;
 use App\Http\Controllers\AddressController;
- use App\Http\Controllers\TerminalWebhookController;
+use App\Http\Controllers\CommunityController;
+use App\Http\Controllers\TerminalWebhookController;
 // use App\Models\Product;
 // use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -148,6 +149,33 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{user}/block', [UserController::class, 'block']);
     Route::post('/users/{user}/report', [UserController::class, 'report']);
     Route::delete('/users/me', [UserController::class, 'deleteAccount']);
+
+    //Community
+    Route::prefix('community')->group(function () {
+
+    // Feed
+    Route::get('/feed',              [CommunityController::class, 'feed']);
+    Route::get('/rooms/joined',      [CommunityController::class, 'joinedRooms']);
+    Route::get('/rooms/discover',    [CommunityController::class, 'discoverRooms']);
+    Route::get('/rooms/{room}/members', [CommunityController::class, 'roomMembers']);
+
+    // Auth-only actions
+    Route::middleware('auth:sanctum')->group(function () {
+       // Posts
+        Route::post('/posts',              [CommunityController::class, 'storePost']);
+        Route::post('/posts/{post}/like',  [CommunityController::class, 'likePost']);
+        Route::delete('/posts/{post}',     [CommunityController::class, 'destroyPost']);
+
+        // Rooms
+        Route::post('/rooms',              [CommunityController::class, 'storeRoom']);
+        Route::post('/rooms/{room}/join',  [CommunityController::class, 'joinRoom']);
+
+        // Seller-only (protected by RoomPolicy)
+        Route::delete('/rooms/{room}/kick',  [CommunityController::class, 'kickUser']);
+        Route::put('/rooms/{room}/rules',    [CommunityController::class, 'updateRules']); 
+    });
+});
+
 
     // Comments
     Route::post('/videos/{video}/comments', [CommentController::class, 'store']);
