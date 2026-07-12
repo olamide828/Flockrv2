@@ -19,11 +19,8 @@ use App\Http\Controllers\AddressController;
 use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\MediaUploadController;
 use App\Http\Controllers\TerminalWebhookController;
-// use App\Models\Product;
-// use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Broadcast;
-// use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Route;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
@@ -37,25 +34,24 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 Route::get('/feed', [VideoController::class, 'feed']);
 Route::get('/search', [SearchController::class, 'search']);
 Route::post('/videos/{video}/view', [VideoController::class, 'recordView']);
-  Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
-    Route::post('/products/summary', [ProductController::class, 'generateSummary']);
+Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
+Route::post('/products/summary', [ProductController::class, 'generateSummary']);
 
-    Route::prefix('community')->group(function () {
-        Route::get('/feed',                         [CommunityController::class, 'feed']);
-    });
+// Community feed is readable by guests too (algorithmic discovery mode
+// doesn't require a session) — this is the ONLY /community/feed route.
+Route::get('/community/feed', [CommunityController::class, 'feed']);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
 });
-     Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
-    Route::get('/videos/download/status',           [VideoDownloadController::class, 'status']);
-    Route::delete('/videos/download/cleanup',       [VideoDownloadController::class, 'cleanup']);
+Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
+Route::get('/videos/download/status', [VideoDownloadController::class, 'status']);
+Route::delete('/videos/download/cleanup', [VideoDownloadController::class, 'cleanup']);
 
 Route::get('/products/{product}/reviews', function (Product $product, \Illuminate\Http\Request $request) {
     $page    = max(1, (int) $request->input('page', 1));
     $perPage = min((int) $request->input('per_page', 10), 50);
 
-    // Query by product_id — falls back to seller_id for old reviews without product_id
     $reviews = \App\Models\Review::where(function($q) use ($product) {
             $q->where('product_id', $product->id)
               ->orWhere(function($q2) use ($product) {
@@ -78,7 +74,6 @@ Route::get('/products/{product}/reviews', function (Product $product, \Illuminat
         'has_more' => $reviews->hasMorePages(),
     ]);
 });
-
 
 Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
     $q = trim($request->input('q', ''));
@@ -104,7 +99,6 @@ Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
             ]);
 
         $products = \App\Models\Product::where('status', 'active')
-            // ->where('stock_quantity', '>', 0)
             ->where('name', 'ilike', "%{$q}%")
             ->select(['id', 'name', 'slug', 'seller_id'])
             ->with('seller:id,username')
@@ -145,14 +139,6 @@ Route::get('/locations/cities', function (\Illuminate\Http\Request $request) {
     }
 });
 
-// Route::get('/debug-ini', function () {
-//     return response()->json([
-//         'post_max' => ini_get('post_max_size'),
-//         'upload_max' => ini_get('upload_max_filesize'),
-//         'ini_file' => php_ini_loaded_file(),
-//     ]);
-// });
-
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
 Route::get('/users/{user}', [UserController::class, 'apiShow']);
 Route::middleware('auth:sanctum')->post('/feed/reset', function () {
@@ -170,72 +156,53 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/videos/{video}/tag-products', [VideoController::class, 'tagProducts']);
     Route::delete('/videos/{video}', [VideoController::class, 'destroy']);
-  
+
     Route::post('/users/{user}/block', [UserController::class, 'block']);
     Route::post('/users/{user}/report', [UserController::class, 'report']);
     Route::delete('/users/me', [UserController::class, 'deleteAccount']);
 
-    //Community
-    Route::prefix('community')->group(function () {
+    // ── Community ────────────────────────────────────────────────────────
+    // NOTE: no Route::prefix('community') wrapper here — every path below
+    // already spells out /community/... in full. Wrapping this block in
+    // prefix('community') AGAIN was the bug: it silently doubled every path
+    // to /api/community/community/..., which is why the frontend's real
+    // requests to /api/community/... were 404ing or hitting the wrong method.
 
-    // Feed & posts (public read, auth write)
-    Route::get('/community/feed',                         [CommunityController::class, 'feed']);
-    Route::get('/rooms/joined',                 [CommunityController::class, 'joinedRooms']);
-    Route::get('/rooms/discover',               [CommunityController::class, 'discoverRooms']);
-    Route::get('/rooms/{room}/messages',        [CommunityController::class, 'roomMessages']);
-    Route::get('/rooms/{room}/members',         [CommunityController::class, 'roomMembers']);
-    Route::get('/posts/{post}/comments',        [CommunityController::class, 'postComments']);
-    Route::post('/rooms/join-by-invite',     [CommunityController::class, 'joinByInvite']);
-Route::get('/posts/{post}',              [CommunityController::class, 'showPost']);
+    Route::post('/upload/media', [MediaUploadController::class, 'store']);
 
+    Route::post('/community/posts', [CommunityController::class, 'storePost']);
+    Route::get('/community/posts/{post}', [CommunityController::class, 'showPost']);
+    Route::post('/community/posts/{post}/view', [CommunityController::class, 'recordPostView']);
+    Route::post('/community/posts/{post}/like', [CommunityController::class, 'likePost']);
+    Route::post('/community/posts/{post}/dismiss', [CommunityController::class, 'dismissPost']);
+    Route::delete('/community/posts/{post}', [CommunityController::class, 'destroyPost']);
 
-    // Auth required
-    Route::middleware('auth:sanctum')->group(function () {
-        // Posts
-        
-        Route::post('/upload/media', [MediaUploadController::class, 'store']);
- 
-// ── General feed & posts ──────────────────────────────────────────────
-// Route::get('/community/feed', [CommunityController::class, 'feed']);
-Route::post('/community/posts', [CommunityController::class, 'storePost']);
-Route::get('/community/posts/{post}', [CommunityController::class, 'showPost']);
-Route::post('/community/posts/{post}/view', [CommunityController::class, 'recordPostView']);
-Route::post('/community/posts/{post}/like', [CommunityController::class, 'likePost']);
-Route::post('/community/posts/{post}/dismiss', [CommunityController::class, 'dismissPost']);
-Route::delete('/community/posts/{post}', [CommunityController::class, 'destroyPost']);
- 
-// ── Post comments ────────────────────────────────────────────────────
-Route::get('/community/posts/{post}/comments', [CommunityController::class, 'postComments']);
-Route::post('/community/posts/{post}/comments', [CommunityController::class, 'storePostComment']);
- 
-// ── Rooms — discovery & membership ──────────────────────────────────
-Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRooms']);
-Route::get('/community/rooms/joined', [CommunityController::class, 'joinedRooms']);
-Route::post('/community/rooms', [CommunityController::class, 'storeRoom']);
-Route::put('/community/rooms/{room}', [CommunityController::class, 'updateRoom']);
-Route::post('/community/rooms/{room}/join', [CommunityController::class, 'joinRoom']);
-Route::post('/community/rooms/{room}/request-join', [CommunityController::class, 'requestJoinRoom']);
-Route::post('/community/rooms/join-by-invite', [CommunityController::class, 'joinByInvite']);
-Route::put('/community/rooms/{room}/rules', [CommunityController::class, 'updateRules']);
-Route::delete('/community/rooms/{room}/kick', [CommunityController::class, 'kickUser']);
-Route::get('/community/rooms/{room}/members', [CommunityController::class, 'roomMembers']);
-Route::get('/community/rooms/{room}/requests', [CommunityController::class, 'pendingRequests']);
-Route::post('/community/rooms/{room}/requests/{requestId}', [CommunityController::class, 'resolveRequest']);
- 
-// ── Room messages ────────────────────────────────────────────────────
-Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
-Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
-Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
-    });
-});
+    Route::get('/community/posts/{post}/comments', [CommunityController::class, 'postComments']);
+    Route::post('/community/posts/{post}/comments', [CommunityController::class, 'storePostComment']);
 
+    Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRooms']);
+    Route::get('/community/rooms/joined', [CommunityController::class, 'joinedRooms']);
+    Route::post('/community/rooms', [CommunityController::class, 'storeRoom']);
+    Route::put('/community/rooms/{room}', [CommunityController::class, 'updateRoom']);
+    Route::post('/community/rooms/{room}/join', [CommunityController::class, 'joinRoom']);
+    Route::post('/community/rooms/{room}/request-join', [CommunityController::class, 'requestJoinRoom']);
+    Route::post('/community/rooms/join-by-invite', [CommunityController::class, 'joinByInvite']);
+    Route::put('/community/rooms/{room}/rules', [CommunityController::class, 'updateRules']);
+    Route::delete('/community/rooms/{room}/kick', [CommunityController::class, 'kickUser']);
+    Route::get('/community/rooms/{room}/members', [CommunityController::class, 'roomMembers']);
+    Route::get('/community/rooms/{room}/requests', [CommunityController::class, 'pendingRequests']);
+    Route::post('/community/rooms/{room}/requests/{requestId}', [CommunityController::class, 'resolveRequest']);
+
+    Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
+    Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
+    Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
 
     // Comments
     Route::post('/videos/{video}/comments', [CommentController::class, 'store']);
     Route::delete('/comments/{comment}', [CommentController::class, 'destroy']);
 
     Route::post('/comments/{comment}/like', [CommentController::class, 'like']);
-Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
+    Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
 
     // Products
     Route::post('/products', [ProductController::class, 'store']);
@@ -243,7 +210,7 @@ Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
     Route::delete('/products/{product}', [ProductController::class, 'destroy']);
     Route::post('/products/{product}/save', [ProductController::class, 'save']);
     Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
-    Route::get('/products/{product}/images', [ProductController::class, 'getImages']); 
+    Route::get('/products/{product}/images', [ProductController::class, 'getImages']);
     Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
@@ -252,29 +219,30 @@ Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('/orders/resume-payment', [OrderController::class, 'resumePayment']);
     Route::get('/orders/{order}/review',  [ReviewController::class, 'show']);
-Route::post('/orders/{order}/review', [ReviewController::class, 'store']);
-Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
-    $total  = (float) $request->input('total', 0);
-    $userId = Auth::id();
- 
-    $coupon = \App\Models\Coupon::where('buyer_id', $userId)
-        ->whereNull('used_at')
-        ->where(function ($q) {
-            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-        })
-        ->where('min_order', '<=', $total)
-        ->orderByDesc('amount')
-        ->first();
- 
-    return response()->json([
-        'coupon' => $coupon ? [
-            'code'      => $coupon->code,
-            'amount'    => $coupon->amount,
-            'min_order' => $coupon->min_order,
-            'expires_at'=> $coupon->expires_at?->toDateString(),
-        ] : null,
-    ]);
-});
+    Route::post('/orders/{order}/review', [ReviewController::class, 'store']);
+    Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
+        $total  = (float) $request->input('total', 0);
+        $userId = Auth::id();
+
+        $coupon = \App\Models\Coupon::where('buyer_id', $userId)
+            ->whereNull('used_at')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->where('min_order', '<=', $total)
+            ->orderByDesc('amount')
+            ->first();
+
+        return response()->json([
+            'coupon' => $coupon ? [
+                'code'      => $coupon->code,
+                'amount'    => $coupon->amount,
+                'min_order' => $coupon->min_order,
+                'expires_at'=> $coupon->expires_at?->toDateString(),
+            ] : null,
+        ]);
+    });
+
     // Cart
     Route::get('/cart/count', [CartController::class, 'count']);
     Route::post('/cart', [CartController::class, 'add']);
@@ -287,27 +255,26 @@ Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
     Route::get('/notifications/count', [NotificationController::class, 'count']);
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
-    // Delivery addresses
-Route::get('/addresses', [AddressController::class, 'index']);
-Route::post('/addresses', [AddressController::class, 'store']);
-Route::put('/addresses/{address}', [AddressController::class, 'update']);
-Route::delete('/addresses/{address}', [AddressController::class, 'destroy']);
-Route::post('/addresses/{address}/set-default', [AddressController::class, 'setDefault']);
- 
-// Shipping rates (called by checkout modal)
-Route::post('/shipping/rates', [AddressController::class, 'getRates']);
- 
-// Coupon validation
-Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
- 
 
+    // Delivery addresses
+    Route::get('/addresses', [AddressController::class, 'index']);
+    Route::post('/addresses', [AddressController::class, 'store']);
+    Route::put('/addresses/{address}', [AddressController::class, 'update']);
+    Route::delete('/addresses/{address}', [AddressController::class, 'destroy']);
+    Route::post('/addresses/{address}/set-default', [AddressController::class, 'setDefault']);
+
+    // Shipping rates (called by checkout modal)
+    Route::post('/shipping/rates', [AddressController::class, 'getRates']);
+
+    // Coupon validation
+    Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
 
     // Paystack webhook (no auth — verified by signature)
     Route::post('/webhooks/paystack', [OrderController::class, 'paystackWebhook'])
         ->withoutMiddleware('auth:sanctum');
 
     Route::post('/webhooks/terminal', [TerminalWebhookController::class, 'handle'])
-    ->withoutMiddleware('auth:sanctum');
+        ->withoutMiddleware('auth:sanctum');
 
     // Users / follow
     Route::post('/users/{user}/follow', [UserController::class, 'follow']);
@@ -318,8 +285,8 @@ Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
     Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
-      Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
-      Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
+    Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
+    Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {
@@ -328,56 +295,48 @@ Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
         Route::delete('/settings/bank', [SettingsController::class, 'removeBank']);
         Route::post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
-    $request->validate([
-        'pickup_street'      => 'required|string|max:200',
-        'pickup_city'        => 'required|string|max:100',
-        'pickup_state'       => 'required|string|max:100',
-        'pickup_postal_code' => 'nullable|string|max:20',
-    ]);
- 
-    \Illuminate\Support\Facades\Auth::user()->update([
-        'pickup_street'      => $request->pickup_street,
-        'pickup_city'        => $request->pickup_city,
-        'pickup_state'       => $request->pickup_state,
-        'pickup_postal_code' => $request->pickup_postal_code,
-    ]);
- 
-    return response()->json(['message' => 'Pickup address saved.']);
-})->middleware('auth:sanctum');
+            $request->validate([
+                'pickup_street'      => 'required|string|max:200',
+                'pickup_city'        => 'required|string|max:100',
+                'pickup_state'       => 'required|string|max:100',
+                'pickup_postal_code' => 'nullable|string|max:20',
+            ]);
 
+            \Illuminate\Support\Facades\Auth::user()->update([
+                'pickup_street'      => $request->pickup_street,
+                'pickup_city'        => $request->pickup_city,
+                'pickup_state'       => $request->pickup_state,
+                'pickup_postal_code' => $request->pickup_postal_code,
+            ]);
+
+            return response()->json(['message' => 'Pickup address saved.']);
+        })->middleware('auth:sanctum');
     });
 
     // Admin endpoints
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
-
-        // Users
         Route::post('/users/{user}/verify', [AdminController::class, 'verifyUser']);
         Route::post('/users/{user}/suspend', [AdminController::class, 'suspendUser']);
         Route::post('/users/{user}/role', [AdminController::class, 'changeRole']);
         Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 
-        // Videos — bind by ulid (matches Video::getRouteKeyName())
         Route::get('/videos/{video}/edit', [VideoController::class, 'edit'])->name('admin.videos.edit');
         Route::post('/videos/{video}/approve', [AdminController::class, 'approveVideo']);
         Route::post('/videos/{video}/reject', [AdminController::class, 'rejectVideo']);
         Route::post('/videos/{video}/feature', [AdminController::class, 'featureVideo']);
 
-        // Orders
         Route::post('/orders/{order}/refund', [AdminController::class, 'refundOrder']);
         Route::post('/orders/{order}/resolve', [AdminController::class, 'resolveOrder']);
-            Route::patch('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
+        Route::patch('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
 
-        // Stats & analytics
         Route::get('/stats', [AdminController::class, 'stats']);
         Route::get('/analytics', [AdminController::class, 'analytics']);
 
-        // Payouts   
-   Route::post('/payouts/{payout}/approve', [AdminController::class, 'approvePayout']);
+        Route::post('/payouts/{payout}/approve', [AdminController::class, 'approvePayout']);
 
-       // Reports
-    Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
-    Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
-    Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
+        Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
+        Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
+        Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
     });
 
     Route::get('/users/search', function (\Illuminate\Http\Request $request) {
@@ -394,5 +353,5 @@ Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
             ->select('id', 'name', 'username', 'avatar', 'role')
             ->limit(8)
             ->get();
-    })->middleware('auth:sanctum');
+    });
 });

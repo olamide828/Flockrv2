@@ -381,7 +381,7 @@ useEffect(() => {
 onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
         onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
         onClick={handleVideoTap}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
       />
 
       {/* Text overlays */}

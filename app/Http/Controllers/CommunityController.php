@@ -134,7 +134,7 @@ class CommunityController extends Controller
                 return $arr;
             });
 
-        return Inertia::render('CommunityPost', [
+        return Inertia::render('Community/CommunityPost', [
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me' => $liked,
                 'comments_count' => $comments->count(),
@@ -484,7 +484,14 @@ class CommunityController extends Controller
     {
         $validated = $request->validate(['invite_code' => 'required|string']);
 
-        $room = Room::where('invite_code', strtoupper($validated['invite_code']))->firstOrFail();
+        $room = Room::where('invite_code', strtoupper($validated['invite_code']))
+    ->first();
+
+if (! $room) {
+    return response()->json([
+        'message' => 'Invalid invite code.',
+    ], 404);
+}
 
         $userId   = Auth::id();
         $isMember = DB::table('room_user')

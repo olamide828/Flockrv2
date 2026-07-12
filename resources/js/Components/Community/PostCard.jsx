@@ -7,10 +7,12 @@ import {
 import Av from './Av'
 import FollowButton from './FollowButton'
 import PostVideoPlayer from './PostVideoPlayer'
+import PostShareSheet from './PostShareSheet'
 import { timeAgo, fmtCount } from './helpers'
 
 export default function PostCard({ post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast, standalone = false }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showShare, setShowShare] = useState(false)
   const canDelete  = auth?.user?.id === post.user_id || auth?.user?.role === 'admin'
   const notMine    = auth?.user?.id !== post.user_id
   const isSeller   = post.user?.role === 'seller'
@@ -19,19 +21,15 @@ export default function PostCard({ post, auth, onDelete, onLike, onDismiss, onBl
   const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(o => !o) }
   const handleDelClick  = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); onDelete(post) }
 
-  const handleCopyLink = async (e) => {
+  const handleShareClick = (e) => {
     e.stopPropagation()
     e.preventDefault()
-    const url = `${window.location.origin}/community/posts/${post.id}`
-    try {
-      await navigator.clipboard.writeText(url)
-      showToast?.('Link copied!')
-    } catch {
-      showToast?.('Could not copy link', 'error')
-    }
+    setShowShare(true)
   }
 
   const inner = (
+    <>
+    {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
     <div style={{ display:'flex', gap:12, padding: standalone ? '16px' : '14px 16px', borderBottom: standalone ? 'none' : '1px solid rgba(255,255,255,0.06)', cursor: standalone ? 'default' : 'pointer' }}>
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', flexShrink:0 }}>
         <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block' }}>
@@ -124,7 +122,7 @@ export default function PostCard({ post, auth, onDelete, onLike, onDismiss, onBl
             {post.comments_count > 0 && <span>{fmtCount(post.comments_count)}</span>}
           </Link>
 
-          <button onClick={handleCopyLink} title="Copy link"
+          <button onClick={handleShareClick} title="Share"
             style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color:'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
             <RiRepeatLine size={20} />
           </button>
@@ -136,6 +134,7 @@ export default function PostCard({ post, auth, onDelete, onLike, onDismiss, onBl
         </div>
       </div>
     </div>
+    </>
   )
 
   if (standalone) return <div>{inner}</div>
