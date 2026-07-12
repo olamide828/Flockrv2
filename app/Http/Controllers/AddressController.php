@@ -7,6 +7,7 @@ use App\Services\TerminalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class AddressController extends Controller
 {
@@ -145,39 +146,41 @@ class AddressController extends Controller
 
     $seller = \App\Models\User::findOrFail($validated['seller_id']);
 
-    $pickup = $seller->pickup_street ? [
-        'name'         => $seller->name,
-        'phone'        => $seller->phone ?? '08000000000',
-        'address'      => $seller->pickup_street,
-        'city'         => $seller->pickup_city,
-        'state'        => $seller->pickup_state,
-        'country'      => 'NG',
-        'postal_code'  => $seller->pickup_postal_code ?? '000000',
-    ] : [
-        'name'         => $seller->name,
-        'phone'        => $seller->phone ?? '08000000000',
-        'address'      => $seller->location ?? 'Lagos',
-        'city'         => 'Lagos',
-        'state'        => 'Lagos',
-        'country'      => 'NG',
-        'postal_code'  => '100001',
+    if (!$seller->pickup_street) {
+        return response()->json([
+            'message' => "This seller hasn't set up their pickup address yet. Delivery rates are unavailable.",
+        ], 422);
+    }
+
+    $pickup = [
+        'name'        => $seller->name,
+        'phone'       => $seller->phone ?? '08000000000',
+        'address'     => $seller->pickup_street,
+        'city'        => $seller->pickup_city,
+        'state'       => $seller->pickup_state,
+        'country'     => 'NG',
+        'postal_code' => $seller->pickup_postal_code ?? '000000',
     ];
 
     try {
         $rates = $this->terminal->getRates(
             pickup:   $pickup,
             delivery: $address->toTerminalFormat(),
-            parcel:   ['weight' => 0.5, 'items_count' => count($validated['items'] ?? [1])],
+            parcel:   [
+                'weight'      => 0.5,
+                'items_count' => count($validated['items'] ?? [1]),
+                'description' => 'Flockr order package',
+            ],
         );
         return response()->json(['rates' => $rates]);
     } catch (\RuntimeException $e) {
-        // Terminal threw a known error (auth, no rates, network)
         return response()->json(['message' => $e->getMessage()], 422);
     } catch (\Throwable $e) {
+        $message = str_contains($e->getMessage(), 'cURL') || str_contains($e->getMessage(), 'Connection')
+            ? 'No internet connection. Please check your network and try again.'
+            : 'Could not fetch shipping rates. Please try again later.';
         Log::error('getRates failed', ['error' => $e->getMessage()]);
-        return response()->json([
-            'message' => 'Could not fetch shipping rates. Please check your internet connection and try again.',
-        ], 503);
+        return response()->json(['message' => $message], 503);
     }
 }
 }

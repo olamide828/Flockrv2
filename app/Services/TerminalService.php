@@ -269,19 +269,41 @@ class TerminalService
     }
 
     /**
-     * Format Nigerian phone numbers to international format (+234...).
+     * Format phone numbers to international format required by Terminal Africa.
+     * Terminal requires: +[country_code][number] e.g. +2348012345678
      */
     private function formatPhone(?string $phone): string
     {
         if (!$phone) return '+2348000000000';
 
-        $phone = preg_replace('/[^0-9+]/', '', $phone);
+        // Strip everything except digits and leading +
+        $stripped = preg_replace('/[^0-9+]/', '', trim($phone));
 
-        if (str_starts_with($phone, '+')) return $phone;
-        if (str_starts_with($phone, '0')) return '+234' . substr($phone, 1);
-        if (str_starts_with($phone, '234')) return '+' . $phone;
+        // Already in correct international format
+        if (preg_match('/^\+[1-9]\d{6,14}$/', $stripped)) {
+            return $stripped;
+        }
 
-        return '+234' . $phone;
+        // Remove leading +
+        $digits = ltrim($stripped, '+');
+
+        // +234XXXXXXXXXX (already has country code without +)
+        if (str_starts_with($digits, '234') && strlen($digits) === 13) {
+            return '+' . $digits;
+        }
+
+        // 0XXXXXXXXXX (local Nigerian format)
+        if (str_starts_with($digits, '0') && strlen($digits) === 11) {
+            return '+234' . substr($digits, 1);
+        }
+
+        // 8XXXXXXXXX or 9XXXXXXXXX (10 digits, missing leading 0)
+        if (strlen($digits) === 10 && preg_match('/^[789]/', $digits)) {
+            return '+234' . $digits;
+        }
+
+        // Fallback — prepend +234 and hope for the best
+        return '+234' . ltrim($digits, '0');
     }
 
     /**

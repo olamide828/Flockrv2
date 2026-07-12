@@ -64,6 +64,21 @@ class StorageService
     }
 
     /**
+     * Upload community media — post images/videos, room chat attachments,
+     * and room avatars all funnel through here via MediaUploadController.
+     */
+    public function uploadCommunityMedia(UploadedFile $file, string $type): string
+    {
+        $extension = $file->getClientOriginalExtension() ?: ($type === 'video' ? 'mp4' : 'jpg');
+        $folder    = $type === 'video' ? 'community/videos' : 'community/images';
+        $key       = "{$folder}/" . now()->format('Y/m/d') . '/' . Str::uuid() . '.' . $extension;
+
+        Storage::disk($this->disk)->put($key, file_get_contents($file->getRealPath()));
+
+        return $key;
+    }
+
+    /**
      * Delete a file from storage.
      */
     public function delete(string $key): bool

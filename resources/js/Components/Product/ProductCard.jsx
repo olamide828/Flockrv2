@@ -1,11 +1,16 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeLine } from 'react-icons/ri';
 
 export default function ProductCard({ product, layout = 'grid' }) {
     const { auth } = usePage().props;
     const [saved, setSaved] = useState(product.is_saved ?? false);
+
+    useEffect(() => {
+    setSaved(product.is_saved ?? false);
+}, [product.id, product.is_saved]);
+
     const [imgErr, setImgErr] = useState(false);
 
     const handleSave = async (e) => {

@@ -234,7 +234,7 @@ export function Register() {
                                 type="tel"
                                 value={data.phone}
                                 onChange={(e) => setData('phone', e.target.value)}
-                                placeholder="+234 Your Number Here"
+                                placeholder="+234XXXXXXXXXX"
                                 className="input-flockr pl-12"
                             />
                         </div>

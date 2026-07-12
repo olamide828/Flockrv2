@@ -134,7 +134,24 @@ class SearchController extends Controller
             default      => $query->orderByDesc('views_count'),
         };
 
-        return $query->limit($limit)->get();
+        $products = $query->limit($limit)->get();
+
+    // ── Stamp is_saved ────────────────────────────────────────────────────
+    $userId = Auth::id();
+    if ($userId && $products->isNotEmpty()) {
+        $savedIds = \DB::table('product_saves')
+            ->where('user_id', $userId)
+            ->whereIn('product_id', $products->pluck('id')->toArray())
+            ->pluck('product_id')
+            ->flip()
+            ->toArray();
+
+        $products->each(fn($p) => $p->is_saved = isset($savedIds[$p->id]));
+    } else {
+        $products->each(fn($p) => $p->is_saved = false);
+    }
+
+    return $products;
     }
 
     private function searchVideos(string $q): \Illuminate\Support\Collection

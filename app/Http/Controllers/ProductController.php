@@ -47,23 +47,41 @@ class ProductController extends Controller
     // ── Inertia Pages ─────────────────────────────────────────────────────────
 
     public function shop(): Response
-    {
-        $blocked = $this->blockedSellerIds();
-        $categories = Category::where('is_active', true)->orderBy('sort_order')->get();
+{
+    $blocked    = $this->blockedSellerIds();
+    $categories = Category::where('is_active', true)->orderBy('sort_order')->get();
 
-        $featured = Product::active()
-            ->when(!empty($blocked), fn($q) => $q->whereNotIn('seller_id', $blocked))
-            ->with('seller:id,name,username,avatar,is_verified')
-            ->withCount('orderItems')
-            ->orderByDesc('order_items_count')
-            ->limit(24)
-            ->get();
+    $featured = Product::active()
+        ->when(!empty($blocked), fn($q) => $q->whereNotIn('seller_id', $blocked))
+        ->with('seller:id,name,username,avatar,is_verified')
+        ->withCount('orderItems')
+        ->orderByDesc('order_items_count')
+        ->limit(24)
+        ->get();
 
-        return Inertia::render('Shop/Index', [
-            'categories' => $categories,
-            'featuredProducts' => $featured,
-        ]);
+    // ── ADD THIS: batch-fetch is_saved for current user ───────────────────
+    $userId = Auth::id();
+    if ($userId) {
+        $savedIds = \DB::table('product_saves')
+            ->where('user_id', $userId)
+            ->whereIn('product_id', $featured->pluck('id')->toArray())
+            ->pluck('product_id')
+            ->flip()
+            ->toArray();
+
+        $featured->each(function ($product) use ($savedIds) {
+            $product->is_saved = isset($savedIds[$product->id]);
+        });
+    } else {
+        $featured->each(fn($p) => $p->is_saved = false);
     }
+    // ─────────────────────────────────────────────────────────────────────
+
+    return Inertia::render('Shop/Index', [
+        'categories'       => $categories,
+        'featuredProducts' => $featured,
+    ]);
+}
 
     public function show(string $username, Product $product): Response
     {
@@ -210,7 +228,31 @@ class ProductController extends Controller
             default => $query->orderByDesc('order_items_count'),
         };
 
-        return response()->json($query->paginate($request->input('per_page', 24)));
+        $products = $query->paginate($request->input('per_page', 24));
+
+        // ── Batch-fetch is_saved for current user (3 lines, no N+1) ──────────
+        $userId = Auth::id();
+        if ($userId) {
+            $pageIds  = collect($products->items())->pluck('id')->toArray();
+            $savedIds = \DB::table('product_saves')
+                ->where('user_id', $userId)
+                ->whereIn('product_id', $pageIds)
+                ->pluck('product_id')
+                ->flip()
+                ->toArray();
+
+            $products->getCollection()->transform(function ($product) use ($savedIds) {
+                $product->is_saved = isset($savedIds[$product->id]);
+                return $product;
+            });
+        } else {
+            $products->getCollection()->transform(function ($product) {
+                $product->is_saved = false;
+                return $product;
+            });
+        }
+
+        return response()->json($products);
     }
 
     /** POST /api/products */

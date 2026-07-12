@@ -197,7 +197,7 @@ class VideoController extends Controller
             'video' => 'required|file|mimes:mp4,mov,webm,avi,mkv|max:512000',
             'title' => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
-            'hashtags' => 'nullable|json',
+            'hashtags' => 'nullable|string',
             'text_overlays'      => 'nullable|string',  // JSON string
             'duration_seconds'   => 'nullable|integer|min:1',
         ], [
@@ -206,7 +206,10 @@ class VideoController extends Controller
             'video.file' => 'Please select a valid video file.',
         ]);
 
-        $hashtags = json_decode($request->hashtags ?? '[]', true);
+       
+$hashtags = $request->filled('hashtags')
+    ? array_filter(array_map('trim', preg_split('/[\s,#]+/', $request->hashtags)))
+    : [];
         $file = $request->file('video');
         $path = $this->storageService->uploadVideo($file);
 
@@ -221,9 +224,12 @@ class VideoController extends Controller
             'published_at' => now(),
         ]);
 
-        if ($request->filled('text_overlays')) {
-        $video->update(['text_overlays' => json_decode($request->text_overlays, true)]);
-        }
+        if ($request->has('text_overlays')) {
+    $decoded = json_decode($request->input('text_overlays', '[]'), true);
+    if (is_array($decoded) && count($decoded) > 0) {
+        $video->update(['text_overlays' => $decoded]);
+    }
+}
 
         if ($request->filled('duration_seconds')) {
         $video->update(['duration_seconds' => (int) $request->duration_seconds]);

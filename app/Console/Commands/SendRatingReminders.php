@@ -15,7 +15,7 @@ class SendRatingReminders extends Command
     protected $description = 'Send rating reminders to buyers at 24h, 72h, and 7d after delivery';
 
     // The three intervals we remind at, in hours
-    private array $intervals = [1, 2, 3]; // 24h, 72h, 7 days
+    private array $intervals = [24, 72, 168]; // 24h, 72h, 7 days
 
     // [24, 72, 168];
 

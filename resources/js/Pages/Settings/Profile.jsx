@@ -178,7 +178,7 @@ function AddressForm({ editing, onSaved, onCancel }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function ProfileSettings({ banks = [], addresses: initialAddresses = [] }) {
+export default function ProfileSettings({ banks = [], addresses: initialAddresses = [], has_pickup_address = false }) {
     const { auth } = usePage().props;
     const [tab,         setTab]        = useState('profile');
     const [editing,     setEditing]    = useState(false);

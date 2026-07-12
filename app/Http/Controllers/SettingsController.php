@@ -36,6 +36,7 @@ class SettingsController extends Controller
                         ->orderByDesc('is_default')
                         ->orderByDesc('updated_at')
                         ->get(),
+        'has_pickup_address'  => !empty(Auth::user()->pickup_street),
     ]);
 }
 

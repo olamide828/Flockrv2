@@ -29,7 +29,7 @@ class ReviewController extends Controller
         }
 
         // Change to 12 for production, 1 for testing
-        $minHours = 1;
+        $minHours = 24;
         if (!$order->delivered_at || $order->delivered_at->diffInHours(now()) < $minHours) {
             return response()->json([
                 'message' => "Reviews can be submitted {$minHours} hour(s) after delivery.",
@@ -127,7 +127,7 @@ class ReviewController extends Controller
         }
 
         $review  = Review::where('order_id', $order->id)->first();
-        $minHours = 1; // match store() — change both to 12 in production
+        $minHours = 24; // match store() — change both to 12 in production
 
         return response()->json([
             'reviewed'   => (bool) $review,

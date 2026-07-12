@@ -32,11 +32,25 @@ class UserController extends Controller
             ->get();
 
         $products = ($anyBlock || !$user->isSeller()) ? collect() : $user->products()
-            ->where('status', 'active')
-            ->where('stock_quantity', '>', 0)
-            ->with('seller:id,name,username,avatar')
-            ->orderByDesc('orders_count')
-            ->get();
+    ->where('status', 'active')
+    ->where('stock_quantity', '>', 0)
+    ->with('seller:id,name,username,avatar')
+    ->orderByDesc('created_at')
+    ->get();
+
+// Stamp is_saved for the viewing user
+$authUserId = Auth::id();
+if ($authUserId && $products->isNotEmpty()) {
+    $savedIds = \DB::table('product_saves')
+        ->where('user_id', $authUserId)
+        ->whereIn('product_id', $products->pluck('id')->toArray())
+        ->pluck('product_id')
+        ->flip()
+        ->toArray();
+    $products->each(fn($p) => $p->is_saved = isset($savedIds[$p->id]));
+} else {
+    $products->each(fn($p) => $p->is_saved = false);
+}
 
         $isFollowing  = $authUser && !$anyBlock && $authUser->isFollowing($user);
         $isOwnProfile = Auth::id() === $user->id;

@@ -18,9 +18,11 @@ import {
     RiTeamLine,
 } from 'react-icons/ri';
 
+import { TiGroupOutline } from "react-icons/ti";
+
 const NAV_ITEMS = [
     { href: '/', Icon: RiHome5Line, label: 'For You' },
-    { href: '/community', Icon: RiTeamLine, label: 'Community' },
+    { href: '/community', Icon: TiGroupOutline, label: 'Community' },
     { href: '/shop', Icon: RiShoppingBag2Line, label: 'Shop' },
     { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
 ];

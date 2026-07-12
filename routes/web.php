@@ -26,6 +26,10 @@ Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])-
 Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
 Route::get('/community', [CommunityController::class, 'index'])->name('community');
+Route::get('/community/posts/{post}', [CommunityController::class, 'showPostPage'])->name('community.post');
+
+Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
+Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
@@ -51,6 +55,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/onboarding', [BuyerOnboardingController::class, 'store'])->name('buyer.onboarding.store');
     Route::post('/onboarding/skip', [BuyerOnboardingController::class, 'skip'])->name('buyer.onboarding.skip');
 
+    Route::get('/community/rooms/join/{code}', function (string $code) {
+    return redirect('/community?invite=' . $code);
+})->name('community.room.invite');
 
     Route::get('/dashboard', [UserDashboardController::class, 'index'])
     ->middleware('role:buyer');

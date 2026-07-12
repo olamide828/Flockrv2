@@ -17,6 +17,7 @@ use App\Http\Controllers\VideoDownloadController;
 use App\Models\Product;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\CommunityController;
+use App\Http\Controllers\MediaUploadController;
 use App\Http\Controllers\TerminalWebhookController;
 // use App\Models\Product;
 // use App\Models\User;
@@ -38,6 +39,10 @@ Route::get('/search', [SearchController::class, 'search']);
 Route::post('/videos/{video}/view', [VideoController::class, 'recordView']);
   Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
     Route::post('/products/summary', [ProductController::class, 'generateSummary']);
+
+    Route::prefix('community')->group(function () {
+        Route::get('/feed',                         [CommunityController::class, 'feed']);
+    });
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
@@ -120,6 +125,26 @@ Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
     }
 });
 
+// Terminal location data — public endpoints
+Route::get('/locations/states', function () {
+    try {
+        $states = app(App\Services\TerminalService::class)->getStates();
+        return response()->json(['states' => $states]);
+    } catch (\Throwable $e) {
+        return response()->json(['states' => []], 200);
+    }
+});
+
+Route::get('/locations/cities', function (\Illuminate\Http\Request $request) {
+    $request->validate(['state_code' => 'required|string']);
+    try {
+        $cities = app(App\Services\TerminalService::class)->getCities($request->state_code);
+        return response()->json(['cities' => $cities]);
+    } catch (\Throwable $e) {
+        return response()->json(['cities' => []], 200);
+    }
+});
+
 // Route::get('/debug-ini', function () {
 //     return response()->json([
 //         'post_max' => ini_get('post_max_size'),
@@ -153,26 +178,54 @@ Route::middleware('auth:sanctum')->group(function () {
     //Community
     Route::prefix('community')->group(function () {
 
-    // Feed
-    Route::get('/feed',              [CommunityController::class, 'feed']);
-    Route::get('/rooms/joined',      [CommunityController::class, 'joinedRooms']);
-    Route::get('/rooms/discover',    [CommunityController::class, 'discoverRooms']);
-    Route::get('/rooms/{room}/members', [CommunityController::class, 'roomMembers']);
+    // Feed & posts (public read, auth write)
+    Route::get('/community/feed',                         [CommunityController::class, 'feed']);
+    Route::get('/rooms/joined',                 [CommunityController::class, 'joinedRooms']);
+    Route::get('/rooms/discover',               [CommunityController::class, 'discoverRooms']);
+    Route::get('/rooms/{room}/messages',        [CommunityController::class, 'roomMessages']);
+    Route::get('/rooms/{room}/members',         [CommunityController::class, 'roomMembers']);
+    Route::get('/posts/{post}/comments',        [CommunityController::class, 'postComments']);
+    Route::post('/rooms/join-by-invite',     [CommunityController::class, 'joinByInvite']);
+Route::get('/posts/{post}',              [CommunityController::class, 'showPost']);
 
-    // Auth-only actions
+
+    // Auth required
     Route::middleware('auth:sanctum')->group(function () {
-       // Posts
-        Route::post('/posts',              [CommunityController::class, 'storePost']);
-        Route::post('/posts/{post}/like',  [CommunityController::class, 'likePost']);
-        Route::delete('/posts/{post}',     [CommunityController::class, 'destroyPost']);
-
-        // Rooms
-        Route::post('/rooms',              [CommunityController::class, 'storeRoom']);
-        Route::post('/rooms/{room}/join',  [CommunityController::class, 'joinRoom']);
-
-        // Seller-only (protected by RoomPolicy)
-        Route::delete('/rooms/{room}/kick',  [CommunityController::class, 'kickUser']);
-        Route::put('/rooms/{room}/rules',    [CommunityController::class, 'updateRules']); 
+        // Posts
+        
+        Route::post('/upload/media', [MediaUploadController::class, 'store']);
+ 
+// ── General feed & posts ──────────────────────────────────────────────
+// Route::get('/community/feed', [CommunityController::class, 'feed']);
+Route::post('/community/posts', [CommunityController::class, 'storePost']);
+Route::get('/community/posts/{post}', [CommunityController::class, 'showPost']);
+Route::post('/community/posts/{post}/view', [CommunityController::class, 'recordPostView']);
+Route::post('/community/posts/{post}/like', [CommunityController::class, 'likePost']);
+Route::post('/community/posts/{post}/dismiss', [CommunityController::class, 'dismissPost']);
+Route::delete('/community/posts/{post}', [CommunityController::class, 'destroyPost']);
+ 
+// ── Post comments ────────────────────────────────────────────────────
+Route::get('/community/posts/{post}/comments', [CommunityController::class, 'postComments']);
+Route::post('/community/posts/{post}/comments', [CommunityController::class, 'storePostComment']);
+ 
+// ── Rooms — discovery & membership ──────────────────────────────────
+Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRooms']);
+Route::get('/community/rooms/joined', [CommunityController::class, 'joinedRooms']);
+Route::post('/community/rooms', [CommunityController::class, 'storeRoom']);
+Route::put('/community/rooms/{room}', [CommunityController::class, 'updateRoom']);
+Route::post('/community/rooms/{room}/join', [CommunityController::class, 'joinRoom']);
+Route::post('/community/rooms/{room}/request-join', [CommunityController::class, 'requestJoinRoom']);
+Route::post('/community/rooms/join-by-invite', [CommunityController::class, 'joinByInvite']);
+Route::put('/community/rooms/{room}/rules', [CommunityController::class, 'updateRules']);
+Route::delete('/community/rooms/{room}/kick', [CommunityController::class, 'kickUser']);
+Route::get('/community/rooms/{room}/members', [CommunityController::class, 'roomMembers']);
+Route::get('/community/rooms/{room}/requests', [CommunityController::class, 'pendingRequests']);
+Route::post('/community/rooms/{room}/requests/{requestId}', [CommunityController::class, 'resolveRequest']);
+ 
+// ── Room messages ────────────────────────────────────────────────────
+Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
+Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
+Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
     });
 });
 

@@ -101,6 +101,11 @@ class AuthController extends Controller
             'description' => 'required|string|max:500',
             'location' => 'required|string|max:100',
             'whatsapp' => 'nullable|string|max:20',
+            'pickup_street'      => 'nullable|string|max:200',
+    'pickup_city'        => 'nullable|string|max:100',
+    'pickup_state'       => 'nullable|string|max:100',
+    'pickup_state_code'  => 'nullable|string|max:10',
+    'pickup_postal_code' => 'nullable|string|max:20',
         ]);
 
         $user = Auth::user();
@@ -119,6 +124,10 @@ class AuthController extends Controller
                 'onboarding_completed' => true,
                 'onboarding_at' => now()->toISOString(),
             ]),
+            'pickup_street'      => $validated['pickup_street']      ?? null,
+    'pickup_city'        => $validated['pickup_city']        ?? null,
+    'pickup_state'       => $validated['pickup_state']       ?? null,
+    'pickup_postal_code' => $validated['pickup_postal_code'] ?? null,
         ]);
 
         return redirect()->route('seller.dashboard')
@@ -152,6 +161,8 @@ class AuthController extends Controller
             : back()->withErrors(['email' => __($status)]);
     }
 
+
+
     public function resetForm(Request $request, string $token): Response
     {
         return Inertia::render('Auth/ResetPassword', [
@@ -182,6 +193,17 @@ class AuthController extends Controller
         return $status === Password::PASSWORD_RESET
             ? redirect()->route('login')->with('status', __($status))
             : back()->withErrors(['email' => __($status)]);
+    }
+
+    // Terms of service and privacy policy pages are static, so we can just return Inertia views
+    public function terms(): Response
+    {
+        return Inertia::render('Auth/Terms');
+    }
+
+    public function privacy(): Response
+    {
+        return Inertia::render('Auth/Privacy');
     }
 
     // ── Social Auth ───────────────────────────────────────────────────────────

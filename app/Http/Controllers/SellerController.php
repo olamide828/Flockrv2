@@ -67,6 +67,8 @@ $savedProducts = $seller->savedProducts()
     ->with('seller:id,name,username,avatar,is_verified')
     ->get();
 
+$savedProducts->each(fn($p) => $p->is_saved = true);
+
 $savedVideos = $seller->savedVideos()
     ->with('user:id,name,username,avatar')
     ->get();

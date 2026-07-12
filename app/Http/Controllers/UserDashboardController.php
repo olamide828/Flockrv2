@@ -25,6 +25,8 @@ class UserDashboardController extends Controller
             ->where('status', 'active')
             ->get();
 
+        $savedProducts->each(fn($p) => $p->is_saved = true);
+
         $savedVideos = $user->savedVideos()
             ->where('status', 'active')
             ->with('user:id,name,username,avatar')

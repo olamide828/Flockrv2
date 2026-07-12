@@ -54,13 +54,18 @@ export default function SellerOnboarding() {
     const TOTAL_STEPS = 3;
 
     const { data, setData, post, processing, errors } = useForm({
-        store_name: '',
-        business_type: '',
-        product_categories: [], // array, up to 3
-        description: '',
-        location: '',
-        whatsapp: '',
-    });
+    store_name:         '',
+    business_type:      'individual',
+    product_categories: [],
+    description:        '',
+    location:           '',
+    whatsapp:           '',
+    pickup_street:      '',
+    pickup_city:        '',
+    pickup_state:       '',
+    pickup_state_code:  '',
+    pickup_postal_code: '',
+});
 
     const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
     const prev = () => setStep((s) => Math.max(s - 1, 1));
@@ -87,6 +92,14 @@ export default function SellerOnboarding() {
     await axios.get('/sanctum/csrf-cookie')
     post('/seller/onboarding')
 }
+
+const NG_STATES = [
+    'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+    'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT','Gombe','Imo',
+    'Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa',
+    'Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba',
+    'Yobe','Zamfara',
+];
 
     return (
         <>
@@ -438,6 +451,27 @@ export default function SellerOnboarding() {
                                         </div>
                                     </Field>
                                 </div>
+
+                                {/* // In Step 3, after the location field: */}
+<Field label="Pickup Street Address" error={errors.pickup_street}>
+    <input
+        value={data.pickup_street}
+        onChange={e => setData('pickup_street', e.target.value)}
+        placeholder="House/shop number and street name"
+        style={inputStyle}
+    />
+</Field>
+<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+    <Field label="City" error={errors.pickup_city}>
+        <input value={data.pickup_city} onChange={e => setData('pickup_city', e.target.value)} placeholder="e.g. Yaba" style={inputStyle} />
+    </Field>
+    <Field label="State" error={errors.pickup_state}>
+        <select value={data.pickup_state} onChange={e => setData('pickup_state', e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+            <option value="">Select state</option>
+            {NG_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+    </Field>
+</div>
 
                                 {/* Preview card */}
                                 {data.store_name && (

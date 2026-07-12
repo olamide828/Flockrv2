@@ -120,7 +120,7 @@ function ReportModal({ user, onClose, onSubmit }) {
           <RiArrowLeftLine size={20} />
         </button>
         <div>
-          <h2 style={{ color: '#fff', fontSize: 17, fontWeight: 700, margin: 0 }}>Report Account</h2>
+          <h2 style={{ color: '#fff', fontSize: 17, fontWeight: 700, margin: 0 }}>Report Conversation</h2>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{user?.username}</p>
         </div>
       </div>
@@ -136,7 +136,7 @@ function ReportModal({ user, onClose, onSubmit }) {
           </div>
         ) : (
           <>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>Your report is anonymous and will be reviewed by our team.</p>
+            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>Your report is anonymous and your chat history will be reviewed by our team.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {REASONS.map(r => (
                 <button key={r} onClick={() => setReason(r)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, cursor: 'pointer', background: reason === r ? 'rgba(255,92,0,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${reason === r ? 'rgba(255,92,0,0.4)' : 'rgba(255,255,255,0.08)'}`, color: reason === r ? '#ff5c00' : '#fff', fontSize: 14, fontWeight: reason === r ? 600 : 400, textAlign: 'left' }}>

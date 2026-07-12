@@ -13,7 +13,7 @@ class Room extends Model
     protected $fillable = [
         'seller_id', 'name', 'slug', 'avatar',
         'description', 'rules', 'is_private',
-        'members_count', 'posts_count',
+        'members_count', 'posts_count', 'invite_code',
     ];
 
     protected $casts = [
