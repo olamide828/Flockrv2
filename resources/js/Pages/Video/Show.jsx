@@ -37,6 +37,7 @@ import {
 } from 'react-icons/ri';
 import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
+import Toast from '@/Components/Toast'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -378,6 +379,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [tab,           setTab]           = useState('comments');
     const [mobileSheet,   setMobileSheet]   = useState(null);
     const [showSearch,    setShowSearch]    = useState(false);
+    const [toast,    setToast]    = useState(null)
+const [duration, setDuration] = useState(0)  // only if not already present
     const [searchQuery,   setSearchQuery]   = useState('');
     const searchInputRef = useRef(null);
 
@@ -432,6 +435,17 @@ const [reportOpen, setReportOpen] = useState(false);
         return () => el.removeEventListener('timeupdate', onTime);
     }, []);
 
+    useEffect(() => {
+    const handleKey = (e) => {
+        const el = videoRef.current
+        if (!el) return
+        if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5) }
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5) }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+}, [])
+
     
     useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
 
@@ -449,13 +463,41 @@ setShowPP(true);
         lastTap.current = now;
     }, [liked, mobileSheet, showSearch]);
 
-    const handleSeek = useCallback((e) => {
-        const el = videoRef.current; const bar = progressBarRef.current;
-        if (!el?.duration || !bar) return;
-        e.stopPropagation();
+  const handleSeek = useCallback((e) => {
+    e.stopPropagation();
+    const el = videoRef.current;
+    const bar = progressBarRef.current;
+    if (!el?.duration || !bar) return;
+
+    const updateSeek = (clientX) => {
         const rect = bar.getBoundingClientRect();
-        el.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * el.duration;
-    }, []);
+        const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        el.currentTime = pct * el.duration;
+        setProgress(pct * 100);
+    };
+
+    // Handle initial click/touch point
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    updateSeek(clientX);
+
+    // Track dragging
+    const handleMove = (moveEvent) => {
+        const moveX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
+        updateSeek(moveX);
+    };
+
+    const handleEnd = () => {
+        window.removeEventListener('mousemove', handleMove);
+        window.removeEventListener('mouseup', handleEnd);
+        window.removeEventListener('touchmove', handleMove);
+        window.removeEventListener('touchend', handleEnd);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove, { passive: true });
+    window.addEventListener('touchend', handleEnd);
+}, []);
 
     const handleLike = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -467,6 +509,7 @@ setShowPP(true);
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
         const was = saved; setSaved(!was); setSavesCount(c => Math.max(0, c + (was ? -1 : 1)));
+        showToast(was ? 'Removed from saved' : 'Video Saved', was ? 'error' : 'success')
         try { const { data } = await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true }); setSaved(data.saved); if (data.saves_count !== undefined) setSavesCount(Number(data.saves_count)); }
         catch { setSaved(was); setSavesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [saved, auth, video.id]);
@@ -480,7 +523,10 @@ setShowPP(true);
 
     const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; }); }, []);
     const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
-
+    const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 2500)
+}
 
 
 
@@ -513,10 +559,12 @@ setShowPP(true);
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
-                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted loop playsInline preload="metadata"
+                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload="metadata"
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
                     onPlay={() => { setPlaying(true); setShowPP(false) }} onPause={() => setPlaying(false)}
                     onClick={handleVideoTap}
+                    onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
+                    onLoadedMetadata={e => setDuration(e.target.duration)}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
                 />
                 {/* Text overlays */}
@@ -588,11 +636,29 @@ setShowPP(true);
                     </div>
                 )}
 
-                <div ref={progressBarRef} onClick={handleSeek} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 28, zIndex: 15, cursor: 'pointer', display: 'flex', alignItems: 'flex-end' }}>
-                    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
-                        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
-                    </div>
-                </div>
+                {/* Improved progress bar with active pointer handling */}
+<div 
+    ref={progressBarRef} 
+    onMouseDown={handleSeek}
+    onTouchStart={handleSeek}
+    style={{ 
+        position: 'absolute', 
+        bottom: 0, 
+        left: 0, 
+        right: 0, 
+        height: 24, // slightly larger touch target
+        zIndex: 40, // high z-index to clear overlay overlaps
+        cursor: 'pointer', 
+        display: 'flex', 
+        alignItems: 'flex-end',
+        paddingBottom: 4,
+        pointerEvents: 'auto' // ensures it intercepts events
+    }}
+>
+    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
+        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%` }} />
+    </div>
+</div>
 
                 {/* Right actions */}
                 <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
@@ -601,14 +667,27 @@ setShowPP(true);
 </div>
                     <SideBtn onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
                     <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
-                        <RiChat1Line size={28} color={tab === 'comments' ? '#FF6B35' : '#fff'} />
+                        <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>
                     <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
                     {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
                     <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
-                    <button onClick={toggleMute} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
-                    </button>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+    <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
+    </button>
+    {duration > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur) })()}
+            </span>
+            <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration) })()}
+            </span>
+        </div>
+    )}
+</div>
                 </div>
 
                 {/* Bottom info */}
@@ -706,6 +785,12 @@ setShowPP(true);
                     </div>
                 </>
             )}
+
+            {toast && (
+    <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
+        <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+    </div>
+)}
         </div>
     );
 }
@@ -763,7 +848,7 @@ export default function VideoShow({ video, isLiked, isSaved, isFollowing, initia
             <div style={{ width: '100%', height: '100dvh', overflowY: 'scroll', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#000' }}>
                 {allVideos.map((v, i) => (
                     <div key={v.ulid} ref={el => slideRefs.current[i] = el} style={{ width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', overflow: 'hidden', position: 'relative' }}>
-                        <VideoSlide video={v} isActive={activeIdx === i} showBackBtn={i > 0} onBack={() => slideRefs.current[i - 1]?.scrollIntoView({ behavior: 'smooth' })} />
+                        <VideoSlide video={v} isActive={activeIdx === i} showBackBtn={i > 0} onBack={() => window.history.back()} />
                     </div>
                 ))}
                 {loadingMore && (

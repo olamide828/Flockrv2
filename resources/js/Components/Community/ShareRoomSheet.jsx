@@ -27,7 +27,7 @@ export default function ShareRoomSheet({ room, onClose }) {
     { label: 'Facebook', Icon: RiFacebookCircleLine, color: '#1877F2', bg: 'rgba(24,119,242,0.12)', href: `https://www.facebook.com/sharer/sharer.php?u=${enc}` },
     { label: 'Telegram', Icon: RiTelegramLine, color: '#26A5E4', bg: 'rgba(38,165,228,0.12)', href: `https://t.me/share/url?url=${enc}&text=${encTitle}` },
     { label: 'X (Twitter)', Icon: RiTwitterXLine, color: '#fff', bg: 'rgba(255,255,255,0.08)', href: `https://twitter.com/intent/tweet?text=${encTitle}&url=${enc}` },
-    ...(canShare ? [{ label: 'More', Icon: RiShareForwardLine, color: '#FF6B35', bg: 'rgba(255,107,53,0.12)', href: null, onClick: () => navigator.share({ title: room.name, url }).catch(() => {}) }] : []),
+    ...(canShare ? [{ label: 'More', Icon: RiShareForwardLine, color: '#FF6B35', bg: 'rgba(255,107,53,0.12)', href: null, onClick: () => navigator.share({ title: `Check out (${room.name}) room on Flockr!`, url }).catch(() => {}) }] : []),
   ]
 
   return (

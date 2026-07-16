@@ -49,10 +49,16 @@ export default function SplashScreen({ onFinish }) {
                     animation: 'iconPop 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards',
                 }}>
                     <img
-                        src="/images/flockr_logo_white.png"
-                        alt="Flockr"
-                        style={{ width: 52, height: 52, objectFit: 'contain' }}
-                    />
+    src="/images/flockr_logo_orange.png"
+    alt="Flockr"
+    style={{
+        width: 96, height: 96,
+        borderRadius: 28,
+        objectFit: 'cover',
+        boxShadow: '0 0 0 0 rgba(255,92,0,0.4)',
+        animation: 'iconPop 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards',
+    }}
+/>
                 </div>
 
                 {/* Animated letters — below the icon, smaller */}

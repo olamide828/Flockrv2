@@ -15,6 +15,7 @@ import {
 } from 'react-icons/ri'
 import ReportVideoModal from '../../Pages/Video/ReportVideoModal'
 import CommentSheet from '../Video/CommentSheet'
+import Toast from '@/Components/Toast'
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -221,9 +222,12 @@ export default function VideoCard({ video, isActive }) {
   const commentInputRef = useRef(null)
   const lastTap         = useRef(0)
   const viewTimerRef = useRef(null)
+  const isSeeking = useRef(false)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
+const [duration, setDuration] = useState(0)
+const seekBarRef = useRef(null)
   const [progress,      setProgress]      = useState(0)
   const [loading,       setLoading]       = useState(true)
   const [tapFlash,      setTapFlash]      = useState(false)
@@ -239,6 +243,11 @@ export default function VideoCard({ video, isActive }) {
   const [showReportVideo, setShowReportVideo] = useState(false)
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [showPP, setShowPP] = useState(false)
+  const [toast, setToast] = useState(null)
+const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3000)
+}
 
 
 // ADD THIS:
@@ -270,33 +279,46 @@ useEffect(() => {
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
   const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
 
- useEffect(() => {
+useEffect(() => {
     const el = videoRef.current
     if (!el) return
+
     if (isActive) {
         el.muted = true
-        el.play().then(() => { setPlaying(true); setTimeout(() => { el.muted = false; setMuted(false) }, 300) }).catch(() => {})
+        el.play().then(() => {
+            setPlaying(true)
+            setTimeout(() => { el.muted = false; setMuted(false) }, 300)
+        }).catch(() => {})
         watchStartRef.current = Date.now()
 
-        // Fire view after 5 seconds of watching — catches users who never scroll away
         viewTimerRef.current = setTimeout(() => {
-            const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+            const secs = Math.round((Date.now() - (watchStartRef.current ?? Date.now())) / 1000)
             if (secs >= 3) {
                 axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-                watchStartRef.current = null // prevent double-firing on scroll away
+                watchStartRef.current = null
             }
         }, 5000)
     } else {
+        // ← CRITICAL: if user is seeking, do NOT reset position
+        if (isSeeking.current) return
+
         clearTimeout(viewTimerRef.current)
-        el.pause(); el.currentTime = 0
-        setShowComments(false); setShowProducts(false); setShowShare(false)
+        el.pause()
+        el.currentTime = 0
+        setShowComments(false)
+        setShowProducts(false)
+        setShowShare(false)
+
         if (watchStartRef.current) {
             const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
-            if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+            if (secs >= 3) {
+                axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+            }
             watchStartRef.current = null
         }
     }
 }, [isActive])
+
 
   useEffect(() => {
     const el = videoRef.current; if (!el) return
@@ -304,6 +326,32 @@ useEffect(() => {
     el.addEventListener('timeupdate', onTime)
     return () => el.removeEventListener('timeupdate', onTime)
   }, [])
+
+  useEffect(() => {
+    const sheetOpen = showComments || showProducts || showShare || showMoreSheet
+    if (!sheetOpen) return
+    const stop = (e) => e.stopPropagation()
+    document.addEventListener('wheel',      stop, { capture: true })
+    document.addEventListener('touchmove',  stop, { capture: true, passive: false })
+    document.addEventListener('touchstart', stop, { capture: true })
+    return () => {
+        document.removeEventListener('wheel',      stop, { capture: true })
+        document.removeEventListener('touchmove',  stop, { capture: true })
+        document.removeEventListener('touchstart', stop, { capture: true })
+    }
+}, [showComments, showProducts, showShare, showMoreSheet])
+
+  useEffect(() => {
+    if (!isActive) return
+    const handleKey = (e) => {
+        const el = videoRef.current
+        if (!el) return
+        if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5) }
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5) }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+}, [isActive])
 
  
 
@@ -330,6 +378,7 @@ useEffect(() => {
   const handleSave = useCallback(async () => {
     if (!auth?.user) { router.visit('/login'); return }
     const was = saved; setSaved(!was); setSavesCount(c => Math.max(0, c + (was ? -1 : 1)))
+    showToast(was ? 'Removed from saved' : 'Video Saved', was ? 'error' : 'success') 
     try { const { data } = await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true }); setSaved(data.saved); if (data.saves_count !== undefined) setSavesCount(Number(data.saves_count)) }
     catch { setSaved(was); setSavesCount(c => Math.max(0, c + (was ? 1 : -1))) }
   }, [saved, auth, video.id])
@@ -374,15 +423,23 @@ useEffect(() => {
 
       <video
         ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full ?? undefined}
-        muted loop playsInline preload="metadata"
+        muted playsInline preload="metadata"
         onCanPlay={() => setLoading(false)}
+        onLoadedMetadata={e => setDuration(e.target.duration)}
         onWaiting={() => { if (!videoRef.current?.ended) setLoading(true) }}
         onPlay={() => { setPlaying(true); setShowPP(false) }}
 onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
         onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
-        onClick={handleVideoTap}
+        // onClick={handleVideoTap}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
       />
+
+
+      {/* Tap overlay — below seek bar so seek bar clicks are never intercepted */}
+<div
+    onClick={handleVideoTap}
+    style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
+/>
 
       {/* Text overlays */}
 {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
@@ -416,8 +473,13 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)', pointerEvents: 'none' }} />
 
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '12px 14px', gap: 8 }} onClick={e => e.stopPropagation()}>
-  
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', gap: 8 }} onClick={e => e.stopPropagation()}>
+  <Link href="/explore" onClick={e => e.stopPropagation()} style={{ textDecoration: 'none' }}>
+    <button style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+      <RiSearchLine size={20} />
+    </button>
+  </Link>
+
       <button onClick={() => setShowMoreSheet(true)}
         style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
         <RiMoreLine size={20} />
@@ -439,7 +501,7 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
       )}
 
       {showPP && (
-    <div onClick={e => { e.stopPropagation(); handleVideoTap() }} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 6, cursor: 'pointer' }}>
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 6, cursor: 'pointer', pointerEvents: 'none' }}>
         <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {playing
                 ? <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" /></svg>
@@ -449,13 +511,37 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
     </div>
 )}
 
-      <div onClick={e => { const el = videoRef.current; if (!el?.duration) return; const rect = e.currentTarget.getBoundingClientRect(); el.currentTime = ((e.clientX - rect.left) / rect.width) * el.duration }}
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 28, zIndex: 10, cursor: 'pointer', display: 'flex', alignItems: 'flex-end' }}>
-        <div style={{ width: '100%', height: 3, background: 'rgba(255,255,255,0.15)' }}>
-          <div style={{ height: '100%', background: '#ff5c00', width: `${progress}%`, transition: 'width 0.1s linear' }} />
-        </div>
-      </div>
-
+  {/* --- SEEK BAR (Updated Z-Index & Styling) --- */}
+<div 
+  ref={seekBarRef}
+  onClick={e => {
+    e.stopPropagation()
+    const el = videoRef.current
+    if (!el?.duration) return
+    isSeeking.current = true
+    clearTimeout(window._seekTimer)
+    window._seekTimer = setTimeout(() => { isSeeking.current = false }, 2000)
+    const rect = seekBarRef.current.getBoundingClientRect()
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    el.currentTime = pct * el.duration
+    setProgress(pct * 100)
+}}
+  style={{ 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0, 
+    right: 0, 
+    height: 28, 
+    zIndex: 25, // <-- Increased to ride over info overlays
+    cursor: 'pointer', 
+    display: 'flex', 
+    alignItems: 'flex-end' 
+  }}
+>
+  <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.2)', transition: 'height 0.1s' }}>
+    <div style={{ height: '100%', background: '#ff5c00', width: `${progress}%`, transition: 'width 0.1s linear' }} />
+  </div>
+</div>
       <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }} onClick={e => e.stopPropagation()}>
         <div style={{ position: 'relative', marginBottom: 4 }}>
           <Link href={`/@${video.user?.username}`} onClick={e => e.stopPropagation()}>
@@ -485,9 +571,22 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
         <SideBtn onClick={() => { setShowShare(s => !s); setShowComments(false); setShowProducts(false) }} label="Share">
           <RiShareForwardLine size={28} color={showShare ? '#ff5c00' : '#fff'} />
         </SideBtn>
-        <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+    <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
+    </button>
+    {duration > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur) })()}
+            </span>
+            <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration) })()}
+            </span>
+        </div>
+    )}
+</div>
       </div>
 
        <div style={{ position: 'absolute', bottom: 16, left: 14, right: 72, zIndex: 10 }} onClick={e => e.stopPropagation()}>
@@ -555,6 +654,13 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
         @keyframes vc-heart   { 0%{transform:scale(0);opacity:1} 50%{transform:scale(1.3)} 100%{transform:scale(1);opacity:0} }
         @keyframes vc-slideup { from{transform:translateY(100%)} to{transform:translateY(0)} }
       `}</style>
+
+      {toast && (
+    <div style={{ position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 30, pointerEvents: 'none' }}>
+        <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+    </div>
+)}
+    
     </div>
   )
 }

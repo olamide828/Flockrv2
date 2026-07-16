@@ -1,54 +1,43 @@
-import { useState } from 'react'
 import { router } from '@inertiajs/react'
 import axios from 'axios'
 
 /**
- * Universal follow button/badge. Hits the SAME /api/users/{id}/follow
- * endpoint your VideoCard already uses, so following someone here also
- * reflects on their profile and in the video feed, and vice versa —
- * it's all backed by one `follows` table.
+ * Controlled component now — the parent (Community/Index) owns a shared
+ * followingMap keyed by userId, so following someone from one post updates
+ * every other post by that same author instantly, with no refresh needed.
  *
- * Renders nothing for your own posts (isOwner) or when logged out and
- * showWhenLoggedOut is false.
+ * isFollowing / onChange are required; this component just renders the
+ * current state and fires the optimistic update + API call.
  */
-export default function FollowButton({ userId, isOwner, isFollowing: initial = false, auth, size = 'sm' }) {
-  const [following, setFollowing] = useState(initial)
-  const [busy, setBusy] = useState(false)
-
+export default function FollowButton({ userId, isOwner, isFollowing, onChange, auth }) {
   if (isOwner) return null
 
   const toggle = async (e) => {
     e?.stopPropagation()
     e?.preventDefault()
     if (!auth?.user) { router.visit('/login'); return }
-    if (busy) return
-    setBusy(true)
-    const was = following
-    setFollowing(!was)
+    const was = isFollowing
+    onChange(userId, !was) // optimistic, propagates to every post by this author immediately
     try {
       await axios.post(`/api/users/${userId}/follow`)
     } catch {
-      setFollowing(was)
-    } finally {
-      setBusy(false)
+      onChange(userId, was) // rollback everywhere on failure
     }
   }
 
-  const small = size === 'sm'
+  if (isFollowing) {
+    return (
+      <span onClick={toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 500 }}>
+        <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', display: 'inline-block' }} />
+        Following
+      </span>
+    )
+  }
 
   return (
-    <button onClick={toggle} disabled={busy}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        padding: small ? '3px 10px' : '6px 16px',
-        borderRadius: 999,
-        background: following ? 'rgba(255,255,255,0.06)' : 'transparent',
-        border: `1px solid ${following ? 'rgba(255,255,255,0.15)' : '#FF6B35'}`,
-        color: following ? 'rgba(255,255,255,0.5)' : '#FF6B35',
-        fontSize: small ? 11 : 13, fontWeight: 700, cursor: 'pointer',
-        transition: 'all 0.15s', flexShrink: 0,
-      }}>
-      {following ? 'Following' : 'Follow'}
+    <button onClick={toggle}
+      style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, background: 'transparent', border: '1px solid #FF6B35', color: '#FF6B35', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+      Follow
     </button>
   )
 }

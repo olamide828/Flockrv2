@@ -21,10 +21,11 @@ import {
 import { TiGroupOutline } from "react-icons/ti";
 
 const NAV_ITEMS = [
-    { href: '/', Icon: RiHome5Line, label: 'For You' },
-    { href: '/community', Icon: TiGroupOutline, label: 'Community' },
-    { href: '/shop', Icon: RiShoppingBag2Line, label: 'Shop' },
-    { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
+    { href: '/',        Icon: RiHome5Line,              label: 'For You'   },
+{ href: '/explore', Icon: RiSearchLine,              label: 'Explore'   },
+{ href: '/community', Icon: TiGroupOutline,          label: 'Community' },
+{ href: '/shop',    Icon: RiShoppingBag2Line,        label: 'Shop'      },
+{ href: '/inbox',   Icon: IoChatboxEllipsesOutline,  label: 'Inbox'     },
 ];
 
 export default function AppLayout({ children }) {
@@ -97,11 +98,24 @@ export default function AppLayout({ children }) {
             >
                 {/* Logo */}
                 <div style={{ padding: '24px 20px 16px' }}>
-                    <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 24, color: '#fff', letterSpacing: '-0.02em' }}>
-                            flockr<span style={{ color: 'var(--flockr-orange)' }}>.</span>
-                        </span>
-                    </Link>
+                    <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }} className="gap-2">
+    <img
+        src="/images/flockr_logo_orange.png"
+        alt="Flockr"
+        style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
+    />
+    <h1 style={{
+                                textDecoration: 'none',
+                                fontFamily: 'var(--font-display)',
+                                fontWeight: 800,
+                                fontSize: 22,
+                                color: '#fff',
+                                letterSpacing: '-0.02em',
+                            }}
+                        >
+                            flockr<span style={{ color: '#ff5c00' }}>.</span>
+        </h1>
+</Link>
                 </div>
 
                 {/* Search */}
@@ -472,20 +486,17 @@ export default function AppLayout({ children }) {
                             zIndex: 50,
                         }}
                     >
-                        <Link
-                            href="/"
-                            style={{
-                                textDecoration: 'none',
-                                fontFamily: 'var(--font-display)',
-                                fontWeight: 800,
-                                fontSize: 22,
-                                color: '#fff',
-                                letterSpacing: '-0.02em',
-                            }}
-                        >
-                            flockr<span style={{ color: '#ff5c00' }}>.</span>
-                        </Link>
+                        <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+    <img
+        src="/images/flockr_logo_orange.png"
+        alt="Flockr"
+        style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
+    />
+</Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Link href="/explore" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+        <RiSearchLine size={20} />
+    </Link>
                             <Link href="/orders" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
                                 <RiShoppingBasketLine size={20} />
                             </Link>
@@ -649,7 +660,7 @@ export default function AppLayout({ children }) {
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                         }}
                     >
-                        {NAV_ITEMS.map(({ href, label, Icon }) => {
+                        {NAV_ITEMS.filter(item => item.href !== '/explore').map(({ href, label, Icon }) => {
                             const active = isActive(href);
                             const isInbox = href === '/inbox';
                             return (

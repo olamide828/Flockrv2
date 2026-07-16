@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Head, router, usePage, Link } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import ProductCard from '@/Components/Product/ProductCard'
+import { useToast } from '@/Components/Toast'
 import axios from 'axios'
 
 import {
@@ -53,6 +54,65 @@ const CONDITION_OPTIONS = [
 ]
 
 const HISTORY_KEY = 'flockr_search_history'
+const VISIT_COUNT_KEY = 'flockr_visit_count'
+const VISIT_MILESTONES = [5, 10, 25, 50, 100, 250]
+
+// Fallback hints — only used if /api/search/discover returns too few real results
+const FALLBACK_HINTS = [
+  "Search 'Ijebu Aso Ebi'...",
+  "Find 'Sango Ota Hub'...",
+  "Discover '#WayoDeals'...",
+  "Search 'Chiffon Gowns'...",
+]
+
+// ── Secret effects: emoji rain + "new drops" pulse ──────────────────────────
+const EMOJI_TRIGGERS = [
+  { keywords: ['aso ebi', 'ankara', 'gele', 'lace'],          emojis: ['👗', '🧵', '✨'] },
+  { keywords: ['shoe', 'sneaker', 'sneakers', 'sandal'],      emojis: ['👟', '👞'] },
+  { keywords: ['food', 'jollof', 'suya', 'pepper soup'],      emojis: ['🍲', '🌶️', '😋'] },
+  { keywords: ['sale', 'discount', 'cheap', 'wayo'],          emojis: ['💰', '🏷️', '🤑'] },
+  { keywords: ['jewellery', 'jewelry', 'gold', 'chain'],      emojis: ['💍', '✨', '💎'] },
+  { keywords: ['owambe', 'party', 'aso-ebi'],                  emojis: ['🎉', '🥂', '💃'] },
+  { keywords: ['detty december', 'december', 'xmas', 'christmas'], emojis: ['🎉', '🎄', '✨'] },
+]
+
+const NEW_DROP_KEYWORDS = ['new drop', 'new drops', 'fresh', 'bale', 'just landed', 'latest']
+
+// Rotating empty-state copy. Mixes Pidgin + neutral English on purpose.
+// NOTE: if/when Flockr scales beyond Nigeria, swap this for a locale-aware
+// picker (e.g. pidginPhrases for en-NG, neutralPhrases everywhere else)
+// rather than hardcoding — this array is the one place that'd need to change.
+const NO_RESULTS_PHRASES = [
+  "No wahala, try another word",
+  "Nothing dey here — try a different search",
+  "Hmm, nothing found. Try again",
+  "Nothing turned up — give it another shot",
+  "Empty for now — try a different term",
+]
+
+function pickPhrase(seed) {
+  const s = (seed || '').trim().toLowerCase()
+  let hash = 0
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  return NO_RESULTS_PHRASES[hash % NO_RESULTS_PHRASES.length]
+}
+
+function matchEmojiTrigger(text) {
+  const q = (text || '').trim().toLowerCase()
+  if (!q) return null
+  return EMOJI_TRIGGERS.find(t => t.keywords.some(k => q.includes(k))) ?? null
+}
+function matchNewDrop(text) {
+  const q = (text || '').trim().toLowerCase()
+  return !!q && NEW_DROP_KEYWORDS.some(k => q.includes(k))
+}
+function matchOwnUsername(text, username) {
+  if (!username) return false
+  const q = (text || '').trim().toLowerCase().replace(/^@/, '')
+  return q.length > 0 && q === username.toLowerCase()
+}
+
+const CONFETTI_COLORS = ['#FF6B35', '#EC4899', '#3B82F6', '#22C55E', '#F59E0B', '#A855F7']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -73,9 +133,9 @@ function addToHistory(q)      { if (!q?.trim()) return; const h = getHistory().f
 function removeFromHistory(q) { localStorage.setItem(HISTORY_KEY, JSON.stringify(getHistory().filter(x => x !== q))) }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Search Overlay (unchanged from your version)
+// Search Overlay
 // ─────────────────────────────────────────────────────────────────────────────
-function SearchOverlay({ initialQuery = '', onClose, onSearch }) {
+function SearchOverlay({ initialQuery = '', onClose, onSearch, onLiveQuery }) {
   const [val,     setVal]     = useState(initialQuery)
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -85,6 +145,10 @@ function SearchOverlay({ initialQuery = '', onClose, onSearch }) {
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 80) }, [])
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+
+  // Fire easter eggs live as the person types here too — most people click
+  // a result card instead of pressing Enter, so this can't only live on submit.
+  useEffect(() => { onLiveQuery?.(val) }, [val])
 
   useEffect(() => {
     clearTimeout(debRef.current)
@@ -232,7 +296,7 @@ function SearchOverlay({ initialQuery = '', onClose, onSearch }) {
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, textAlign: 'center' }}>
                 <RiSearchLine size={34} color="rgba(255,255,255,0.1)" />
                 <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: 600, margin: 0 }}>No results for "{val}"</p>
-                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: 0 }}>Try different keywords</p>
+                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: 0 }}>{pickPhrase(val)}</p>
               </div>
             )}
           </div>
@@ -250,11 +314,106 @@ function SearchOverlay({ initialQuery = '', onClose, onSearch }) {
 const sectionLabel = { color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 10px' }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Secret effect: emoji rain overlay
+// ─────────────────────────────────────────────────────────────────────────────
+function EmojiRain({ emojis }) {
+  const pieces = useMemo(() => Array.from({ length: 45 }, (_, i) => ({
+    id: i,
+    emoji: emojis[i % emojis.length],
+    left: Math.random() * 100,
+    delay: Math.random() * 1.1,
+    duration: 3.2 + Math.random() * 2,
+    size: 18 + Math.random() * 20,
+    drift: (Math.random() - 0.5) * 90,
+    spin: 180 + Math.random() * 540,
+  })), [emojis])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, pointerEvents: 'none', overflow: 'hidden' }}>
+      {pieces.map(p => (
+        <span
+          key={p.id}
+          style={{
+            position: 'absolute',
+            top: -40,
+            left: `${p.left}%`,
+            fontSize: p.size,
+            animation: `emojiFall ${p.duration}s ease-in ${p.delay}s forwards`,
+            '--drift': `${p.drift}px`,
+            '--spin': `${p.spin}deg`,
+          }}
+        >
+          {p.emoji}
+        </span>
+      ))}
+      <style>{`
+        @keyframes emojiFall {
+          0%   { transform: translate(0, -10vh) rotate(0deg); opacity: 0; }
+          8%   { opacity: 1; }
+          100% { transform: translate(var(--drift), 110vh) rotate(var(--spin)); opacity: 0.9; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Secret effect: confetti burst (self-search easter egg)
+// ─────────────────────────────────────────────────────────────────────────────
+function ConfettiBurst() {
+  const pieces = useMemo(() => Array.from({ length: 60 }, (_, i) => {
+    const angle    = Math.random() * 360
+    const distance = 120 + Math.random() * 220
+    const dx = Math.cos(angle * Math.PI / 180) * distance
+    const dy = Math.sin(angle * Math.PI / 180) * distance
+    return {
+      id: i,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      dx, dy,
+      delay: Math.random() * 0.15,
+      duration: 1.1 + Math.random() * 0.6,
+      size: 6 + Math.random() * 8,
+      rotate: Math.random() * 720 - 360,
+      round: Math.random() > 0.5,
+    }
+  }), [])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10001, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'relative', width: 0, height: 0 }}>
+        {pieces.map(p => (
+          <span
+            key={p.id}
+            style={{
+              position: 'absolute', top: 0, left: 0,
+              width: p.size, height: p.size,
+              background: p.color,
+              borderRadius: p.round ? '50%' : 2,
+              animation: `confettiBurst ${p.duration}s ease-out ${p.delay}s forwards`,
+              '--dx': `${p.dx}px`, '--dy': `${p.dy}px`, '--rot': `${p.rotate}deg`,
+            }}
+          />
+        ))}
+      </div>
+      <style>{`
+        @keyframes confettiBurst {
+          0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+          100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Explore — improved discovery page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Explore({ trendingProducts = [], trendingVideos = [], topSellers = [] }) {
-  const pageUrl = usePage().url
-  const qParam  = new URLSearchParams(pageUrl.split('?')[1] ?? '').get('q') ?? ''
+  const { url: pageUrl, props } = usePage()
+  const qParam = new URLSearchParams(pageUrl.split('?')[1] ?? '').get('q') ?? ''
+  const authUsername = props?.auth?.user?.username ?? null
+
+  const { showToast, ToastComponent } = useToast()
 
   const [searchOpen,   setSearchOpen]   = useState(!!qParam)
   const [inputVal,     setInputVal]     = useState(qParam)
@@ -264,12 +423,26 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [condition,    setCondition]    = useState('')
   const [priceMax,     setPriceMax]     = useState('')
   const [viewMode,     setViewMode]     = useState('grid')
-  const [activeSection,setActiveSection] = useState('all') // 'all' | 'videos' | 'products'
+
+  // hints state — fed by /api/search/discover (real DB content), falls back to FALLBACK_HINTS
+  const [hints,       setHints]       = useState(FALLBACK_HINTS)
+  const [hintIdx,     setHintIdx]     = useState(0)
+  const [hintPhase,   setHintPhase]   = useState('visible') // 'visible' | 'out' | 'in'
+  const [hintDisplay, setHintDisplay] = useState(FALLBACK_HINTS[0])
 
   const [results,  setResults]  = useState([])
   const [sellers,  setSellers]  = useState([])
   const [videos,   setVideos]   = useState(trendingVideos)
   const [loading,  setLoading]  = useState(false)
+
+  // ── Secret effects state ────────────────────────────────────────────────
+  const [emojiRain, setEmojiRain]           = useState(null)   // array of emojis, or null
+  const [confettiBurst, setConfettiBurst]   = useState(false)
+  const [pulseNewArrivals, setPulseNewArrivals] = useState(false)
+  const rainTimeoutRef  = useRef(null)
+  const activeMatchRef  = useRef(null)
+  const selfEggFiredRef = useRef(false)
+  const newArrivalsRef  = useRef(null)
 
   // Hot products — sorted by views in last 24h (from trending data)
   const hotProducts  = trendingProducts.slice(0, 6)
@@ -288,6 +461,38 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
 
   const hasQuery    = query.trim().length >= 1
   const isSearching = hasQuery || category !== null
+
+  // Fetch real hints from DB on mount
+  useEffect(() => {
+    axios.get('/api/search/discover', { withCredentials: true })
+      .then(r => {
+        const data = Array.isArray(r.data) && r.data.length >= 2 ? r.data : FALLBACK_HINTS
+        setHints(data)
+        setHintDisplay(data[0])
+        setHintIdx(0)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Rotate hints every 5s — slide up out, swap text, slide in from below
+  useEffect(() => {
+    if (query.trim()) return
+    const stay = setTimeout(() => {
+      setHintPhase('out')
+      const swap = setTimeout(() => {
+        setHintIdx(prev => {
+          const next = (prev + 1) % hints.length
+          setHintDisplay(hints[next])
+          return next
+        })
+        setHintPhase('in')
+        const settle = setTimeout(() => setHintPhase('visible'), 320)
+        return () => clearTimeout(settle)
+      }, 280)
+      return () => clearTimeout(swap)
+    }, 5000)
+    return () => clearTimeout(stay)
+  }, [hintIdx, query, hints])
 
   useEffect(() => {
     clearTimeout(debounceRef.current)
@@ -312,6 +517,59 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
     if (qParam && qParam !== query) { setQuery(qParam); setInputVal(qParam) }
   }, [qParam])
 
+  // ── Visit streak toast — fires once per milestone, tracked in localStorage ──
+  useEffect(() => {
+    try {
+      const count = (parseInt(localStorage.getItem(VISIT_COUNT_KEY) ?? '0', 10) || 0) + 1
+      localStorage.setItem(VISIT_COUNT_KEY, String(count))
+      if (VISIT_MILESTONES.includes(count)) {
+        showToast(`You're on a roll 🔥 ${count} visits and counting`, 'success')
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function triggerEmojiRain(match) {
+    // Dedupe: don't restart the rain from the top if the same trigger is
+    // still firing (e.g. person keeps typing within the matched phrase).
+    if (activeMatchRef.current === match.keywords[0]) return
+    activeMatchRef.current = match.keywords[0]
+    clearTimeout(rainTimeoutRef.current)
+    setEmojiRain(match.emojis)
+    rainTimeoutRef.current = setTimeout(() => {
+      setEmojiRain(null)
+      activeMatchRef.current = null
+    }, 4800)
+  }
+
+  function triggerNewDropPulse() {
+    setPulseNewArrivals(true)
+    setTimeout(() => newArrivalsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150)
+    setTimeout(() => setPulseNewArrivals(false), 1800)
+  }
+
+  function triggerSelfSearchEasterEgg() {
+    if (selfEggFiredRef.current) return
+    selfEggFiredRef.current = true
+    setConfettiBurst(true)
+    showToast("That's you! 👀", 'success')
+    setTimeout(() => setConfettiBurst(false), 1600)
+    setTimeout(() => { selfEggFiredRef.current = false }, 4000)
+  }
+
+  // Central dispatcher — called both from the header search bar's live
+  // query state AND from inside the overlay, so it fires regardless of
+  // whether someone presses Enter or just taps a result card.
+  function handleLiveQuery(text) {
+    const match = matchEmojiTrigger(text)
+    if (match) triggerEmojiRain(match)
+    if (matchNewDrop(text)) triggerNewDropPulse()
+    if (matchOwnUsername(text, authUsername)) triggerSelfSearchEasterEgg()
+  }
+
+  useEffect(() => { handleLiveQuery(query) }, [query])
+  useEffect(() => () => clearTimeout(rainTimeoutRef.current), [])
+
   const handleOverlaySearch = (q) => {
     setQuery(q); setInputVal(q)
     router.get('/explore', { q }, { preserveState: true, replace: true })
@@ -319,9 +577,8 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
 
   const handleCategoryClick = (catId) => {
     setCategory(catId)
-    // If no query, set a space so isSearching becomes true and filters show
     if (!query.trim() && catId !== null) setQuery(' ')
-    if (catId === null) { setQuery(''); setInputVal('') }
+    if (catId === null) { setQuery(''); setInputVal(''); setCategory(null) }
   }
 
   return (
@@ -333,8 +590,12 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
           initialQuery={inputVal}
           onClose={() => setSearchOpen(false)}
           onSearch={handleOverlaySearch}
+          onLiveQuery={handleLiveQuery}
         />
       )}
+
+      {emojiRain && <EmojiRain emojis={emojiRain} />}
+      {confettiBurst && <ConfettiBurst />}
 
       <div className="h-full overflow-hidden bg-[#050505] text-white">
         <div className="flex h-full flex-col">
@@ -349,16 +610,40 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                 <p className="text-xs text-white/35 mt-0.5">Discover what's hot on Flockr</p>
               </div>
 
-              {/* Search bar */}
+              {/* Search bar wrapper */}
               <div className="relative mb-3">
                 <div onClick={() => setSearchOpen(true)} style={{ cursor: 'text' }} className="relative">
-                  <RiSearchLine size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-                  <div className="h-11 w-full rounded-2xl border border-white/[0.07] bg-[#0F0F0F] pl-11 pr-12 text-[13px] flex items-center select-none" style={{ color: query.trim() ? '#fff' : 'rgba(255,255,255,0.25)' }}>
-                    {query.trim() || 'Search products, sellers, videos...'}
+                  <RiSearchLine size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/30 z-10" />
+
+                  <div className="h-11 w-full rounded-2xl border border-white/[0.07] bg-[#0F0F0F] pl-11 pr-12 text-[13px] flex items-center select-none overflow-hidden relative">
+                    {query.trim() ? (
+                      <span className="text-white truncate block max-w-full">{query}</span>
+                    ) : (
+                      <span
+                        style={{
+                          transition: 'transform 0.32s cubic-bezier(0.4,0,0.2,1), opacity 0.32s ease',
+                          transform:
+                            hintPhase === 'out' ? 'translateY(-10px)' :
+                            hintPhase === 'in'  ? 'translateY(10px)'  :
+                            'translateY(0px)',
+                          opacity: hintPhase === 'visible' ? 1 : 0,
+                          willChange: 'transform, opacity',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: '100%',
+                          display: 'block',
+                          color: 'rgba(255,255,255,0.3)',
+                        }}
+                      >
+                        {hintDisplay}
+                      </span>
+                    )}
                   </div>
+
                   {query.trim() && (
                     <button type="button" onClick={e => { e.stopPropagation(); setQuery(''); setInputVal(''); setCategory(null); router.get('/explore', {}, { preserveState: true, replace: true }) }}
-                      className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-white/35 hover:bg-white/[0.05]">
+                      className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-white/35 hover:bg-white/[0.05] z-10">
                       <RiCloseLine size={15} />
                     </button>
                   )}
@@ -448,7 +733,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                           <div className="flex flex-col items-center justify-center py-20 text-center">
                             <RiSearchLine size={34} className="text-white/15" />
                             <p className="mt-3 text-sm text-white/50">No results found</p>
-                            <p className="text-xs text-white/30">Try different keywords or filters</p>
+                            <p className="text-xs text-white/30">{pickPhrase(query)}</p>
                           </div>
                         )}
                       </section>
@@ -512,7 +797,6 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                   {hotProducts.length > 0 && (
                     <section>
                       <SectionHeader icon={RiRocketLine} title="Popular Products" badge="Most ordered" seeAllHref="/shop" />
-                      {/* Horizontal scroll — same treatment as New Arrivals but taller cards */}
                       <div style={{ display: 'flex', gap: 12, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
                         {hotProducts.map(p => (
                           <Link key={p.id}
@@ -523,7 +807,6 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                                 ? <img src={p.primary_image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 : <div style={{ width: '100%', height: '100%', background: '#222' }} />
                               }
-                              {/* Orders badge */}
                               {(p.orders_count ?? 0) > 0 && (
                                 <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', borderRadius: 999, padding: '3px 8px' }}>
                                   <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>{fmtCount(p.orders_count)} sold</span>
@@ -535,8 +818,6 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                             <p style={{ color: '#FF6B35', fontSize: 13, fontWeight: 800, margin: 0 }}>₦{Number(p.price).toLocaleString()}</p>
                           </Link>
                         ))}
-                        {/* See all card at the end */}
-                        
                       </div>
                     </section>
                   )}
@@ -553,9 +834,8 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
 
                   {/* ── New arrivals ─────────────────────────────────────── */}
                   {newArrivals.length > 0 && (
-                    <section>
+                    <section ref={newArrivalsRef} className={pulseNewArrivals ? 'pulse-glow' : ''}>
                       <SectionHeader icon={RiShoppingBag3Line} title="New Arrivals" badge="Just listed" seeAllHref="/shop?sort=newest" />
-                      {/* Horizontal scroll row — different from the grid above */}
                       <div style={{ display: 'flex', gap: 12, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
                         {newArrivals.map(p => (
                           <Link key={p.id}
@@ -597,7 +877,17 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .scrollbar-none::-webkit-scrollbar { display: none; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .pulse-glow {
+          border-radius: 20px;
+          animation: pulseGlow 0.9s ease-in-out 2;
+        }
+        @keyframes pulseGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,0); }
+          50%      { box-shadow: 0 0 40px 8px rgba(255,107,53,0.35); }
+        }
       `}</style>
+
+      {ToastComponent}
     </>
   )
 }
@@ -652,7 +942,6 @@ function VideoThumb({ video }) {
           : <div className="absolute inset-0 bg-[#1a1a1a]" />
         }
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-        {/* View count badge */}
         {video.views_count > 0 && (
           <div style={{ position: 'absolute', top: 7, left: 7, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', borderRadius: 999, padding: '2px 7px', display: 'flex', alignItems: 'center', gap: 3 }}>
             <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>{fmtCount(video.views_count)}</span>

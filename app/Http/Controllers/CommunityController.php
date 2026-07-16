@@ -51,10 +51,11 @@ class CommunityController extends Controller
 
     public function feed(Request $request): JsonResponse
     {
-        $userId = Auth::id();
-        $page   = (int) $request->get('page', 1);
+        $userId    = Auth::id();
+        $sessionId = $userId ? null : $this->guestSessionId($request);
+        $page      = (int) $request->get('page', 1);
 
-        $result = $this->feedService->getFeed($userId, $page, 20);
+        $result = $this->feedService->getFeed($userId, $sessionId, $page, 20);
         $posts  = collect($result['data']);
 
         $likedIds = [];
@@ -94,21 +95,12 @@ class CommunityController extends Controller
         $liked = $userId && DB::table('post_likes')
             ->where('post_id', $post->id)->where('user_id', $userId)->exists();
 
-        $comments = PostComment::where('post_id', $post->id)
-            ->whereNull('parent_id')
-            ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
-            ->latest()
-            ->get()
-            ->map(function ($c) {
-                $arr = $c->toArray();
-                if ($c->user) $arr['user']['avatar_url'] = $c->user->avatar_url;
-                return $arr;
-            });
+        $comments = $this->serialisedComments($post, $userId);
 
         return response()->json([
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me' => $liked,
-                'comments_count' => $comments->count(),
+                'comments_count' => $this->countComments($post),
                 'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
@@ -123,21 +115,12 @@ class CommunityController extends Controller
         $liked = $userId && DB::table('post_likes')
             ->where('post_id', $post->id)->where('user_id', $userId)->exists();
 
-        $comments = PostComment::where('post_id', $post->id)
-            ->whereNull('parent_id')
-            ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
-            ->latest()
-            ->get()
-            ->map(function ($c) {
-                $arr = $c->toArray();
-                if ($c->user) $arr['user']['avatar_url'] = $c->user->avatar_url;
-                return $arr;
-            });
+        $comments = $this->serialisedComments($post, $userId);
 
         return Inertia::render('Community/CommunityPost', [
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me' => $liked,
-                'comments_count' => $comments->count(),
+                'comments_count' => $this->countComments($post),
                 'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
@@ -150,59 +133,76 @@ class CommunityController extends Controller
     {
         $userId    = Auth::id();
         $sessionId = $userId ? null : ($request->cookie('flockr_sid') ?? $request->header('X-Session-ID'));
+        $viewerKey = $userId ? "u:{$userId}" : ($sessionId ? "s:{$sessionId}" : null);
 
-        $inserted = DB::table('post_views')->insertOrIgnore([
-            'post_id'    => $post->id,
-            'user_id'    => $userId,
-            'session_id' => $sessionId,
-            'viewed_at'  => now(),
-        ]);
+        if ($viewerKey) {
+            $inserted = DB::table('post_views')->insertOrIgnore([
+                'post_id'    => $post->id,
+                'user_id'    => $userId,
+                'session_id' => $sessionId,
+                'viewer_key' => $viewerKey,
+                'viewed_at'  => now(),
+            ]);
 
-        if ($inserted) {
+            if ($inserted) {
+                $post->increment('views_count');
+            }
+        } else {
+            // No auth and no session cookie at all — can't dedupe this
+            // visitor, so count the view but don't write a row we can't
+            // attribute to anyone.
             $post->increment('views_count');
         }
 
         return response()->json(['views_count' => $post->fresh()->views_count]);
     }
 
+    /**
+     * Owner-only viewer list — like Instagram Stories' viewer sheet.
+     * Only shows identified (logged-in) viewers; anonymous session-only
+     * views count toward views_count but can't be attributed to a person.
+     */
+    public function postViewers(Post $post): JsonResponse
+    {
+        abort_unless(Auth::id() === $post->user_id, 403);
+
+        $viewers = DB::table('post_views')
+            ->join('users', 'users.id', '=', 'post_views.user_id')
+            ->where('post_views.post_id', $post->id)
+            ->whereNotNull('post_views.user_id')
+            ->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.is_verified', 'post_views.viewed_at')
+            ->orderByDesc('post_views.viewed_at')
+            ->limit(200)
+            ->get()
+            ->map(function ($u) {
+                $user = User::find($u->id);
+                return array_merge((array) $u, ['avatar_url' => $user?->avatar_url]);
+            });
+
+        return response()->json($viewers);
+    }
+
     // ── Post Comments ─────────────────────────────────────────────────────────
 
     public function postComments(Post $post): JsonResponse
     {
-        $comments = PostComment::where('post_id', $post->id)
-            ->whereNull('parent_id')
-            ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
-            ->latest()
-            ->paginate(30);
-
-        $comments->getCollection()->transform(function ($c) {
-            $arr = $c->toArray();
-            if ($c->user) $arr['user']['avatar_url'] = $c->user->avatar_url;
-            $arr['replies'] = collect($arr['replies'] ?? [])->map(function ($r) use ($c) {
-                if (isset($c->replies)) {
-                    $reply = $c->replies->firstWhere('id', $r['id']);
-                    if ($reply?->user) $r['user']['avatar_url'] = $reply->user->avatar_url;
-                }
-                return $r;
-            })->all();
-            return $arr;
-        });
-
-        return response()->json($comments);
+        return response()->json($this->serialisedComments($post, Auth::id()));
     }
 
     public function storePostComment(Request $request, Post $post): JsonResponse
     {
         $validated = $request->validate([
-            'body'      => 'required|string|max:500',
-            'parent_id' => 'nullable|integer|exists:post_comments,id',
+            'body'              => 'required|string|max:500',
+            'parent_id'         => 'nullable|integer|exists:post_comments,id',
+            'reply_to_username' => 'nullable|string|max:60',
         ]);
 
         $comment = PostComment::create([
-            'post_id'   => $post->id,
-            'user_id'   => Auth::id(),
-            'parent_id' => $validated['parent_id'] ?? null,
-            'body'      => $validated['body'],
+            'post_id'           => $post->id,
+            'user_id'           => Auth::id(),
+            'parent_id'         => $validated['parent_id'] ?? null,
+            'reply_to_username' => $validated['reply_to_username'] ?? null,
+            'body'              => $validated['body'],
         ]);
 
         $post->increment('comments_count');
@@ -210,9 +210,48 @@ class CommunityController extends Controller
         $comment->load('user:id,name,username,avatar');
 
         return response()->json(array_merge($comment->toArray(), [
-            'user'    => array_merge($comment->user->toArray(), ['avatar_url' => $comment->user->avatar_url]),
-            'replies' => [],
+            'user'           => array_merge($comment->user->toArray(), ['avatar_url' => $comment->user->avatar_url]),
+            'replies'        => [],
+            'is_liked_by_me' => false,
         ]), 201);
+    }
+
+    public function likePostComment(PostComment $comment): JsonResponse
+    {
+        $userId = Auth::id();
+        $liked  = DB::table('post_comment_likes')
+            ->where('post_comment_id', $comment->id)->where('user_id', $userId)->exists();
+
+        if ($liked) {
+            DB::table('post_comment_likes')->where('post_comment_id', $comment->id)->where('user_id', $userId)->delete();
+            $comment->decrement('likes_count');
+        } else {
+            DB::table('post_comment_likes')->insertOrIgnore([
+                'post_comment_id' => $comment->id, 'user_id' => $userId,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $comment->increment('likes_count');
+        }
+
+        return response()->json([
+            'liked'       => !$liked,
+            'likes_count' => max(0, $comment->fresh()->likes_count),
+        ]);
+    }
+
+    public function pinPostComment(PostComment $comment): JsonResponse
+    {
+        $comment->load('post');
+        abort_unless(Auth::id() === $comment->post->user_id, 403);
+        abort_if($comment->parent_id !== null, 422, 'Only top-level comments can be pinned.');
+
+        // Only one pinned comment per post — unpin any existing one first.
+        if (!$comment->is_pinned) {
+            PostComment::where('post_id', $comment->post_id)->where('is_pinned', true)->update(['is_pinned' => false]);
+        }
+        $comment->update(['is_pinned' => !$comment->is_pinned]);
+
+        return response()->json(['is_pinned' => $comment->is_pinned]);
     }
 
     // ── Posts ─────────────────────────────────────────────────────────────────
@@ -449,8 +488,10 @@ class CommunityController extends Controller
             ->where('room_id', $room->id)->where('user_id', $userId)->exists();
 
         if ($isMember) {
+            $leavingUserName = Auth::user()->name;
             DB::table('room_user')->where('room_id', $room->id)->where('user_id', $userId)->delete();
             $room->decrement('members_count');
+            $this->postSystemMessage($room, $leavingUserName . ' left the room', $userId);
             return response()->json(['joined' => false, 'members_count' => max(0, $room->fresh()->members_count)]);
         }
 
@@ -463,7 +504,7 @@ class CommunityController extends Controller
             'updated_at'   => now(),
         ]);
         $room->increment('members_count');
-        $this->postSystemMessage($room, Auth::user()->name . ' joined the room');
+        $this->postSystemMessage($room, Auth::user()->name . ' joined the room', $userId);
 
         return response()->json([
             'joined'        => true,
@@ -480,18 +521,40 @@ class CommunityController extends Controller
      * it still creates a pending request the seller has to approve. This
      * matches "approval required" behaviour everywhere for private rooms.
      */
+    /**
+     * GET /api/community/rooms/lookup-invite
+     * Preview-only — does NOT join or create a request. Lets the frontend
+     * show the same info+rules confirmation modal for an invite code as it
+     * does for browsing a room in Discover, instead of joining blind.
+     */
+    public function lookupInviteCode(Request $request): JsonResponse
+    {
+        abort_unless(Auth::check(), 401, 'Please log in to join a room.');
+
+        $validated = $request->validate(['invite_code' => 'required|string']);
+        $room = Room::where('invite_code', strtoupper($validated['invite_code']))
+            ->with('seller:id,name,username,avatar,is_verified')
+            ->first();
+
+        if (!$room) {
+            return response()->json(['message' => 'Invalid invite code.'], 404);
+        }
+
+        $alreadyMember = DB::table('room_user')
+            ->where('room_id', $room->id)->where('user_id', Auth::id())->exists();
+
+        return response()->json(array_merge($this->serialiseRoom($room), [
+            'already_joined' => $alreadyMember,
+        ]));
+    }
+
     public function joinByInvite(Request $request): JsonResponse
     {
+        abort_unless(Auth::check(), 401, 'Please log in to join a room.');
+
         $validated = $request->validate(['invite_code' => 'required|string']);
 
-        $room = Room::where('invite_code', strtoupper($validated['invite_code']))
-    ->first();
-
-if (! $room) {
-    return response()->json([
-        'message' => 'Invalid invite code.',
-    ], 404);
-}
+        $room = Room::where('invite_code', strtoupper($validated['invite_code']))->firstOrFail();
 
         $userId   = Auth::id();
         $isMember = DB::table('room_user')
@@ -527,7 +590,7 @@ if (! $room) {
             'updated_at'   => now(),
         ]);
         $room->increment('members_count');
-        $this->postSystemMessage($room, Auth::user()->name . ' joined the room');
+        $this->postSystemMessage($room, Auth::user()->name . ' joined the room', $userId);
 
         return response()->json([
             'joined' => true,
@@ -594,7 +657,7 @@ if (! $room) {
 
             $approvedUser = User::find($req->user_id);
             if ($approvedUser) {
-                $this->postSystemMessage($room, $approvedUser->name . ' joined the room');
+                $this->postSystemMessage($room, $approvedUser->name . ' joined the room', $approvedUser->id);
             }
         }
 
@@ -687,17 +750,67 @@ if (! $room) {
         );
     }
 
+    private function countComments(Post $post): int
+    {
+        return PostComment::where('post_id', $post->id)->whereNull('parent_id')->count();
+    }
+
+    /**
+     * Flat-thread pattern: every comment's parent_id points to the ROOT
+     * comment, never to another reply. A reply-to-a-reply is tagged via
+     * reply_to_username instead of nesting deeper. This matches your video
+     * CommentSheet exactly, so one level of eager-loaded replies is always
+     * enough — no recursive queries needed.
+     */
+    private function serialisedComments(Post $post, ?int $userId): \Illuminate\Support\Collection
+    {
+        $comments = PostComment::where('post_id', $post->id)
+            ->whereNull('parent_id')
+            ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
+            ->orderByDesc('is_pinned')
+            ->latest()
+            ->get();
+
+        $allIds = $comments->pluck('id')
+            ->concat($comments->flatMap(fn($c) => $c->replies->pluck('id')))
+            ->all();
+
+        $likedIds = $userId
+            ? DB::table('post_comment_likes')->where('user_id', $userId)->whereIn('post_comment_id', $allIds)->pluck('post_comment_id')->all()
+            : [];
+
+        return $comments->map(function ($c) use ($likedIds) {
+            $arr = $c->toArray();
+            if ($c->user) $arr['user']['avatar_url'] = $c->user->avatar_url;
+            $arr['is_liked_by_me'] = in_array($c->id, $likedIds);
+            $arr['replies'] = $c->replies->map(function ($r) use ($likedIds) {
+                $rArr = $r->toArray();
+                if ($r->user) $rArr['user']['avatar_url'] = $r->user->avatar_url;
+                $rArr['is_liked_by_me'] = in_array($r->id, $likedIds);
+                return $rArr;
+            })->values()->all();
+            return $arr;
+        })->values();
+    }
+
+    private function guestSessionId(Request $request): ?string
+    {
+        return $request->cookie('flockr_sid') ?? $request->header('X-Session-ID');
+    }
+
     /**
      * Posts a lightweight "X joined the room" system message and broadcasts
      * it exactly like a normal message — the frontend renders it centered
-     * and muted instead of as a chat bubble because of the is_system flag.
+     * and muted (like the date dividers) instead of as a chat bubble, based
+     * on the is_system flag. Attributed to the person who joined, not the
+     * seller/host — it's informational, not something "said" by the host.
      */
-    private function postSystemMessage(Room $room, string $body): void
+    private function postSystemMessage(Room $room, string $body, ?int $userId = null): void
     {
         try {
             $msg = RoomMessage::create([
                 'room_id'   => $room->id,
-                'user_id'   => $room->seller_id, // attributed to the room itself; frontend ignores the avatar for system rows
+                'user_id'   => $userId ?? $room->seller_id,
                 'body'      => $body,
                 'is_system' => true,
             ]);

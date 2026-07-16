@@ -300,7 +300,9 @@ $hashtags = $request->filled('hashtags')
                 $random = Video::active()
                     ->where('user_id', '!=', $sellerId)
                     ->whereNotIn('id', array_filter($excludeIds))
-                    ->with(['user:id,name,username,avatar,is_verified,location', 'products'])
+                    ->with(['user:id,name,username,avatar,is_verified,location', 
+                    'products' => fn($q) => $q->with('seller:id,name,username,avatar,is_verified'),
+                    ])
                     ->withCount(['allComments'])
                     ->inRandomOrder()
                     ->limit($needed)

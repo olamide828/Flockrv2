@@ -4,14 +4,15 @@ import { RiArrowLeftLine, RiSearchLine, RiGroupLine, RiLockLine } from 'react-ic
 import { useToast } from '@/Components/Toast'
 
 /**
- * onJoin(room)          — called when the person taps Join/Request on a
- *                          browsable room; parent decides whether to open
- *                          RoomJoinModal or join immediately.
- * onJoinedDirectly(room) — called after a successful invite-code join,
- *                          which bypasses the join modal since the person
- *                          already confirmed by typing the code.
+ * onJoin(room)         — called when the person taps Join/Request on a
+ *                         browsable room; parent opens RoomJoinModal.
+ * onPreviewInvite(room) — called after a successful invite-code lookup;
+ *                         parent opens the SAME RoomJoinModal (info + rules)
+ *                         instead of joining blind. The room object carries
+ *                         a _inviteCode field so the parent's confirm
+ *                         handler knows to call the invite-join endpoint.
  */
-export default function RoomDiscovery({ auth, onClose, onJoin, onJoinedDirectly, joinedIds, initialInvite = '' }) {
+export default function RoomDiscovery({ auth, onClose, onJoin, onPreviewInvite, joinedIds, initialInvite = '' }) {
   const [q, setQ] = useState('')
   const [rooms, setRooms] = useState([])
   const [loading, setLoading] = useState(true)
@@ -33,18 +34,18 @@ export default function RoomDiscovery({ auth, onClose, onJoin, onJoinedDirectly,
     }, q ? 300 : 0)
   }, [q])
 
-  const joinByInvite = async () => {
+  const previewInvite = async () => {
     if (!invite.trim()) return
     setJoining('invite')
     try {
-      const { data } = await axios.post('/api/community/rooms/join-by-invite', { invite_code: invite.trim() })
-      if (data.joined && data.room) {
-        onJoinedDirectly(data.room)
+      const { data } = await axios.get('/api/community/rooms/lookup-invite', { params: { invite_code: invite.trim() } })
+      if (data.already_joined) {
+        showToast('You are already a member of this room')
         onClose()
-      } else if (data.requested) {
-        showToast(`Request sent to join ${data.room?.name ?? 'the room'}`)
-        onClose()
+        return
       }
+      onPreviewInvite({ ...data, _inviteCode: invite.trim().toUpperCase() })
+      onClose()
     } catch (e) { showToast(e.response?.data?.message ?? 'Invalid invite code', 'error') }
     finally { setJoining(null) }
   }
@@ -74,7 +75,7 @@ export default function RoomDiscovery({ auth, onClose, onJoin, onJoinedDirectly,
         <div style={{ display:'flex', gap:8 }}>
           <input value={invite} onChange={e => setInvite(e.target.value.toUpperCase())} placeholder="Enter 8-character code..."
             style={{ flex:1, height:40, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'0 14px', color:'#fff', fontSize:14, outline:'none', fontFamily:'monospace', letterSpacing:'0.1em' }} />
-          <button onClick={joinByInvite} disabled={!invite.trim() || joining === 'invite'}
+          <button onClick={previewInvite} disabled={!invite.trim() || joining === 'invite'}
             style={{ padding:'0 18px', borderRadius:12, background: invite.trim() ? '#FF6B35' : 'rgba(255,255,255,0.07)', border:'none', cursor: invite.trim() ? 'pointer' : 'default', color: invite.trim() ? '#fff' : 'rgba(255,255,255,0.3)', fontSize:14, fontWeight:700 }}>
             {joining === 'invite' ? '...' : 'Join'}
           </button>

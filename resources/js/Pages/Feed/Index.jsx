@@ -39,11 +39,13 @@ export default function FeedIndex({ initialVideos }) {
         itemRefs.current.forEach((el, i) => {
             if (!el) return;
             const obs = new IntersectionObserver(
-                ([entry]) => {
-                    if (entry.isIntersecting) setActiveIndex(i);
-                },
-                { threshold: 0.6 },
-            );
+    ([entry]) => {
+        if (entry.isIntersecting) {
+            setActiveIndex(i);
+        }
+    },
+    { threshold: 0.5, rootMargin: '0px' },
+);
             obs.observe(el);
             observers.push(obs);
         });

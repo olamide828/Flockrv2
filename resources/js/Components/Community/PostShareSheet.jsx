@@ -26,8 +26,8 @@ export default function PostShareSheet({ post, onClose }) {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(0,0,0,0.5)' }} />
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 951, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'postShareSlideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+      <div onClick={e => { e.stopPropagation(); onClose() }} style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(0,0,0,0.5)' }} />
+      <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 951, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', animation: 'postShareSlideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
         </div>

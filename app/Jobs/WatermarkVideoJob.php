@@ -46,7 +46,7 @@ class WatermarkVideoJob implements ShouldQueue
 
             // 3. Check assets
             $logoPath  = $this->p(public_path('images/flockr_logo_white.png'));
-            $logoOutro = $this->p(public_path('images/flockr_logo_outro.png'));
+            $logoOutro = $this->p(public_path('images/flockr_logo_orange.png'));
             $soundPath = $this->p(public_path('audio/flockr_outro.mp3'));
 
             if (!file_exists($logoPath)) {

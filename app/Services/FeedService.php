@@ -99,7 +99,7 @@ class FeedService
         return Video::active()
             ->with([
                 'user:id,name,username,avatar,is_verified,location',
-                'products' => fn($q) => $q->where('status', 'active'),
+                'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
             ])
             ->withCount(['allComments'])
             ->whereIn('user_id', $followingIds)
@@ -126,7 +126,7 @@ class FeedService
         $base = Video::active()
             ->with([
                 'user:id,name,username,avatar,is_verified,location',
-                'products' => fn($q) => $q->where('status', 'active'),
+                'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
             ])
             ->withCount(['allComments'])
             ->when($seenIds->isNotEmpty(), fn($q) => $q->whereNotIn('id', $seenIds->take(2000)))

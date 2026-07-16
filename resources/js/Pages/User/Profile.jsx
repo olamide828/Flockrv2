@@ -376,7 +376,7 @@ export default function UserProfile({
 
     const handleShare = () => {
         const url = `${window.location.origin}/@${profileUser.username}`;
-        if (navigator.share) navigator.share({ title: profileUser.name, url }).catch(() => {});
+        if (navigator.share) navigator.share({ title: `Check out (@${profileUser.username}) on Flockr  \n Share and dicover quality products on Flockr`, url }).catch(() => {});
         else navigator.clipboard?.writeText(url);
     };
 

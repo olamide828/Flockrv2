@@ -21,6 +21,7 @@ use App\Http\Controllers\MediaUploadController;
 use App\Http\Controllers\TerminalWebhookController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
@@ -119,23 +120,87 @@ Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
     }
 });
 
+// GET /api/search/discover — rotating placeholder suggestions, no query needed
+Route::get('/search/discover', function () {
+    return \Illuminate\Support\Facades\Cache::remember('search_discover', 600, function () {
+        $hints = collect();
+
+        // Top products by views (pick 4 random from top 20)
+        $products = \DB::table('products')
+            ->where('status', 'active')
+            ->whereNotNull('name')
+            ->orderByDesc('views_count')
+            ->limit(20)
+            ->pluck('name')
+            ->shuffle()
+            ->take(4)
+            ->map(fn($name) => "Search '{$name}'...");
+
+        // Active sellers (pick 3 random)
+        $sellers = \DB::table('users')
+            ->where('role', 'seller')
+            ->where('is_active', true)
+            ->whereNotNull('username')
+            ->inRandomOrder()
+            ->limit(3)
+            ->pluck('username')
+            ->map(fn($u) => "Find '@{$u}'...");
+
+        // Hashtags from videos (pick 3 random)
+        $tags = \DB::table('videos')
+            ->where('status', 'active')
+            ->whereNotNull('hashtags')
+            ->whereRaw("hashtags::text != '[]'")
+            ->whereRaw("hashtags::text != 'null'")
+            ->inRandomOrder()
+            ->limit(15)
+            ->pluck('hashtags')
+            ->flatMap(fn($h) => is_array($h) ? $h : json_decode($h, true) ?? [])
+            ->filter()
+            ->unique()
+            ->shuffle()
+            ->take(3)
+            ->map(fn($tag) => "Discover '" . (str_starts_with($tag, '#') ? $tag : "#{$tag}") . "'...");
+
+        return $hints
+            ->concat($products)
+            ->concat($sellers)
+            ->concat($tags)
+            ->shuffle()
+            ->take(8)
+            ->values()
+            ->toArray();
+    });
+});
+
 // Terminal location data — public endpoints
 Route::get('/locations/states', function () {
     try {
+        // Clear cache if empty to force a fresh fetch
+        $cached = Cache::get('terminal_ng_states');
+        if (empty($cached)) Cache::forget('terminal_ng_states');
+
         $states = app(App\Services\TerminalService::class)->getStates();
         return response()->json(['states' => $states]);
     } catch (\Throwable $e) {
-        return response()->json(['states' => []], 200);
+        \Log::error('getStates route failed', ['error' => $e->getMessage()]);
+        return response()->json(['states' => [], 'error' => $e->getMessage()], 200);
     }
 });
 
 Route::get('/locations/cities', function (\Illuminate\Http\Request $request) {
     $request->validate(['state_code' => 'required|string']);
     try {
-        $cities = app(App\Services\TerminalService::class)->getCities($request->state_code);
+        $stateCode = $request->state_code;
+        $cacheKey  = 'terminal_cities_' . $stateCode;
+        $cached    = Cache::get($cacheKey);
+        if (empty($cached)) Cache::forget($cacheKey);
+
+        $cities = app(App\Services\TerminalService::class)->getCities($stateCode);
         return response()->json(['cities' => $cities]);
     } catch (\Throwable $e) {
-        return response()->json(['cities' => []], 200);
+        \Log::error('getCities route failed', ['error' => $e->getMessage()]);
+        return response()->json(['cities' => [], 'error' => $e->getMessage()], 200);
     }
 });
 
@@ -196,6 +261,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
     Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
     Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
+
+    Route::post('/community/comments/{comment}/like', [CommunityController::class, 'likePostComment']);
+Route::post('/community/comments/{comment}/pin', [CommunityController::class, 'pinPostComment']);
+ 
+// Post viewers (owner-only "who saw this")
+Route::get('/community/posts/{post}/viewers', [CommunityController::class, 'postViewers']);
+ 
+// Invite-code preview (no join/request side effect — just looks the room up)
+Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'lookupInviteCode']);
+
 
     // Comments
     Route::post('/videos/{video}/comments', [CommentController::class, 'store']);

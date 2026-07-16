@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, usePage, router } from '@inertiajs/react'
 import axios from 'axios'
+import Toast from '@/Components/Toast'
 
 function timeAgo(d) {
   const s = (Date.now() - new Date(d)) / 1000
@@ -267,6 +268,11 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
   const [body,     setBody]     = useState('')
   const [posting,  setPosting]  = useState(false)
   const [replyTo,  setReplyTo]  = useState(null)
+  const [toast, setToast] = useState(null)
+const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 2500)
+}
   // replyTo = { rootId: number, tagUsername: string|null }
 
   const inputRef = useRef(null)
@@ -292,6 +298,7 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
       // Refresh to get accurate pinned state from server
       const r = await axios.get(`/api/videos/${videoId}/comments`)
       setComments(r.data.data ?? r.data ?? [])
+      showToast('Comment pinned', 'success')
     } catch {}
   }, [videoId])
 
@@ -348,6 +355,7 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
         ))
       } else {
         setComments(prev => prev.map(c => c.id === optimistic.id ? data : c))
+        showToast('Comment added', 'success')
       }
     } catch {
       // Rollback
@@ -377,7 +385,10 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
       setComments(prev => prev.filter(c => c.id !== comment.id))
       onCountChange?.(-(1 + replyCount))
     }
-    try { await axios.delete(`/api/comments/${comment.id}`) }
+    try {
+    await axios.delete(`/api/comments/${comment.id}`)
+    showToast('Comment deleted', 'error')
+}
     catch {
       const r = await axios.get(`/api/videos/${videoId}/comments`).catch(() => null)
       if (r) setComments(r.data.data ?? r.data ?? [])
@@ -486,6 +497,12 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
           )}
         </div>
       </div>
+
+      {toast && (
+          <div style={{ position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 30, pointerEvents: 'none' }}>
+              <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+          </div>
+      )}
 
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }

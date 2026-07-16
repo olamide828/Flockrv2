@@ -11,7 +11,10 @@ class PostComment extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['post_id', 'user_id', 'parent_id', 'body', 'likes_count'];
+    protected $fillable = [
+        'post_id', 'user_id', 'parent_id',
+        'reply_to_username', 'body', 'likes_count', 'is_pinned',
+    ];
 
     public function user(): BelongsTo
     {
@@ -23,13 +26,8 @@ class PostComment extends Model
         return $this->belongsTo(Post::class);
     }
 
-    public function parent(): BelongsTo
-    {
-        return $this->belongsTo(PostComment::class, 'parent_id');
-    }
-
     public function replies(): HasMany
     {
-        return $this->hasMany(PostComment::class, 'parent_id')->with('user:id,name,username,avatar');
+        return $this->hasMany(PostComment::class, 'parent_id')->oldest();
     }
 }

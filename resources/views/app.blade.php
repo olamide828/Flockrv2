@@ -19,7 +19,7 @@
     <meta name="theme-color" content="#0a0a0a" />
 
     {{-- Favicon --}}
-    <link rel="icon" type="image/png" href="/flockr_logo_white.png" />
+    <link rel="icon" type="image/png" href="/flockr_logo_orange.png" />
 
     {{-- Preconnect for performance --}}
     <link rel="preconnect" href="https://fonts.googleapis.com" />

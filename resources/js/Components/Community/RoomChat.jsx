@@ -9,6 +9,7 @@ import {
 import Av from './Av'
 import ShareRoomSheet from './ShareRoomSheet'
 import RoomInfoModal from './RoomInfoModal'
+import RoomMediaPlayer from './RoomMediaPlayer'
 import { fmtTime } from './helpers'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom }) {
@@ -20,6 +21,7 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
   const [replyTo,   setReplyTo]   = useState(null)
   const [msgAction, setMsgAction] = useState(null)
   const [pendingMedia, setPendingMedia] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(null) // 0-100 while uploading, null otherwise
   const [typing,    setTyping]    = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showShare,  setShowShare]  = useState(false)
@@ -54,8 +56,15 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     if (!window.Echo) return
     channelRef.current?.unsubscribe()
     const channel = window.Echo.private(`room.${room.id}`)
-    channel.listen('RoomMessageSent', (e) => setMessages(p => [...p, e.message]))
-    channel.listen('RoomMessageDeleted', (e) => {
+    channel.listen('.RoomMessageSent', (e) => setMessages(p => {
+      // Defensive dedup: if toOthers() isn't excluding the sender's own
+      // socket (commonly because X-Socket-ID isn't wired into axios in
+      // bootstrap.js), this stops the sender from seeing their own message
+      // twice — once from the optimistic->real swap, once from the echo.
+      if (p.some(m => m.id === e.message.id)) return p
+      return [...p, e.message]
+    }))
+    channel.listen('.RoomMessageDeleted', (e) => {
       setMessages(p => p.map(m => m.id === e.message_id
         ? { ...m, is_deleted: true, body: null, media_url: null, media_type: null }
         : m))
@@ -88,9 +97,16 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     setHasMore(r.data.has_more ?? false)
   }
 
+  const MAX_UPLOAD_MB = 100
+
   const pickRoomMedia = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      alert(`That file is too big — max ${MAX_UPLOAD_MB}MB.`)
+      e.target.value = ''
+      return
+    }
     const isVideo = file.type.startsWith('video/')
     setPendingMedia({ preview: URL.createObjectURL(file), type: isVideo ? 'video' : 'image', file })
   }
@@ -107,12 +123,21 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
         const form = new FormData()
         form.append('file', pendingMedia.file)
         form.append('type', pendingMedia.type)
-        const { data } = await axios.post('/api/upload/media', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+        setUploadProgress(0)
+        const { data } = await axios.post('/api/upload/media', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (evt) => {
+            if (evt.total) setUploadProgress(Math.round((evt.loaded * 100) / evt.total))
+          },
+        })
         media_url = data.url; media_type = pendingMedia.type
-      } catch {
+      } catch (err) {
+        alert(err.response?.data?.message ?? 'Upload failed. Please try again.')
         setSending(false)
+        setUploadProgress(null)
         return
       }
+      setUploadProgress(null)
     }
 
     const opt = {
@@ -332,7 +357,7 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
                         {msg.media_url && (
                           <div style={{ overflow:'hidden', borderRadius: msg.body ? '14px 14px 0 0' : 14 }}>
                             {msg.media_type === 'video'
-                              ? <video src={msg.media_url} controls style={{ width:'100%', maxHeight:220, display:'block' }} />
+                              ? <RoomMediaPlayer src={msg.media_url} maxHeight={220} />
                               : <img src={msg.media_url} alt="" style={{ width:'100%', maxHeight:250, objectFit:'cover', display:'block' }} />
                             }
                           </div>
@@ -411,9 +436,19 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
               ? <video src={pendingMedia.preview} style={{ height:90, display:'block' }} />
               : <img src={pendingMedia.preview} alt="" style={{ height:90, display:'block' }} />
             }
-            <button onClick={() => setPendingMedia(null)} style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.75)', border:'none', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
-              <RiCloseLine size={13} />
-            </button>
+            {uploadProgress !== null && (
+              <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
+                <span style={{ color:'#fff', fontSize:13, fontWeight:700 }}>{uploadProgress}%</span>
+                <div style={{ width:'70%', height:4, borderRadius:999, background:'rgba(255,255,255,0.2)', overflow:'hidden' }}>
+                  <div style={{ width:`${uploadProgress}%`, height:'100%', background:'#FF6B35', transition:'width 0.15s' }} />
+                </div>
+              </div>
+            )}
+            {uploadProgress === null && (
+              <button onClick={() => setPendingMedia(null)} style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.75)', border:'none', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
+                <RiCloseLine size={13} />
+              </button>
+            )}
           </div>
         </div>
       )}

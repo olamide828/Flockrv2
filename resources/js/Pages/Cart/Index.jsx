@@ -25,11 +25,26 @@ import {
     RiVerifiedBadgeLine,
 } from 'react-icons/ri';
 
-// ── Nigerian states ───────────────────────────────────────────────────────────
-
-
-// ── Address form modal ────────────────────────────────────────────────────────
-
+// ── Empty cart mascot — small idle animation instead of a static icon ──────
+function EmptyCartMascot() {
+    return (
+        <div style={{ position: 'relative', width: 96, height: 96, margin: '0 auto' }}>
+            <div style={{
+                width: 72, height: 72, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '12px auto 0', animation: 'cartBounce 2.4s ease-in-out infinite',
+            }}>
+                <RiShoppingCart2Line
+                    size={32}
+                    color="rgba(255,255,255,0.25)"
+                    style={{ display: 'block', animation: 'cartWiggle 2.4s ease-in-out infinite' }}
+                />
+            </div>
+            <span style={{ position: 'absolute', top: -2, right: 6, fontSize: 18, animation: 'floatUp 2.4s ease-in-out infinite' }}>💤</span>
+        </div>
+    );
+}
 
 // ── Main CartIndex ────────────────────────────────────────────────────────────
 export default function CartIndex({ cartItems: initialItems = [], addresses: initialAddresses = [] }) {
@@ -118,9 +133,7 @@ export default function CartIndex({ cartItems: initialItems = [], addresses: ini
                     {/* Empty state */}
                     {isEmpty && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center', gap: 16 }}>
-                            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <RiShoppingCart2Line size={32} color="rgba(255,255,255,0.2)" />
-                            </div>
+                            <EmptyCartMascot />
                             <p style={{ color: '#fff', fontWeight: 700, fontSize: 20, margin: 0 }}>Your cart is empty</p>
                             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0 }}>Discover products from Nigerian sellers.</p>
                             <Link href="/shop" style={{ padding: '12px 28px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none', marginTop: 8 }}>
@@ -249,6 +262,13 @@ export default function CartIndex({ cartItems: initialItems = [], addresses: ini
                 @keyframes spin { to { transform: rotate(360deg); } }
                 @media (min-width: 768px) { .cart-sticky-bar { left: 240px !important; } }
                 select option { background: #1a1a1a; }
+                @keyframes cartBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+                @keyframes cartWiggle { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-8deg); } 75% { transform: rotate(8deg); } }
+                @keyframes floatUp {
+                    0%   { opacity: 0; transform: translateY(0) scale(0.8); }
+                    30%  { opacity: 1; }
+                    100% { opacity: 0; transform: translateY(-20px) scale(1.1); }
+                }
             `}</style>
         
         {ToastComponent}

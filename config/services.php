@@ -81,9 +81,10 @@ return [
   
 
     'terminal' => [
-    'secret_key'     => env('TERMINAL_SECRET_KEY'),
-    'base_url'       => env('TERMINAL_BASE_URL', 'https://sandbox.terminal.africa/v1'),
-    'webhook_secret' => env('TERMINAL_WEBHOOK_SECRET'),
-    ],
+    'secret_key'      => env('TERMINAL_SECRET_KEY'),
+    'base_url'        => env('TERMINAL_BASE_URL', 'https://sandbox.terminal.africa/v1'),
+    'public_base_url' => env('TERMINAL_PUBLIC_BASE_URL', 'https://api.terminal.africa/v1'),
+    'webhook_secret'  => env('TERMINAL_WEBHOOK_SECRET'),
+],
 
 ];
