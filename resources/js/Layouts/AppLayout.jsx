@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { ShoppingBagIcon } from 'lucide-react';
-import VerifyEmailBanner from '@/Components/VerifyEmailBanner';
+import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import { useEffect, useState } from 'react';
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
