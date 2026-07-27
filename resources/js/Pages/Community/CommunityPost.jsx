@@ -15,7 +15,7 @@ import PostMediaCarousel from '@/Components/Community/PostMediaCarousel'
 import PostShareSheet from '@/Components/Community/PostShareSheet'
 import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
-import { timeAgo, fmtCount } from '@/Components/Community/helpers'
+import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
 
 // ── Comment like button ──────────────────────────────────────────────────────
 function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 }) {
