@@ -36,6 +36,7 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
+        \App\Jobs\RecordLoginJob::dispatch($request->user()->id, $request->ip(), $request->userAgent(), $request->session()->getId());
         return $this->redirectByRole(Auth::user());
     }
 
@@ -50,10 +51,34 @@ class AuthController extends Controller
             'name' => 'required|string|max:100',
             'username' => 'required|string|max:30|alpha_dash|unique:users,username',
             'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string|max:20',
+            'phone' => 'nullable|string|max:20|unique:users,phone',
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
             'role' => 'required|in:buyer,seller',
         ]);
+
+        $emailTaken = User::withTrashed()
+        ->where('deleted_email', $request->email)
+        ->whereNotNull('deleted_at')
+        ->exists();
+
+    if ($emailTaken) {
+        return back()->withErrors([
+            'email' => 'This email address is not available.',
+        ]);
+    }
+
+    // Phone uniqueness (also check soft-deleted rows)
+    if ($request->filled('phone')) {
+        $phoneTaken = User::withTrashed()
+            ->where('phone', $request->phone)
+            ->exists();
+
+        if ($phoneTaken) {
+            return back()->withErrors([
+                'phone' => 'This phone number is already registered.',
+            ]);
+        }
+    }
 
         $user = User::create([
             'name' => $validated['name'],
@@ -65,6 +90,9 @@ class AuthController extends Controller
         ]);
 
         Auth::login($user);
+
+        $user->sendEmailVerificationNotification();   
+       \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
 
         // IMPORTANT: regenerate session ONCE here, before any redirect
         $request->session()->regenerate();
@@ -195,6 +223,35 @@ class AuthController extends Controller
             : back()->withErrors(['email' => __($status)]);
     }
 
+    public function verifyNotice(): Response
+{
+    return Inertia::render('Auth/VerifyEmail', [
+        'status' => session('status'),
+    ]);
+}
+
+public function verify(\Illuminate\Foundation\Auth\EmailVerificationRequest $request): RedirectResponse
+{
+    if ($request->user()->hasVerifiedEmail()) {
+        return redirect()->route('home');
+    }
+
+    $request->fulfill();
+
+    return redirect()->route('home')->with('status', 'Email verified! Welcome to Flockr.');
+}
+
+public function sendVerification(Request $request): RedirectResponse
+{
+    if ($request->user()->hasVerifiedEmail()) {
+        return redirect()->route('home');
+    }
+
+    $request->user()->sendEmailVerificationNotification();
+
+    return back()->with('status', 'verification-link-sent');
+}
+
     // Terms of service and privacy policy pages are static, so we can just return Inertia views
     public function terms(): Response
     {
@@ -214,7 +271,7 @@ class AuthController extends Controller
         return Socialite::driver($provider)->redirect();
     }
 
-    public function handleProviderCallback(string $provider): RedirectResponse
+    public function handleProviderCallback(string $provider, Request $request): RedirectResponse
     {
         abort_unless(in_array($provider, ['google', 'facebook']), 404);
 
@@ -238,6 +295,7 @@ class AuthController extends Controller
         );
 
         Auth::login($user, remember: true);
+        \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
         return $this->redirectByRole($user);
     }
 

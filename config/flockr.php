@@ -9,7 +9,7 @@ return [
     | Percentage Flockr takes from every sale. Passed to Paystack split.
     */
     'platform_fee_percent' => env('FLOCKR_PLATFORM_FEE_PERCENT', 5),
-
+    'commission_rate' => 0.05,
     /*
     |--------------------------------------------------------------------------
     | Video Limits

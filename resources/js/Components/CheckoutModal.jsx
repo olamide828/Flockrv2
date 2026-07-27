@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
+import { router } from '@inertiajs/react';
 import {
     RiArrowLeftLine,
     RiArrowRightLine,
@@ -16,7 +17,68 @@ import {
     RiTruckLine,
 } from 'react-icons/ri';
 
-const DELIVERY_PLATFORM_FEE = 200; // ₦200 Flockr delivery platform fee
+const DELIVERY_PLATFORM_FEE = 200;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared hook: loads Terminal states + cities
+// ─────────────────────────────────────────────────────────────────────────────
+function useLocationData(initialStateCode = '') {
+    const [states,        setStates]        = useState([]);
+    const [cities,        setCities]        = useState([]);
+    const [loadingStates, setLoadingStates] = useState(true);
+    const [loadingCities, setLoadingCities] = useState(false);
+    const [stateCode,     setStateCode]     = useState(initialStateCode);
+
+    // Load states once on mount
+    useEffect(() => {
+        let cancelled = false;
+        setLoadingStates(true);
+
+        axios.get('/api/locations/states')
+            .then(res => {
+                if (cancelled) return;
+                const data = res.data?.states ?? [];
+                setStates(data);
+            })
+            .catch(err => {
+                if (cancelled) return;
+                console.error('Failed to load states:', err);
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingStates(false);
+            });
+
+        return () => { cancelled = true; };
+    }, []);
+
+    // Load cities whenever stateCode changes
+    useEffect(() => {
+        if (!stateCode) {
+            setCities([]);
+            return;
+        }
+        let cancelled = false;
+        setLoadingCities(true);
+
+        axios.get('/api/locations/cities', { params: { state_code: stateCode } })
+            .then(res => {
+                if (cancelled) return;
+                setCities(res.data?.cities ?? []);
+            })
+            .catch(err => {
+                if (cancelled) return;
+                console.error('Failed to load cities for ' + stateCode + ':', err);
+                setCities([]);
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingCities(false);
+            });
+
+        return () => { cancelled = true; };
+    }, [stateCode]);
+
+    return { states, cities, loadingStates, loadingCities, stateCode, setStateCode };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AddressFormModal
@@ -33,53 +95,34 @@ function AddressFormModal({ onClose, onSaved, editing = null, showToast }) {
         state_code:     editing?.state_code     ?? '',
         is_default:     editing?.is_default     ?? false,
     });
-    const [states,        setStates]        = useState([]);
-    const [cities,        setCities]        = useState([]);
-    const [loadingStates, setLoadingStates] = useState(true);
-    const [loadingCities, setLoadingCities] = useState(false);
-    const [saving,        setSaving]        = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const loc = useLocationData(editing?.state_code ?? '');
 
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-    useEffect(() => {
-        axios.get('/api/locations/states')
-            .then(async r => {
-                console.log("Terminal States:", r.data.states);
-                setStates(r.data.states ?? []);
-                if (editing?.state_code) {
-                    const cr = await axios.get('/api/locations/cities', {
-                        params: { state_code: editing.state_code },
-                    });
-                    setCities(cr.data.cities ?? []);
-                }
-            })
-            .catch(() => showToast?.('Could not load states. Check your connection.', 'error'))
-            .finally(() => setLoadingStates(false));
-    }, []);
-
-    useEffect(() => {
-        if (!form.state_code) { setCities([]); return; }
-        setLoadingCities(true);
-        axios.get('/api/locations/cities', { params: { state_code: form.state_code } })
-            .then(r => {console.log("Terminal States:", r.data.cities); setCities(r.data.cities ?? [])})
-            .catch(() => showToast?.('Could not load cities.', 'error'))
-            .finally(() => setLoadingCities(false));
-    }, [form.state_code]);
-
     const handleStateChange = e => {
-        const s = states.find(st => st.isoCode === e.target.value);
-        setForm(p => ({ ...p, state_code: s?.isoCode ?? '', state: s?.name ?? '', city: '' }));
+        const selectedCode = e.target.value;
+        const selectedState = loc.states.find(s => s.isoCode === selectedCode);
+        loc.setStateCode(selectedCode);
+        setForm(p => ({
+            ...p,
+            state_code: selectedCode,
+            state:      selectedState?.name ?? '',
+            city:       '', // reset city when state changes
+        }));
     };
 
-    const validatePhone = phone => /^(\+234|234|0)[789]\d{9}$/.test(phone.replace(/\s/g, ''));
+    const validatePhone = phone =>
+        /^(\+234|234|0)[789]\d{9}$/.test(phone.replace(/\s/g, ''));
 
     const handleSave = async () => {
         if (!form.recipient_name.trim()) { showToast?.('Recipient name is required.', 'error'); return; }
-        if (!form.phone.trim()) { showToast?.('Phone number is required.', 'error'); return; }
-        if (!validatePhone(form.phone)) { showToast?.('Enter a valid Nigerian number e.g. 08012345678', 'error'); return; }
-        if (!form.street.trim()) { showToast?.('Street address is required.', 'error'); return; }
-        if (!form.state) { showToast?.('Please select a state.', 'error'); return; }
-        if (!form.city) { showToast?.('Please select a city.', 'error'); return; }
+        if (!form.phone.trim())          { showToast?.('Phone number is required.', 'error'); return; }
+        if (!validatePhone(form.phone))  { showToast?.('Enter a valid Nigerian number e.g. 08012345678', 'error'); return; }
+        if (!form.street.trim())         { showToast?.('Street address is required.', 'error'); return; }
+        if (!form.state)                 { showToast?.('Please select a state.', 'error'); return; }
+        if (!form.city)                  { showToast?.('Please select a city.', 'error'); return; }
 
         setSaving(true);
         try {
@@ -112,68 +155,119 @@ function AddressFormModal({ onClose, onSaved, editing = null, showToast }) {
                     <h3 style={{ margin: 0, color: '#fff', fontSize: 16, fontWeight: 700 }}>{editing ? 'Edit Address' : 'Add New Address'}</h3>
                     <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><RiCloseLine size={18} /></button>
                 </div>
+
                 <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
                     {/* Label pills */}
                     <div>
                         <p style={lbSt}>Label</p>
                         <div style={{ display: 'flex', gap: 8 }}>
                             {['Home', 'Work', 'Other'].map(l => (
-                                <button key={l} onClick={() => set('label', l)} style={{ flex: 1, padding: '9px 0', borderRadius: 10, background: form.label === l ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (form.label === l ? 'rgba(255,107,53,0.4)' : 'rgba(255,255,255,0.08)'), color: form.label === l ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{l}</button>
+                                <button key={l} type="button" onClick={() => set('label', l)}
+                                    style={{ flex: 1, padding: '9px 0', borderRadius: 10, background: form.label === l ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (form.label === l ? 'rgba(255,107,53,0.4)' : 'rgba(255,255,255,0.08)'), color: form.label === l ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                    {l}
+                                </button>
                             ))}
                         </div>
                     </div>
 
-                    <F label="Recipient Name *"><input value={form.recipient_name} onChange={e => set('recipient_name', e.target.value)} placeholder="Full name of recipient" style={inp} /></F>
+                    <F label="Recipient Name *">
+                        <input value={form.recipient_name} onChange={e => set('recipient_name', e.target.value)} placeholder="Full name of recipient" style={inp} />
+                    </F>
 
                     <F label="Phone Number *">
                         <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="08012345678 or +2348012345678" type="tel" style={inp} />
-                        <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>Nigerian format: 080xxxxxxxx or +2348xxxxxxxx</p>
+                        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>Nigerian format only: 080xxxxxxxx or +2348xxxxxxxx</p>
                     </F>
 
-                    <F label="Street Address *">
+                    <F label="Street Address * (max 45 chars)">
                         <input
                             value={form.street}
                             onChange={e => set('street', e.target.value.slice(0, 45))}
-                            placeholder="House number, street name (max 45 chars)"
+                            placeholder="House number, street name"
                             style={{ ...inp, borderColor: form.street.length > 40 ? 'rgba(234,179,8,0.5)' : undefined }}
                         />
-                        <p style={{ margin: '5px 0 0', color: form.street.length > 40 ? '#EAB308' : 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'right' }}>
-                            {form.street.length}/45
-                        </p>
+                        <p style={{ margin: '4px 0 0', color: form.street.length > 40 ? '#EAB308' : 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'right' }}>{form.street.length}/45</p>
                     </F>
 
                     <F label="Landmark (optional)">
                         <input value={form.landmark} onChange={e => set('landmark', e.target.value)} placeholder="e.g. Near First Bank, Opposite Shoprite" style={inp} />
                     </F>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <F label="State *">
-                            <select value={form.state_code} onChange={handleStateChange} disabled={loadingStates} style={{ ...inp, appearance: 'none', opacity: loadingStates ? 0.5 : 1 }}>
-                                <option value="">{loadingStates ? 'Loading…' : 'Select state'}</option>
-                                {states.map((s, i) => <option key={s.isoCode ?? s._id ?? i} value={s.isoCode}>{s.name}</option>)}
-                            </select>
-                        </F>
-                        <F label="City *">
-                            <select value={form.city} onChange={e => set('city', e.target.value)} disabled={!form.state_code || loadingCities} style={{ ...inp, appearance: 'none', opacity: (!form.state_code || loadingCities) ? 0.5 : 1 }}>
-                                <option value="">{!form.state_code ? 'Select state first' : loadingCities ? 'Loading…' : 'Select city'}</option>
-                                {cities.map((c, i) => <option key={(c.name ?? '') + i} value={c.name}>{c.name}</option>)}
-                            </select>
-                        </F>
-                    </div>
+                    {/* State select */}
+                    <F label="State *">
+                        <select
+                            value={form.state_code}
+                            onChange={handleStateChange}
+                            disabled={loc.loadingStates}
+                            style={{ ...inp, appearance: 'none', WebkitAppearance: 'none', opacity: loc.loadingStates ? 0.5 : 1 }}
+                        >
+                            <option value="">
+                                {loc.loadingStates ? 'Loading states…' : loc.states.length === 0 ? 'No states loaded' : 'Select state'}
+                            </option>
+                            {loc.states.map(s => (
+                                <option key={s._id ?? s.isoCode} value={s.isoCode}>
+                                    {s.name}
+                                </option>
+                            ))}
+                        </select>
+                        {loc.loadingStates && (
+                            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Loading {loc.states.length} states…</p>
+                        )}
+                        {!loc.loadingStates && loc.states.length === 0 && (
+                            <p style={{ margin: '4px 0 0', color: '#EF4444', fontSize: 11 }}>Could not load states. Check connection.</p>
+                        )}
+                    </F>
 
+                    {/* City select */}
+                    <F label="City *">
+                        <select
+                            value={form.city}
+                            onChange={e => set('city', e.target.value)}
+                            disabled={!form.state_code || loc.loadingCities}
+                            style={{ ...inp, appearance: 'none', WebkitAppearance: 'none', opacity: (!form.state_code || loc.loadingCities) ? 0.5 : 1 }}
+                        >
+                            <option value="">
+                                {!form.state_code
+                                    ? 'Select state first'
+                                    : loc.loadingCities
+                                        ? 'Loading cities…'
+                                        : loc.cities.length === 0
+                                            ? 'No cities found'
+                                            : 'Select city'}
+                            </option>
+                            {loc.cities.map((c, i) => (
+                                <option key={(c._id ?? c.name ?? '') + '-' + i} value={c.name}>
+                                    {c.name}
+                                </option>
+                            ))}
+                        </select>
+                    </F>
+
+                    {/* Default toggle */}
                     <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
-                        <div onClick={() => set('is_default', !form.is_default)} style={{ width: 42, height: 24, borderRadius: 999, background: form.is_default ? '#FF6B35' : 'rgba(255,255,255,0.1)', position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer' }}>
+                        <div
+                            onClick={() => set('is_default', !form.is_default)}
+                            style={{ width: 42, height: 24, borderRadius: 999, background: form.is_default ? '#FF6B35' : 'rgba(255,255,255,0.1)', position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer' }}
+                        >
                             <div style={{ position: 'absolute', top: 3, left: form.is_default ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
                         </div>
                         <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Set as default address</span>
                     </label>
 
-                    <button onClick={handleSave} disabled={saving} style={{ padding: '14px', background: saving ? 'rgba(255,107,53,0.4)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
-                        {saving ? <><RiLoader4Line size={16} style={{ animation: 'spin 0.8s linear infinite' }} />Saving…</> : <><RiCheckLine size={16} />{editing ? 'Update Address' : 'Save Address'}</>}
+                    <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={saving}
+                        style={{ padding: '14px', background: saving ? 'rgba(255,107,53,0.4)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}
+                    >
+                        {saving
+                            ? <><RiLoader4Line size={16} style={{ animation: 'spin 0.8s linear infinite' }} />Saving…</>
+                            : <><RiCheckLine size={16} />{editing ? 'Update Address' : 'Save Address'}</>
+                        }
                     </button>
                 </div>
             </div>
-            <style>{'@keyframes spin { to { transform: rotate(360deg); } } select option { background: #1a1a1a; }'}</style>
+            <style>{'@keyframes spin{to{transform:rotate(360deg)}} select option{background:#1a1a1a}'}</style>
         </div>
     );
 }
@@ -223,7 +317,7 @@ export default function CheckoutModal({
             });
             const loaded = data.rates ?? [];
             setRates(loaded);
-            if (loaded.length > 0) setSelectedRate(loaded[0]);
+            if (loaded.length > 0) setSelectedRate(loaded[0]); // cheapest first (sorted by backend)
         } catch (err) {
             const msg = err.code === 'ERR_NETWORK'
                 ? 'No internet connection. Connect and try again.'
@@ -255,26 +349,24 @@ export default function CheckoutModal({
 
     const handleRemoveCoupon = () => { setCouponApplied(null); setCouponCode(''); };
 
-    // Pricing breakdown
-    const courierFee    = selectedRate ? Number(selectedRate.amount) : 0;
-    const platformFee   = selectedRate ? DELIVERY_PLATFORM_FEE : 0; // ₦200 only when courier selected
-    const discount      = couponApplied ? Math.min(Number(couponApplied.amount), subtotal) : 0;
-    const grandTotal    = Math.max(0, subtotal + courierFee + platformFee - discount);
+    const courierFee  = selectedRate ? Number(selectedRate.amount) : 0;
+    const platformFee = selectedRate ? DELIVERY_PLATFORM_FEE : 0;
+    const discount    = couponApplied ? Math.min(Number(couponApplied.amount), subtotal) : 0;
+    const grandTotal  = Math.max(0, subtotal + courierFee + platformFee - discount);
 
     const handleCheckout = async () => {
         if (!selectedAddr || !selectedRate) return;
         setChecking(true);
         try {
-            let res;
             const payload = {
-                address_id:           selectedAddr.id,
-                rate_id:              selectedRate.rate_id,
-                carrier:              selectedRate.carrier,
-                courier_fee:          selectedRate.amount,
+                address_id:            selectedAddr.id,
+                rate_id:               selectedRate.rate_id,
+                carrier:               selectedRate.carrier,
+                courier_fee:           selectedRate.amount,
                 delivery_platform_fee: DELIVERY_PLATFORM_FEE,
-                coupon_code:          couponApplied?.code ?? null,
+                coupon_code:           couponApplied?.code ?? null,
             };
-
+            let res;
             if (singleProduct) {
                 res = await axios.post('/api/orders/checkout', {
                     product_id: singleProduct.productId,
@@ -286,6 +378,13 @@ export default function CheckoutModal({
             }
             window.location.href = res.data.authorization_url;
         } catch (err) {
+            if (err.response?.status === 409) {
+                showToast?.('Please verify your email before checking out.', 'warning');
+                onClose?.();
+                router.visit('/verify-email');
+                setChecking(false);
+                return;
+            }
             const msg = err.code === 'ERR_NETWORK'
                 ? 'No internet connection. Please check your network and try again.'
                 : (err.response?.data?.message ?? 'Checkout failed. Please try again.');
@@ -323,13 +422,9 @@ export default function CheckoutModal({
         }
     };
 
-    // Full address display helper (includes landmark)
-    const formatAddress = addr => {
+    const fmtAddr = addr => {
         if (!addr) return '';
-        const parts = [addr.street];
-        if (addr.landmark) parts.push(addr.landmark);
-        parts.push(addr.city, addr.state);
-        return parts.join(', ');
+        return [addr.street, addr.landmark, addr.city, addr.state].filter(Boolean).join(', ');
     };
 
     return (
@@ -354,7 +449,7 @@ export default function CheckoutModal({
                     {/* Header */}
                     <div style={{ padding: '14px 20px 0', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
                         {step !== 'address' && (
-                            <button onClick={() => setStep(step === 'confirm' ? 'delivery' : 'address')} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                            <button type="button" onClick={() => setStep(step === 'confirm' ? 'delivery' : 'address')} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
                                 <RiArrowLeftLine size={17} />
                             </button>
                         )}
@@ -363,12 +458,12 @@ export default function CheckoutModal({
                             {step === 'delivery' && 'Choose Courier'}
                             {step === 'confirm' && 'Order Summary'}
                         </h3>
-                        <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                        <button type="button" onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                             <RiCloseLine size={18} />
                         </button>
                     </div>
 
-                    {/* Progress bar */}
+                    {/* Progress */}
                     <div style={{ display: 'flex', gap: 4, padding: '10px 20px 16px' }}>
                         {STEPS.map((s, i) => (
                             <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: STEPS.indexOf(step) >= i ? '#FF6B35' : 'rgba(255,255,255,0.1)', transition: 'background 0.3s' }} />
@@ -381,7 +476,8 @@ export default function CheckoutModal({
                         {step === 'address' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 {addrList.map(addr => (
-                                    <div key={addr.id} onClick={() => setSelectedAddr(addr)} style={{ padding: '14px 16px', borderRadius: 16, background: selectedAddr?.id === addr.id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedAddr?.id === addr.id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', transition: 'all 0.15s' }}>
+                                    <div key={addr.id} onClick={() => setSelectedAddr(addr)}
+                                        style={{ padding: '14px 16px', borderRadius: 16, background: selectedAddr?.id === addr.id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedAddr?.id === addr.id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', transition: 'all 0.15s' }}>
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                                             <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid ' + (selectedAddr?.id === addr.id ? '#FF6B35' : 'rgba(255,255,255,0.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                                                 {selectedAddr?.id === addr.id && <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B35' }} />}
@@ -393,23 +489,24 @@ export default function CheckoutModal({
                                                 </div>
                                                 <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{addr.recipient_name}</p>
                                                 <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{addr.phone}</p>
-                                                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{formatAddress(addr)}</p>
+                                                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{fmtAddr(addr)}</p>
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                                                <button onClick={e => { e.stopPropagation(); setEditingAddr(addr); setShowAddrForm(true); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>✏️</button>
-                                                <button onClick={e => { e.stopPropagation(); handleDeleteAddr(addr); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}><RiDeleteBinLine size={13} /></button>
+                                                <button type="button" onClick={e => { e.stopPropagation(); setEditingAddr(addr); setShowAddrForm(true); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>✏️</button>
+                                                <button type="button" onClick={e => { e.stopPropagation(); handleDeleteAddr(addr); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}><RiDeleteBinLine size={13} /></button>
                                             </div>
                                         </div>
                                     </div>
                                 ))}
 
                                 {addrList.length < 5 && (
-                                    <button onClick={() => { setEditingAddr(null); setShowAddrForm(true); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderRadius: 16, background: 'none', border: '1.5px dashed rgba(255,255,255,0.12)', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 600 }}>
+                                    <button type="button" onClick={() => { setEditingAddr(null); setShowAddrForm(true); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderRadius: 16, background: 'none', border: '1.5px dashed rgba(255,255,255,0.12)', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 600 }}>
                                         <RiMapPinAddLine size={18} color="#FF6B35" /> Add new address
                                     </button>
                                 )}
 
-                                <button onClick={goToDelivery} disabled={!selectedAddr} style={{ padding: '14px', background: !selectedAddr ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: !selectedAddr ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
+                                <button type="button" onClick={goToDelivery} disabled={!selectedAddr}
+                                    style={{ padding: '14px', background: !selectedAddr ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: !selectedAddr ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
                                     <RiTruckLine size={16} /> Choose Delivery Method
                                 </button>
                             </div>
@@ -418,16 +515,11 @@ export default function CheckoutModal({
                         {/* ── STEP 2: Courier rates ─────────────────────── */}
                         {step === 'delivery' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                {/* Selected address chip */}
+                                {/* Address chip */}
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
                                     <RiMapPinLine size={14} color="#FF6B35" style={{ marginTop: 1, flexShrink: 0 }} />
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{formatAddress(selectedAddr)}</p>
-                                        {selectedAddr?.landmark && (
-                                            <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Near {selectedAddr.landmark}</p>
-                                        )}
-                                    </div>
-                                    <button onClick={() => setStep('address')} style={{ color: '#FF6B35', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>Change</button>
+                                    <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12, flex: 1 }}>{fmtAddr(selectedAddr)}</p>
+                                    <button type="button" onClick={() => setStep('address')} style={{ color: '#FF6B35', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>Change</button>
                                 </div>
 
                                 {/* Platform fee notice */}
@@ -448,12 +540,13 @@ export default function CheckoutModal({
                                 {!loadingRates && rates.length === 0 && (
                                     <div style={{ padding: '20px', textAlign: 'center' }}>
                                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: '0 0 12px' }}>No shipping options available for this route.</p>
-                                        <button onClick={() => fetchRates(selectedAddr)} style={{ color: '#FF6B35', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Try again</button>
+                                        <button type="button" onClick={() => fetchRates(selectedAddr)} style={{ color: '#FF6B35', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Try again</button>
                                     </div>
                                 )}
 
                                 {!loadingRates && rates.map(rate => (
-                                    <div key={rate.rate_id} onClick={() => setSelectedRate(rate)} style={{ padding: '14px 16px', borderRadius: 16, background: selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.15s' }}>
+                                    <div key={rate.rate_id} onClick={() => setSelectedRate(rate)}
+                                        style={{ padding: '14px 16px', borderRadius: 16, background: selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.15s' }}>
                                         <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid ' + (selectedRate?.rate_id === rate.rate_id ? '#FF6B35' : 'rgba(255,255,255,0.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                             {selectedRate?.rate_id === rate.rate_id && <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B35' }} />}
                                         </div>
@@ -469,7 +562,8 @@ export default function CheckoutModal({
                                     </div>
                                 ))}
 
-                                <button onClick={() => setStep('confirm')} disabled={!selectedRate || loadingRates} style={{ padding: '14px', background: (!selectedRate || loadingRates) ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: (!selectedRate || loadingRates) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
+                                <button type="button" onClick={() => setStep('confirm')} disabled={!selectedRate || loadingRates}
+                                    style={{ padding: '14px', background: (!selectedRate || loadingRates) ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: (!selectedRate || loadingRates) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
                                     Continue <RiArrowRightLine size={16} />
                                 </button>
                             </div>
@@ -478,14 +572,14 @@ export default function CheckoutModal({
                         {/* ── STEP 3: Confirm ──────────────────────────── */}
                         {step === 'confirm' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                {/* Delivery address summary */}
-                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                {/* Address summary */}
+                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <RiMapPinLine size={13} color="#FF6B35" />
                                         <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Delivering to</span>
                                     </div>
                                     <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{selectedAddr?.recipient_name} · {selectedAddr?.phone}</p>
-                                    <p style={{ margin: 0, color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{formatAddress(selectedAddr)}</p>
+                                    <p style={{ margin: 0, color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{selectedAddr?.street}, {selectedAddr?.city}, {selectedAddr?.state}</p>
                                     {selectedAddr?.landmark && (
                                         <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>📍 Near {selectedAddr.landmark}</p>
                                     )}
@@ -503,20 +597,21 @@ export default function CheckoutModal({
 
                                 {/* Coupon */}
                                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden' }}>
-                                    <button onClick={() => setCouponOpen(v => !v)} style={{ width: '100%', padding: '13px 16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
+                                    <button type="button" onClick={() => setCouponOpen(v => !v)} style={{ width: '100%', padding: '13px 16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
                                         <RiGiftLine size={16} color={couponApplied ? '#10B981' : '#FF6B35'} />
                                         <span style={{ color: couponApplied ? '#10B981' : 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, flex: 1 }}>
                                             {couponApplied ? couponApplied.code + ' — ₦' + Number(couponApplied.amount).toLocaleString() + ' off' : 'Have a promo code?'}
                                         </span>
                                         {couponApplied
-                                            ? <button onClick={e => { e.stopPropagation(); handleRemoveCoupon(); }} style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>
+                                            ? <button type="button" onClick={e => { e.stopPropagation(); handleRemoveCoupon(); }} style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>
                                             : <RiArrowRightLine size={14} color="rgba(255,255,255,0.3)" style={{ transform: couponOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
                                         }
                                     </button>
                                     {couponOpen && !couponApplied && (
                                         <div style={{ padding: '0 14px 14px', display: 'flex', gap: 8 }}>
                                             <input value={couponCode} onChange={e => setCouponCode(e.target.value.toUpperCase())} placeholder="e.g. FLKRATE-XXXX-XXXX" onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()} style={{ ...inp, flex: 1, padding: '10px 12px', fontSize: 13, fontFamily: 'monospace', letterSpacing: 1 }} />
-                                            <button onClick={handleApplyCoupon} disabled={couponLoading || !couponCode} style={{ padding: '10px 16px', background: '#FF6B35', border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: (!couponCode || couponLoading) ? 0.5 : 1 }}>
+                                            <button type="button" onClick={handleApplyCoupon} disabled={couponLoading || !couponCode}
+                                                style={{ padding: '10px 16px', background: '#FF6B35', border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: (!couponCode || couponLoading) ? 0.5 : 1 }}>
                                                 {couponLoading ? '…' : 'Apply'}
                                             </button>
                                         </div>
@@ -525,13 +620,9 @@ export default function CheckoutModal({
 
                                 {/* Price breakdown */}
                                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                    <Row label="Subtotal" value={'₦' + subtotal.toLocaleString()} />
-                                    <Row label="Courier fee" value={'₦' + courierFee.toLocaleString()} />
-                                    <Row
-                                        label="Flockr delivery fee"
-                                        value={'₦' + platformFee.toLocaleString()}
-                                        hint="Covers logistics management"
-                                    />
+                                    <Row label="Subtotal"            value={'₦' + subtotal.toLocaleString()} />
+                                    <Row label="Courier fee"         value={'₦' + courierFee.toLocaleString()} />
+                                    <Row label="Flockr delivery fee" value={'₦' + platformFee.toLocaleString()} hint="Covers logistics management" />
                                     {couponApplied && (
                                         <Row label={'Promo (' + couponApplied.code + ')'} value={'-₦' + discount.toLocaleString()} valueColor="#10B981" />
                                     )}
@@ -544,7 +635,8 @@ export default function CheckoutModal({
                                     <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>Secure payment via Paystack. Buyer protection included.</span>
                                 </div>
 
-                                <button onClick={handleCheckout} disabled={checking} style={{ padding: '15px', background: checking ? 'rgba(255,107,53,0.5)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: checking ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                                <button type="button" onClick={handleCheckout} disabled={checking}
+                                    style={{ padding: '15px', background: checking ? 'rgba(255,107,53,0.5)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: checking ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                                     {checking
                                         ? <><RiLoader4Line size={18} style={{ animation: 'spin 0.8s linear infinite' }} />Redirecting to payment…</>
                                         : <><RiSecurePaymentLine size={18} />Pay ₦{grandTotal.toLocaleString()}</>
@@ -555,12 +647,12 @@ export default function CheckoutModal({
                     </div>
                 </div>
             </div>
-            <style>{'@keyframes spin { to { transform: rotate(360deg); } } select option { background: #1a1a1a; }'}</style>
+            <style>{'@keyframes spin{to{transform:rotate(360deg)}} select option{background:#1a1a1a}'}</style>
         </>
     );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Tiny helpers ──────────────────────────────────────────────────────────────
 function Row({ label, value, bold, valueColor, hint }) {
     return (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
@@ -582,7 +674,10 @@ function F({ label, children }) {
     );
 }
 
-const lbSt = { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 7px' };
+const lbSt = {
+    color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 7px',
+};
 
 const inp = {
     width: '100%', padding: '12px 13px',

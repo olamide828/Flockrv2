@@ -602,10 +602,17 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
         {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: '0 0 4px', lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.8)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
         <ExpandableDescription text={video.description} />
         {video.hashtags?.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            {video.hashtags.slice(0, 5).map((tag, i) => <span key={i} style={{ color: '#ff5c00', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}
-          </div>
-        )}
+  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+    {video.hashtags.slice(0, 5).map((tag, i) => (
+      <Link href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+    onClick={e => e.stopPropagation()}
+    prefetch="hover"
+    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+    {tag.startsWith('#') ? tag : `#${tag}`}
+</Link>
+    ))}
+  </div>
+)}
         {video.user?.location && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 4 }}>
             <RiMapPinLine size={11} color="rgba(255,255,255,0.55)" />

@@ -1,6 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { ShoppingBagIcon } from 'lucide-react';
+import VerifyEmailBanner from '@/Components/VerifyEmailBanner';
 import { useEffect, useState } from 'react';
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
@@ -49,6 +50,16 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('flockr:unread', handler);
     }, []);
 
+
+useEffect(() => {
+    // Refresh auth prop whenever the tab regains focus — catches email
+    // verification completed in another tab, which Inertia's client-side
+    // prop cache won't otherwise pick up until the next navigation.
+    const onFocus = () => router.reload({ only: ['auth'] });
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+}, []);
+
     const handleLogout = () => router.post('/logout');
     const handleSearch = (e) => {
         e.preventDefault();
@@ -82,7 +93,9 @@ export default function AppLayout({ children }) {
     }, [auth?.user]);
 
     return (
-        <div style={{ display: 'flex', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
+                 <VerifyEmailBanner />
+            <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
             <aside
                 className="md-sidebar"
@@ -733,6 +746,7 @@ export default function AppLayout({ children }) {
                     </nav>
                 )}
             </main>
+             </div>
 
             <style>{`
                 @media (min-width: 768px) {

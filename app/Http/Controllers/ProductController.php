@@ -6,6 +6,7 @@ use App\Jobs\ProcessProductImage;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductSku;
 use App\Models\Review;
 use App\Services\JinaService;
 use App\Services\StorageService;
@@ -21,6 +22,9 @@ use Inertia\Response;
 
 class ProductController extends Controller
 {
+
+    private const COMMISSION_RATE = 0.05;
+
     public function __construct(
         private readonly JinaService $jina,
         private readonly StorageService $storage,
@@ -85,7 +89,12 @@ class ProductController extends Controller
 
     public function show(string $username, Product $product): Response
     {
-        abort_if($product->status !== 'active', 404);
+        if ($product->status !== 'active' || $product->trashed()) {
+    return Inertia::render('Errors/ProductGone', [
+        'categoryName' => $product->category?->name,
+        'categoryId'   => $product->category_id,
+    ]);
+}
 
         $blocked = $this->blockedSellerIds();
         abort_if(in_array($product->seller_id, $blocked), 404);
@@ -212,14 +221,15 @@ class ProductController extends Controller
         if ($request->filled('seller_id')) {
             $query->where('seller_id', $request->seller_id);
         }
-        if ($request->filled('q')) {
-            $q = $request->q;
-            $query->where(
-                fn($query) =>
-                $query->where('name', 'ilike', "%{$q}%")
-                    ->orWhere('description', 'ilike', "%{$q}%")
-            );
-        }
+      if ($request->filled('q')) {
+    $q = $request->q;
+    $query->where(
+        fn($query) =>
+        $query->where('name', 'ilike', "%{$q}%")
+              ->orWhere('description', 'ilike', "%{$q}%")
+              ->orWhereRaw("tags::text ilike ?", ["%{$q}%"])
+    );
+}
 
         $query = match ($request->input('sort', 'popular')) {
             'newest' => $query->latest(),
@@ -255,84 +265,101 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
+
     /** POST /api/products */
     public function store(Request $request): JsonResponse
-    {
-        if (!Auth::check() || Auth::user()->role !== 'seller') {
-            return response()->json(['message' => 'Only sellers can create products.'], 403);
+{
+    if (!Auth::check() || Auth::user()->role !== 'seller') {
+        return response()->json(['message' => 'Only sellers can create products.'], 403);
+    }
+
+    $validated = $request->validate([
+        'name'             => 'required|string|max:200',
+        'description'      => 'nullable|string|max:5000',
+        'seller_price'     => 'required|numeric|min:1',   // ← seller inputs this
+        'compare_price'    => 'nullable|numeric|min:1',
+        'stock_quantity'   => 'required|integer|min:1',
+        'category_id'      => 'nullable|exists:categories,id',
+        'condition'        => 'required|in:new,used,refurbished',
+        'ships_nationwide' => 'boolean',
+        'shipping_fee'     => 'nullable|numeric|min:0',
+        'tags'             => 'nullable|array|max:20',
+        'attributes'       => 'nullable|array',
+    ]);
+
+    // Compute listed price: seller always receives exactly seller_price.
+    // Flockr's 5% comes out of the buyer-facing price, not seller's pocket.
+    $sellerPrice = (float) $validated['seller_price'];
+    $listedPrice = ceil($sellerPrice / (1 - self::COMMISSION_RATE)); // rounds up to nearest naira
+
+    $baseSlug = Str::slug($validated['name']);
+    $slug = $baseSlug;
+    $i = 1;
+    while (Product::where('slug', $slug)->exists()) {
+        $slug = $baseSlug . '-' . $i++;
+    }
+
+    $product = Auth::user()->products()->create([
+        ...$validated,
+        'price'        => $listedPrice,   // what buyer sees and pays
+        'seller_price' => $sellerPrice,   // what seller receives
+        'slug'         => $slug,
+        'status'       => 'active',
+        'location'     => Auth::user()->location,
+    ]);
+
+    // Notify followers
+    $seller = Auth::user();
+    $seller->followers()->chunk(100, function ($followers) use ($product) {
+        foreach ($followers as $follower) {
+            $follower->notify(new \App\Notifications\NewProductNotification($product));
         }
+    });
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:200',
-            'description' => 'nullable|string|max:5000',
-            'price' => 'required|numeric|min:1',
-            'compare_price' => 'nullable|numeric|min:1',
-            'stock_quantity' => 'required|integer|min:1',
-            'category_id' => 'nullable|exists:categories,id',
-            'condition' => 'required|in:new,used,refurbished',
-            'ships_nationwide' => 'boolean',
-            'shipping_fee' => 'nullable|numeric|min:0',
-            'tags' => 'nullable|array|max:20',
-            'attributes' => 'nullable|array',
-        ]);
+    return response()->json($product, 201);
+}
 
+
+    /** PUT /api/products/{product} */
+public function update(Request $request, Product $product): JsonResponse
+{
+    abort_unless(Auth::id() === $product->seller_id, 403);
+
+    $validated = $request->validate([
+        'name'             => 'sometimes|string|max:200',
+        'description'      => 'nullable|string|max:5000',
+        'seller_price'     => 'sometimes|numeric|min:1',   // ← seller edits this
+        'compare_price'    => 'nullable|numeric|min:1',
+        'stock_quantity'   => 'sometimes|integer|min:0',
+        'status'           => 'sometimes|in:draft,active,archived',
+        'condition'        => 'sometimes|in:new,used,refurbished',
+        'ships_nationwide' => 'sometimes|boolean',
+        'shipping_fee'     => 'nullable|numeric|min:0',
+        'category_id'      => 'nullable|exists:categories,id',
+        'tags'             => 'nullable|array',
+        'attributes'       => 'nullable|array',
+    ]);
+
+    // Re-compute listed price if seller_price changed
+    if (isset($validated['seller_price'])) {
+        $sellerPrice = (float) $validated['seller_price'];
+        $validated['price'] = (int) ceil($sellerPrice / (1 - self::COMMISSION_RATE));
+        $validated['seller_price'] = $sellerPrice;
+    }
+
+    if (isset($validated['name']) && $validated['name'] !== $product->name) {
         $baseSlug = Str::slug($validated['name']);
         $slug = $baseSlug;
         $i = 1;
-        while (Product::where('slug', $slug)->exists()) {
+        while (Product::where('slug', $slug)->where('id', '!=', $product->id)->exists()) {
             $slug = $baseSlug . '-' . $i++;
         }
-
-        $product = Auth::user()->products()->create([
-            ...$validated,
-            'slug' => $slug,
-            'status' => 'active',
-            'location' => Auth::user()->location,
-        ]);
-
-        // Notify followers about new product
-        $seller = Auth::user();
-        $seller->followers()->chunk(100, function ($followers) use ($product) {
-            foreach ($followers as $follower) {
-                $follower->notify(new \App\Notifications\NewProductNotification($product));
-            }
-        });
-        return response()->json($product, 201);
+        $validated['slug'] = $slug;
     }
 
-    /** PUT /api/products/{product} */
-    public function update(Request $request, Product $product): JsonResponse
-    {
-        abort_unless(Auth::id() === $product->seller_id, 403);
-
-        $validated = $request->validate([
-    'name'             => 'sometimes|string|max:200',
-    'description'      => 'nullable|string|max:5000',
-    'price'            => 'sometimes|numeric|min:1',
-    'compare_price'    => 'nullable|numeric|min:1',
-    'stock_quantity'   => 'sometimes|integer|min:0',
-    'status'           => 'sometimes|in:draft,active,archived',
-    'condition'        => 'sometimes|in:new,used,refurbished',
-    'ships_nationwide' => 'sometimes|boolean',
-    'shipping_fee'     => 'nullable|numeric|min:0',
-    'category_id'      => 'nullable|exists:categories,id',
-    'tags'             => 'nullable|array',
-    'attributes'       => 'nullable|array',
-]);
-
-        if (isset($validated['name']) && $validated['name'] !== $product->name) {
-            $baseSlug = Str::slug($validated['name']);
-            $slug = $baseSlug;
-            $i = 1;
-            while (Product::where('slug', $slug)->where('id', '!=', $product->id)->exists()) {
-                $slug = $baseSlug . '-' . $i++;
-            }
-            $validated['slug'] = $slug;
-        }
-
-        $product->update($validated);
-        return response()->json($product->fresh());
-    }
+    $product->update($validated);
+    return response()->json($product->fresh());
+}
 
     /** DELETE /api/products/{product} */
     public function destroy(Product $product): JsonResponse
@@ -488,4 +515,6 @@ Price: {$product->price}";
 
     return response()->json(['image_urls' => $imageUrls]);
 }
+
+
 }

@@ -13,6 +13,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
+use App\Models\User;
+use App\Observers\UserObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -55,6 +57,8 @@ class AppServiceProvider extends ServiceProvider
                 }
             });
         }
+
+          User::observe(UserObserver::class);
 
         
     }

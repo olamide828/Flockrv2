@@ -703,7 +703,14 @@ setShowPP(true);
                     </button>
                     {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
                     {video.description && <ExpandableDescription text={video.description} />}
-                    {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => <span key={i} style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}</div>}
+{video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
+   <Link href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+    onClick={e => e.stopPropagation()}
+    prefetch="hover"
+    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+    {tag.startsWith('#') ? tag : `#${tag}`}
+</Link>
+))}</div>}                    
                     {video.user?.location && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RiMapPinLine size={11} color="rgba(255,255,255,0.55)" /><span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span></div>}
                     {hasProducts && <button onClick={() => window.innerWidth < 768 ? openSheet('products') : setTab('products')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.45)', borderRadius: 999, padding: '6px 13px', backdropFilter: 'blur(8px)', cursor: 'pointer', width: 'fit-content', marginTop: 2 }}><RiShoppingBag2Line size={13} color="#FF6B35" /><span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop</span></button>}
                 </div>
@@ -731,8 +738,15 @@ setShowPP(true);
                         {video.description && (
             <DescriptionPanel text={video.description} />
         )}
-                        {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => <span key={i} style={{ color: '#FF6B35', fontSize: 12, fontWeight: 600 }}>{tag.startsWith('#') ? tag : `#${tag}`}</span>)}</div>}
-                        {/* Desktop share/download button row */}
+{video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => (
+    <Link href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+    onClick={e => e.stopPropagation()}
+    prefetch="hover"
+    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+    {tag.startsWith('#') ? tag : `#${tag}`}
+</Link>
+))}</div>}                       
+                         {/* Desktop share/download button row */}
                         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                             <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                                 <RiShareForwardLine size={14} /> Share

@@ -35,7 +35,7 @@ class CartController extends Controller
             ->values();
 
         // Load saved addresses for checkout modal
-        $addresses = UserAddress::where('user_id', Auth::id())
+        $addresses = \App\Models\UserAddress::where('user_id', Auth::id())
             ->orderByDesc('is_default')
             ->orderByDesc('updated_at')
             ->get();
@@ -161,11 +161,12 @@ class CartController extends Controller
     public function checkout(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'address_id'  => 'required|integer|exists:user_addresses,id',
-            'rate_id'     => 'required|string',
-            'carrier'     => 'required|string|max:100',
-            'courier_fee' => 'required|numeric|min:0',
-            'coupon_code' => 'nullable|string',
+            'address_id'           => 'required|integer|exists:user_addresses,id',
+            'rate_id'              => 'required|string',
+            'carrier'              => 'required|string|max:100',
+            'courier_fee'          => 'required|numeric|min:0',
+            'delivery_platform_fee'=> 'nullable|numeric|min:0',
+            'coupon_code'          => 'nullable|string',
         ]);
 
         // Verify address belongs to buyer
@@ -230,7 +231,8 @@ class CartController extends Controller
                 $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
 
                 // Apply courier fee only on first order (one shipment per checkout)
-                $thisOrderCourierFee = $isFirstOrder ? $courierFee : 0;
+                $thisOrderCourierFee   = $isFirstOrder ? $courierFee : 0;
+                $thisDeliveryPlatformFee = $isFirstOrder ? ($validated['delivery_platform_fee'] ?? 200) : 0;
 
                 // Apply coupon discount — split 50/50 seller/Flockr
                 $discount = min($remainingDiscount, $subtotal);
@@ -241,7 +243,7 @@ class CartController extends Controller
                     $remainingDiscount -= $discount;
                 }
 
-                $total = $subtotal + $thisOrderCourierFee - $discount;
+                $total = $subtotal + $thisOrderCourierFee + $thisDeliveryPlatformFee - $discount;
                 $grandTotal += $total;
 
                 $order = Order::create([
@@ -309,4 +311,4 @@ class CartController extends Controller
             ] : null,
         ]);
     }
-}
+} 

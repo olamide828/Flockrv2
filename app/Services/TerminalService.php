@@ -41,22 +41,32 @@ class TerminalService
      */
     public function getStates(): array
     {
-        return Cache::remember('terminal_ng_states', 604800, function () {
-            $response = Http::timeout(15)
-                ->get($this->publicBaseUrl . '/states', ['country_code' => 'NG']);
+        $cached = Cache::get('terminal_ng_states');
+        if (!empty($cached)) {
+            return $cached;
+        }
+        Cache::forget('terminal_ng_states');
 
-            if ($response->failed()) {
-                Log::warning('Terminal getStates failed', [
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-                return [];
-            }
+        $response = Http::timeout(20)
+            ->withHeaders(['Authorization' => 'Bearer ' . $this->secretKey])
+            ->get($this->publicBaseUrl . '/states', ['country_code' => 'NG']);
 
-            $states = $response->json('data') ?? [];
-            Log::info('Terminal getStates: loaded ' . count($states) . ' states');
-            return $states;
-        });
+        if ($response->failed()) {
+            Log::warning('Terminal getStates failed', [
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+            return [];
+        }
+
+        $states = $response->json('data') ?? [];
+        Log::info('Terminal getStates: loaded ' . count($states) . ' states');
+
+        if (!empty($states)) {
+            Cache::put('terminal_ng_states', $states, 604800);
+        }
+
+        return $states;
     }
 
     /**
@@ -65,31 +75,45 @@ class TerminalService
      */
     public function getCities(string $stateCode): array
     {
-        return Cache::remember('terminal_cities_' . $stateCode, 604800, function () use ($stateCode) {
-            $response = Http::timeout(15)
-                ->get($this->publicBaseUrl . '/cities', [
-                    'country_code' => 'NG',
-                    'state_code'   => $stateCode,
-                ]);
+        $cacheKey = 'terminal_cities_' . $stateCode;
 
-            if ($response->failed()) {
-                Log::warning('Terminal getCities failed', [
-                    'state_code' => $stateCode,
-                    'status'     => $response->status(),
-                    'body'       => $response->body(),
-                ]);
-                return [];
-            }
+        // Never serve cached empty arrays — they mean a previous request failed
+        $cached = Cache::get($cacheKey);
+        if (!empty($cached)) {
+            return $cached;
+        }
+        Cache::forget($cacheKey);
 
-            $cities = $response->json('data') ?? [];
-            Log::info('Terminal getCities: loaded ' . count($cities) . ' cities for ' . $stateCode);
-            return $cities;
-        });
+        $response = Http::timeout(20)
+            ->withHeaders(['Authorization' => 'Bearer ' . $this->secretKey])
+            ->get($this->publicBaseUrl . '/cities', [
+                'country_code' => 'NG',
+                'state_code'   => $stateCode,
+            ]);
+
+        if ($response->failed()) {
+            Log::warning('Terminal getCities failed', [
+                'state_code' => $stateCode,
+                'status'     => $response->status(),
+                'body'       => $response->body(),
+            ]);
+            return []; // do NOT cache empty results
+        }
+
+        $cities = $response->json('data') ?? [];
+        Log::info('Terminal getCities: loaded ' . count($cities) . ' cities for ' . $stateCode);
+
+        // Only cache if we got actual results
+        if (!empty($cities)) {
+            Cache::put($cacheKey, $cities, 604800);
+        }
+
+        return $cities;
     }
 
     // ── Rates ──────────────────────────────────────────────────────────────────
 
- /**
+    /**
      * Get shipping rates between seller pickup and buyer delivery.
      *
      * @param array $pickup   {name, phone, address, city, state, country, postal_code}
@@ -124,8 +148,7 @@ class TerminalService
             );
         }
 
-        // 1. Map all incoming rates directly
-        $mappedRates = array_map(fn($r) => [
+        $mapped = array_map(fn($r) => [
             'rate_id'        => $r['rate_id'] ?? $r['id'],
             'carrier'        => $r['carrier_name'],
             'service'        => $r['carrier_rate_description'] ?? 'Standard Delivery',
@@ -136,12 +159,10 @@ class TerminalService
             'carrier_logo'   => $r['carrier_logo'] ?? null,
         ], $rates);
 
-        // 2. Sort them ascending (cheapest to most expensive)
-        usort($mappedRates, function ($a, $b) {
-            return $a['amount'] <=> $b['amount'];
-        });
+        // Sort cheapest to most expensive so the default selected rate is always the cheapest
+        usort($mapped, fn($a, $b) => $a['amount'] <=> $b['amount']);
 
-        return array_values($mappedRates);
+        return $mapped;
     }
 
     /**

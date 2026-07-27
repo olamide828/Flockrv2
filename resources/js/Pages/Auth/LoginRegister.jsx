@@ -2,7 +2,7 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 
-import { RiFlashlightLine, RiLock2Line, RiMovie2Line, RiShoppingBag3Line, RiStore2Line } from 'react-icons/ri';
+import { RiFlashlightLine, RiLock2Line, RiMovie2Line, RiShoppingBag3Line, RiStore2Line, RiCheckLine, RiCloseLine, RiLoader4Line } from 'react-icons/ri';
 
 export function Login() {
     const { data, setData, post, processing, errors } = useForm({
@@ -98,6 +98,8 @@ export function Register() {
     });
 
     const [usernameEdited, setUsernameEdited] = useState(false);
+    const [usernameStatus, setUsernameStatus] = useState(null); 
+const [usernameSuggestions, setUsernameSuggestions] = useState([]);
 
     // Auto username suggestion
     useEffect(() => {
@@ -111,6 +113,25 @@ export function Register() {
 
         setData('username', generated);
     }, [data.name]);
+
+useEffect(() => {
+    if (!data.username || data.username.length < 3) {
+        setUsernameStatus(null)
+        setUsernameSuggestions([])
+        return
+    }
+    setUsernameStatus('checking')
+    const t = setTimeout(async () => {
+        try {
+            const { data: res } = await axios.get('/api/auth/check-username', { params: { username: data.username } })
+            setUsernameStatus(res.available ? 'available' : 'taken')
+            setUsernameSuggestions(res.suggestions ?? [])
+        } catch {
+            setUsernameStatus(null)
+        }
+    }, 400)
+    return () => clearTimeout(t)
+}, [data.username])
 
     const submit = async (e) => {
         e.preventDefault();
@@ -191,26 +212,46 @@ export function Register() {
                             />
                         </Field>
 
-                        <Field label="Username" error={errors.username}>
-                            <div className="relative">
-                                {/* <span className="absolute left-3 top-1/2 -translate-y-1/2 text-flockr-muted text-sm">
-                  @
-                </span> */}
-
-                                <input
-                                    type="text"
-                                    value={data.username}
-                                    onChange={(e) => {
-                                        setUsernameEdited(true);
-
-                                        setData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
-                                    }}
-                                    placeholder="@yourusername"
-                                    className="input-flockr pl-3"
-                                    required
-                                />
-                            </div>
-                        </Field>
+                        
+<Field label="Username" error={errors.username}>
+    <div className="relative">
+        <input
+            type="text"
+            value={data.username}
+            onChange={(e) => {
+                setUsernameEdited(true);
+                setData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+            }}
+            placeholder="@yourusername"
+            className="input-flockr pl-3 pr-9"
+            required
+        />
+        {usernameStatus === 'checking' && (
+            <RiLoader4Line className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-flockr-muted" size={16} />
+        )}
+        {usernameStatus === 'available' && (
+            <RiCheckLine className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400" size={16} />
+        )}
+        {usernameStatus === 'taken' && (
+            <RiCloseLine className="absolute right-3 top-1/2 -translate-y-1/2 text-red-400" size={16} />
+        )}
+    </div>
+    {usernameStatus === 'taken' && usernameSuggestions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+            <span className="text-flockr-muted text-xs self-center">Try:</span>
+            {usernameSuggestions.map((s) => (
+                <button
+                    key={s}
+                    type="button"
+                    onClick={() => { setUsernameEdited(true); setData('username', s) }}
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-flockr-orange hover:bg-white/[0.08]"
+                >
+                    {s}
+                </button>
+            ))}
+        </div>
+    )}
+</Field>
                     </div>
 
                     <Field label="Email" error={errors.email}>

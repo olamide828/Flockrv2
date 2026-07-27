@@ -16,65 +16,88 @@ use Inertia\Response;
 
 class AdminController extends Controller
 {
-    public function dashboard(): Response
-    {
-        $stats = [
-            'total_users'       => User::count(),
-            'total_sellers'     => User::where('role', 'seller')->count(),
-            'total_buyers'      => User::where('role', 'buyer')->count(),
-            'total_videos'      => Video::where('status', 'active')->count(),
-            'total_products'    => Product::where('status', 'active')->count(),
-            'total_orders'      => Order::count(),
-            'gmv_30d'           => Order::paid()->where('created_at', '>=', now()->subDays(30))->sum('total'),
-            'gmv_7d'            => Order::paid()->where('created_at', '>=', now()->subDays(7))->sum('total'),
-            'new_users_today'   => User::whereDate('created_at', today())->count(),
-            'new_users_7d'      => User::where('created_at', '>=', now()->subDays(7))->count(),
-            'videos_today'      => Video::whereDate('created_at', today())->count(),
-            'orders_today'      => Order::whereDate('created_at', today())->count(),
-            'pending_videos'    => Video::where('status', 'pending')->count(),
-            'failed_video_jobs' => Video::where('status', 'failed')->count(),
-            'queue_size'        => DB::table('jobs')->count(),
-            'revenue_total'     => Order::paid()->sum('total'),
-        ];
+   public function dashboard(): Response
+{
+    $stats = [
+        'total_users'       => User::count(),
+        'total_sellers'     => User::where('role', 'seller')->count(),
+        'total_buyers'      => User::where('role', 'buyer')->count(),
+        'deleted_users'     => User::onlyTrashed()->count(),           
+        'pending_deletions' => User::onlyTrashed()                     
+                                   ->whereNotNull('deletion_scheduled_at')
+                                   ->where('deletion_scheduled_at', '>', now())
+                                   ->count(),
+        'total_videos'      => Video::where('status', 'active')->count(),
+        'total_products'    => Product::where('status', 'active')->count(),
+        'total_orders'      => Order::count(),
+        'gmv_30d'           => Order::paid()->where('created_at', '>=', now()->subDays(30))->sum('total'),
+        'gmv_7d'            => Order::paid()->where('created_at', '>=', now()->subDays(7))->sum('total'),
+        'new_users_today'   => User::whereDate('created_at', today())->count(),
+        'new_users_7d'      => User::where('created_at', '>=', now()->subDays(7))->count(),
+        'videos_today'      => Video::whereDate('created_at', today())->count(),
+        'orders_today'      => Order::whereDate('created_at', today())->count(),
+        'pending_videos'    => Video::where('status', 'pending')->count(),
+        'failed_video_jobs' => Video::where('status', 'failed')->count(),
+        'queue_size'        => \DB::table('jobs')->count(),
+        'revenue_total'     => Order::paid()->sum('total'),
+    ];
 
-        $recentUsers = User::latest()->limit(20)
-            ->get(['id', 'name', 'username', 'avatar', 'role', 'is_verified', 'is_active', 'created_at']);
+    $recentUsers = User::latest()->limit(20)
+        ->get(['id', 'name', 'username', 'avatar', 'role', 'is_verified', 'is_active', 'created_at']);
 
-        $pendingVideos = Video::where('status', 'pending')
-            ->with('user:id,name,username,avatar')
-            ->latest()
-            ->limit(12)
-            ->get();
+    $pendingVideos = Video::where('status', 'pending')
+        ->with('user:id,name,username,avatar')
+        ->latest()->limit(12)->get();
 
-        $flaggedOrders = Order::whereIn('status', ['cancelled', 'refunded', 'disputed'])
-            ->with(['buyer:id,name,username', 'seller:id,name,username'])
-            ->latest()
-            ->limit(20)
-            ->get();
+    $flaggedOrders = Order::whereIn('status', ['cancelled', 'refunded', 'disputed'])
+        ->with(['buyer:id,name,username', 'seller:id,name,username'])
+        ->latest()->limit(20)->get();
 
-        $recentOrders = Order::with(['buyer:id,name,username', 'seller:id,name,username'])
-            ->latest()
-            ->limit(10)
-            ->get();
+    $recentOrders = Order::with(['buyer:id,name,username', 'seller:id,name,username'])
+        ->latest()->limit(10)->get();
 
-        return Inertia::render('Admin/Dashboard', compact(
-            'stats', 'recentUsers', 'pendingVideos', 'flaggedOrders', 'recentOrders'
-        ));
+    return Inertia::render('Admin/Dashboard', compact(
+        'stats', 'recentUsers', 'pendingVideos', 'flaggedOrders', 'recentOrders'
+    ));
+}
+
+   public function users(Request $request): Response
+{
+    // withTrashed() so deleted accounts are visible to admin
+    $query = User::withTrashed()->latest();
+
+    if ($request->filled('role')) {
+        $query->where('role', $request->role);
     }
 
-    public function users(Request $request): Response
-    {
-        $query = User::latest();
-
-        if ($request->filled('role'))   $query->where('role', $request->role);
-        if ($request->filled('search')) {
-            $q = $request->search;
-            $query->where(fn($q2) => $q2->where('name', 'ilike', "%{$q}%")->orWhere('username', 'ilike', "%{$q}%")->orWhere('email', 'ilike', "%{$q}%"));
-        }
-
-        $users = $query->paginate(50);
-        return Inertia::render('Admin/Users', ['users' => $users, 'filters' => $request->only('role', 'search')]);
+    if ($request->filled('status')) {
+        match ($request->status) {
+            'deleted'   => $query->onlyTrashed(),
+            'suspended' => $query->whereNull('deleted_at')->where('is_active', false),
+            'active'    => $query->whereNull('deleted_at')->where('is_active', true),
+            default     => null,
+        };
     }
+
+    if ($request->filled('search')) {
+        $q = $request->search;
+        $query->where(function ($q2) use ($q) {
+            $q2->where('name',         'ilike', "%{$q}%")
+               ->orWhere('username',   'ilike', "%{$q}%")
+               ->orWhere('email',      'ilike', "%{$q}%")
+               // Search preserved values for deleted accounts
+               ->orWhere('deleted_name',  'ilike', "%{$q}%")
+               ->orWhere('deleted_email', 'ilike', "%{$q}%");
+        });
+    }
+
+    $users = $query->paginate(50);
+
+    return Inertia::render('Admin/Users', [
+        'users'   => $users,
+        'filters' => $request->only('role', 'search', 'status'),
+    ]);
+}
 
     public function showUser(User $user): Response
     {
@@ -145,12 +168,19 @@ class AdminController extends Controller
     }
 
     /** DELETE /api/admin/users/{user} */
-    public function deleteUser(User $user): JsonResponse
-    {
-        $user->delete();
-        return response()->json(['message' => "User @{$user->username} deleted."]);
-    }
+  public function deleteUser(User $user): JsonResponse
+{
+    // Preserve for fraud reference before soft delete
+    $user->update([
+        'deleted_name'  => $user->name,
+        'deleted_email' => $user->email,
+        'is_active'     => false,
+    ]);
 
+    $user->delete(); 
+
+    return response()->json(['message' => "User @{$user->username} deleted."]);
+}
     /** POST /api/admin/videos/{video}/approve */
     public function approveVideo(Video $video): JsonResponse
     {

@@ -22,8 +22,8 @@ use App\Http\Controllers\NotificationController;
 Route::get('/', [VideoController::class, 'index'])->name('home');
 Route::get('/explore', [SearchController::class, 'index'])->name('explore');
 Route::get('/shop', [ProductController::class, 'shop'])->name('shop');
-Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])->name('videos.show');
-Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show');
+Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])->name('videos.show')->withTrashed();  
+Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show')->withTrashed();
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
 Route::get('/community', [CommunityController::class, 'index'])->name('community');
 Route::get('/community/posts/{post}', [CommunityController::class, 'showPostPage'])->name('community.post');
@@ -50,6 +50,13 @@ Route::get('/auth/{provider}/callback', [AuthController::class, 'handleProviderC
 
 // ── Authenticated pages ───────────────────────────────────────────────────────
 Route::middleware('auth')->group(function () {
+    Route::get('/verify-email', [AuthController::class, 'verifyNotice'])->name('verification.notice');
+Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verify'])
+    ->middleware('signed')
+    ->name('verification.verify');
+Route::post('/email/verification-notification', [AuthController::class, 'sendVerification'])
+    ->middleware('throttle:6,1')
+    ->name('verification.send');
 
     Route::get('/onboarding', [BuyerOnboardingController::class, 'show'])->name('buyer.onboarding');
     Route::post('/onboarding', [BuyerOnboardingController::class, 'store'])->name('buyer.onboarding.store');
@@ -102,7 +109,7 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
-        Route::get('/users/{user}', [AdminController::class, 'showUser'])->name('users.show');
+        Route::get('/users/{userId}', [AdminController::class, 'showUser'])->name('users.show');
         Route::get('/orders/{order}', [AdminController::class, 'showOrder'])->name('orders.show');
     Route::get('/users',      [AdminController::class, 'users'])->name('admin.users');
     Route::get('/videos',     [AdminController::class, 'videos'])->name('admin.videos');

@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use App\Models\LoginHistory;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -32,3 +33,10 @@ Schedule::command('model:prune', ['--model' => 'App\\Models\\VideoView'])
     ->weekly();
 
 Schedule::command('auth:clear-resets')->weekly();
+
+// Purge login history 
+Schedule::call(function () {
+    LoginHistory::where('created_at', '<', now()->subDays(90))->delete();
+})->daily();
+
+Schedule::command('users:purge-deleted')->daily();

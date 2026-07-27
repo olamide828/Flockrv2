@@ -89,11 +89,7 @@ function RatingBar({ star, count, total, onFilter, active }) {
     return (
         <button
             onClick={() => onFilter(star)}
-            style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: 'none', border: 'none', cursor: 'pointer',
-                padding: '3px 0', width: '100%', textAlign: 'left',
-            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 0', width: '100%', textAlign: 'left' }}
         >
             <span style={{ color: active ? '#FBBF24' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, width: 14, flexShrink: 0 }}>{star}</span>
             <RiStarFill size={11} color={active ? '#FBBF24' : 'rgba(255,255,255,0.2)'} style={{ flexShrink: 0 }} />
@@ -160,7 +156,6 @@ function ReviewCard({ review, onPhotoClick }) {
 
     return (
         <div style={{ padding: '16px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            {/* Header row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <img
                     src={review.buyer?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(review.buyer?.name ?? 'U')}&background=1a1a1a&size=32`}
@@ -170,7 +165,6 @@ function ReviewCard({ review, onPhotoClick }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>{review.buyer?.name ?? 'Buyer'}</span>
-                        {/* Verified purchase badge */}
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 7px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 999, fontSize: 10, fontWeight: 600, color: '#10B981', flexShrink: 0 }}>
                             <RiCheckLine size={9} /> Verified Purchase
                         </span>
@@ -185,15 +179,11 @@ function ReviewCard({ review, onPhotoClick }) {
                     </div>
                 </div>
             </div>
-
-            {/* Review body */}
             {review.body && (
                 <p style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.65 }}>
                     {review.body}
                 </p>
             )}
-
-            {/* Photos grid */}
             {photos.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {photos.map((url, i) => (
@@ -225,7 +215,6 @@ function ReviewForm({ orderId, onSubmitted }) {
     const [submitting,    setSubmitting]    = useState(false);
     const [error,         setError]         = useState('');
     const fileRef = useRef(null);
-
     const ratingLabels = { 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Very Good', 5: 'Excellent' };
 
     const handlePhoto = (e) => {
@@ -235,13 +224,11 @@ function ReviewForm({ orderId, onSubmitted }) {
         setPhotoPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
         e.target.value = '';
     };
-
     const removePhoto = (i) => {
         URL.revokeObjectURL(photoPreviews[i]);
         setPhotoFiles(prev  => prev.filter((_, idx) => idx !== i));
         setPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
     };
-
     const handleSubmit = async () => {
         if (rating === 0) { setError('Please select a star rating.'); return; }
         setError('');
@@ -264,15 +251,11 @@ function ReviewForm({ orderId, onSubmitted }) {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-            {/* Star rating */}
             <div>
                 <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Overall Rating *</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                     <StarPicker value={rating} onChange={setRating} />
-                    {rating > 0 && (
-                        <span style={{ color: '#FBBF24', fontSize: 14, fontWeight: 700 }}>{ratingLabels[rating]}</span>
-                    )}
+                    {rating > 0 && <span style={{ color: '#FBBF24', fontSize: 14, fontWeight: 700 }}>{ratingLabels[rating]}</span>}
                 </div>
                 {rating === 5 && photoFiles.length === 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '8px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.15)', borderRadius: 10 }}>
@@ -281,8 +264,6 @@ function ReviewForm({ orderId, onSubmitted }) {
                     </div>
                 )}
             </div>
-
-            {/* Review text */}
             <div>
                 <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Your Review <span style={{ color: 'rgba(255,255,255,0.2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
                 <textarea
@@ -290,22 +271,12 @@ function ReviewForm({ orderId, onSubmitted }) {
                     onChange={e => setBody(e.target.value)}
                     placeholder="Share your experience — product quality, packaging, delivery speed…"
                     rows={4}
-                    style={{
-                        width: '100%', padding: '13px 14px',
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 14, color: '#fff', fontSize: 14,
-                        outline: 'none', resize: 'none', lineHeight: 1.65,
-                        fontFamily: 'inherit', boxSizing: 'border-box',
-                        transition: 'border-color 0.2s',
-                    }}
+                    style={{ width: '100%', padding: '13px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, color: '#fff', fontSize: 14, outline: 'none', resize: 'none', lineHeight: 1.65, fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.2s' }}
                     onFocus={e => e.target.style.borderColor = 'rgba(255,107,53,0.4)'}
                     onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
                 />
                 <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'right' }}>{body.length}/1000</p>
             </div>
-
-            {/* Photos */}
             <div>
                 <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600, margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Photos <span style={{ color: 'rgba(255,255,255,0.2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(up to 3)</span>
@@ -314,10 +285,7 @@ function ReviewForm({ orderId, onSubmitted }) {
                     {photoPreviews.map((url, i) => (
                         <div key={i} style={{ position: 'relative', width: 80, height: 80, flexShrink: 0 }}>
                             <img src={url} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 12, display: 'block', border: '1px solid rgba(255,255,255,0.1)' }} />
-                            <button
-                                onClick={() => removePhoto(i)}
-                                style={{ position: 'absolute', top: -7, right: -7, width: 22, height: 22, borderRadius: '50%', background: '#0a0a0a', border: '1.5px solid rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: 0 }}
-                            >
+                            <button onClick={() => removePhoto(i)} style={{ position: 'absolute', top: -7, right: -7, width: 22, height: 22, borderRadius: '50%', background: '#0a0a0a', border: '1.5px solid rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: 0 }}>
                                 <RiCloseLine size={12} />
                             </button>
                         </div>
@@ -330,21 +298,17 @@ function ReviewForm({ orderId, onSubmitted }) {
                             onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
                         >
                             <RiImageAddLine size={22} color="rgba(255,255,255,0.25)" />
-                            <span style={{ fontSize: 10, fontWeight: 600 }}>
-                                {photoFiles.length === 0 ? 'Add photo' : `${3 - photoFiles.length} more`}
-                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 600 }}>{photoFiles.length === 0 ? 'Add photo' : `${3 - photoFiles.length} more`}</span>
                         </button>
                     )}
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" multiple onChange={handlePhoto} style={{ display: 'none' }} />
             </div>
-
             {error && (
                 <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10 }}>
                     <p style={{ color: '#EF4444', fontSize: 13, margin: 0 }}>{error}</p>
                 </div>
             )}
-
             <button
                 onClick={handleSubmit}
                 disabled={submitting || rating === 0}
@@ -361,14 +325,14 @@ function ReviewForm({ orderId, onSubmitted }) {
 
 // ── Reviews section ───────────────────────────────────────────────────────────
 function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth }) {
-    const avgRating    = parseFloat(product.avg_rating ?? 0);        // this product's rating
-const totalReviews = Number(product.total_reviews ?? 0);          // this product's review count
-const sellerAvg    = parseFloat(product.seller?.avg_rating ?? 0); // seller overall rating
-const showRating   = avgRating > 0 && totalReviews > 0;
+    const avgRating    = parseFloat(product.avg_rating ?? 0);
+    const totalReviews = Number(product.total_reviews ?? 0);
+    const showRating   = avgRating > 0 && totalReviews > 0;
+
     const [reviewList,      setReviewList]      = useState(initialReviews ?? []);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [earnedCoupon,    setEarnedCoupon]    = useState(null);
-    const [filterStar,      setFilterStar]      = useState(null); // null = all
+    const [filterStar,      setFilterStar]      = useState(null);
     const [filterPhoto,     setFilterPhoto]     = useState(false);
     const [page,            setPage]            = useState(1);
     const [hasMore,         setHasMore]         = useState(initialReviews?.length >= 10);
@@ -377,7 +341,6 @@ const showRating   = avgRating > 0 && totalReviews > 0;
 
     const canReview = !!userOrderId && !reviewSubmitted && auth?.user;
 
-    // star breakdown from loaded reviews (approximate — for full accuracy backend should return counts)
     const starCounts = [5,4,3,2,1].map(s => ({
         star: s,
         count: reviewList.filter(r => Math.round(parseFloat(r.rating)) === s).length,
@@ -407,9 +370,7 @@ const showRating   = avgRating > 0 && totalReviews > 0;
         setLoadingMore(true);
         try {
             const nextPage = page + 1;
-            const { data } = await axios.get(`/api/products/${product.slug}/reviews`, {
-                params: { page: nextPage, per_page: 10 }
-            });
+            const { data } = await axios.get(`/api/products/${product.slug}/reviews`, { params: { page: nextPage, per_page: 10 } });
             const newReviews = data.reviews ?? [];
             setReviewList(prev => [...prev, ...newReviews]);
             setPage(nextPage);
@@ -423,46 +384,26 @@ const showRating   = avgRating > 0 && totalReviews > 0;
 
     return (
         <>
-            {/* Review lightbox */}
             {reviewLightbox && (
-                <ReviewLightbox
-                    photos={reviewLightbox.photos}
-                    startIdx={reviewLightbox.idx}
-                    onClose={() => setReviewLightbox(null)}
-                />
+                <ReviewLightbox photos={reviewLightbox.photos} startIdx={reviewLightbox.idx} onClose={() => setReviewLightbox(null)} />
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-
-                {/* ── Rating overview ────────────────────────────────────────── */}
                 {showRating && (
                     <div style={{ display: 'flex', gap: 20, padding: '20px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, marginBottom: 20 }}>
-                        {/* Big number */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, minWidth: 80 }}>
                             <p style={{ margin: 0, color: '#FBBF24', fontSize: 44, fontWeight: 900, lineHeight: 1, letterSpacing: '-2px' }}>{avgRating.toFixed(1)}</p>
                             <StarsDisplay rating={avgRating} size={14} />
-                            <p style={{ margin: '6px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11, textAlign: 'center' }}>
-                                {totalReviews} {totalReviews === 1 ? 'review' : 'reviews'}
-                            </p>
+                            <p style={{ margin: '6px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11, textAlign: 'center' }}>{totalReviews} {totalReviews === 1 ? 'review' : 'reviews'}</p>
                         </div>
-
-                        {/* Bar breakdown */}
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, justifyContent: 'center' }}>
                             {starCounts.map(({ star, count }) => (
-                                <RatingBar
-                                    key={star}
-                                    star={star}
-                                    count={count}
-                                    total={reviewList.length}
-                                    onFilter={s => setFilterStar(filterStar === s ? null : s)}
-                                    active={filterStar === star}
-                                />
+                                <RatingBar key={star} star={star} count={count} total={reviewList.length} onFilter={s => setFilterStar(filterStar === s ? null : s)} active={filterStar === star} />
                             ))}
                         </div>
                     </div>
                 )}
 
-                {/* ── Coupon earned ──────────────────────────────────────────── */}
                 {earnedCoupon && (
                     <div style={{ padding: '14px 18px', background: 'linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.04))', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, marginBottom: 16 }}>
                         <p style={{ margin: '0 0 4px', color: '#10B981', fontWeight: 700, fontSize: 15 }}>🎉 You earned a ₦200 coupon!</p>
@@ -474,7 +415,6 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                     </div>
                 )}
 
-                {/* Review submitted success */}
                 {reviewSubmitted && !earnedCoupon && (
                     <div style={{ padding: '12px 16px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <RiCheckLine size={15} color="#10B981" />
@@ -482,7 +422,6 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                     </div>
                 )}
 
-                {/* ── Write a review ─────────────────────────────────────────── */}
                 {canReview && !reviewSubmitted && (
                     <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, padding: '20px 18px', marginBottom: 24 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
@@ -493,81 +432,37 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                     </div>
                 )}
 
-                {/* ── Filters ────────────────────────────────────────────────── */}
                 {reviewList.length > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
                             <RiFilterLine size={13} />
                             <span style={{ fontSize: 12 }}>Filter:</span>
                         </div>
-
                         {[5,4,3,2,1].map(s => (
-                            <button
-                                key={s}
-                                onClick={() => setFilterStar(filterStar === s ? null : s)}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: 4,
-                                    padding: '5px 10px', borderRadius: 999,
-                                    background: filterStar === s ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.04)',
-                                    border: `1px solid ${filterStar === s ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)'}`,
-                                    color: filterStar === s ? '#FBBF24' : 'rgba(255,255,255,0.45)',
-                                    fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
-                                }}
-                            >
+                            <button key={s} onClick={() => setFilterStar(filterStar === s ? null : s)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 999, background: filterStar === s ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${filterStar === s ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)'}`, color: filterStar === s ? '#FBBF24' : 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
                                 <RiStarFill size={11} color={filterStar === s ? '#FBBF24' : 'rgba(255,255,255,0.3)'} />
                                 {s}
                             </button>
                         ))}
-
-                        <button
-                            onClick={() => setFilterPhoto(v => !v)}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: 5,
-                                padding: '5px 10px', borderRadius: 999,
-                                background: filterPhoto ? 'rgba(255,107,53,0.1)' : 'rgba(255,255,255,0.04)',
-                                border: `1px solid ${filterPhoto ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.08)'}`,
-                                color: filterPhoto ? '#FF6B35' : 'rgba(255,255,255,0.45)',
-                                fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
-                            }}
-                        >
+                        <button onClick={() => setFilterPhoto(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, background: filterPhoto ? 'rgba(255,107,53,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${filterPhoto ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.08)'}`, color: filterPhoto ? '#FF6B35' : 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
                             <RiCameraLine size={12} /> With photo
                         </button>
-
                         {hasFilters && (
-                            <button onClick={clearFilters} style={{ padding: '5px 10px', borderRadius: 999, background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>
-                                Clear
-                            </button>
+                            <button onClick={clearFilters} style={{ padding: '5px 10px', borderRadius: 999, background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
                         )}
-
-                        <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
-                            {filtered.length} result{filtered.length !== 1 ? 's' : ''}
-                        </span>
+                        <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
                     </div>
                 )}
 
-                {/* ── Reviews list ───────────────────────────────────────────── */}
                 {filtered.length > 0 ? (
                     <div>
                         {filtered.map(r => (
-                            <ReviewCard
-                                key={r.id}
-                                review={r}
-                                onPhotoClick={(photos, idx) => setReviewLightbox({ photos, idx })}
-                            />
+                            <ReviewCard key={r.id} review={r} onPhotoClick={(photos, idx) => setReviewLightbox({ photos, idx })} />
                         ))}
-
-                        {/* Load more */}
                         {hasMore && !hasFilters && (
                             <div style={{ paddingTop: 20, textAlign: 'center' }}>
-                                <button
-                                    onClick={loadMore}
-                                    disabled={loadingMore}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '11px 24px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, cursor: loadingMore ? 'not-allowed' : 'pointer', opacity: loadingMore ? 0.6 : 1 }}
-                                >
-                                    {loadingMore
-                                        ? <><RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Loading…</>
-                                        : 'Load more reviews'
-                                    }
+                                <button onClick={loadMore} disabled={loadingMore} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '11px 24px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, cursor: loadingMore ? 'not-allowed' : 'pointer', opacity: loadingMore ? 0.6 : 1 }}>
+                                    {loadingMore ? <><RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Loading…</> : 'Load more reviews'}
                                 </button>
                             </div>
                         )}
@@ -575,29 +470,15 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                 ) : (
                     <div style={{ textAlign: 'center', padding: hasFilters ? '30px 0' : '50px 0' }}>
                         <RiStarLine size={40} color="rgba(255,255,255,0.1)" style={{ display: 'block', margin: '0 auto 12px' }} />
-                        <p style={{ margin: '0 0 4px', color: 'rgba(255,255,255,0.4)', fontSize: 14, fontWeight: 600 }}>
-                            {hasFilters ? 'No reviews match this filter' : 'No reviews yet'}
-                        </p>
-                        {hasFilters && (
-                            <button onClick={clearFilters} style={{ marginTop: 10, color: '#FF6B35', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                                Clear filters
-                            </button>
-                        )}
-                        {!hasFilters && canReview && !reviewSubmitted && (
-                            <p style={{ margin: '6px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>Be the first to review this seller!</p>
-                        )}
+                        <p style={{ margin: '0 0 4px', color: 'rgba(255,255,255,0.4)', fontSize: 14, fontWeight: 600 }}>{hasFilters ? 'No reviews match this filter' : 'No reviews yet'}</p>
+                        {hasFilters && <button onClick={clearFilters} style={{ marginTop: 10, color: '#FF6B35', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear filters</button>}
+                        {!hasFilters && canReview && !reviewSubmitted && <p style={{ margin: '6px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>Be the first to review this seller!</p>}
                     </div>
                 )}
             </div>
         </>
     );
-};
-
-
-
-
-
-
+}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ProductShow({ product, similarProducts = [], reviews = [], userOrderId = null }) {
@@ -616,16 +497,16 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
     const [descExpanded,   setDescExpanded]   = useState(false);
     const [addingToCart,   setAddingToCart]   = useState(false);
     const [addedToCart,    setAddedToCart]    = useState(false);
-    const [showCheckout, setShowCheckout] = useState(false);
-const [addresses,    setAddresses]    = useState([]);
+    const [showCheckout,   setShowCheckout]   = useState(false);
+    const [addresses,      setAddresses]      = useState([]);
 
-const { showToast, ToastComponent } = useToast();
+    const { showToast, ToastComponent } = useToast();
 
-   const avgRating    = parseFloat(product.avg_rating ?? 0);           // this product only
-const totalReviews = Number(product.total_reviews ?? 0);             // this product only
-const sellerAvg    = parseFloat(product.seller?.avg_rating ?? 0);   // seller overall
-const sellerTotal  = Number(product.seller?.total_reviews ?? 0);     // seller overall
-const showRating   = avgRating > 0 && totalReviews > 0;
+    const avgRating    = parseFloat(product.avg_rating ?? 0);
+    const totalReviews = Number(product.total_reviews ?? 0);
+    const sellerAvg    = parseFloat(product.seller?.avg_rating ?? 0);
+    const sellerTotal  = Number(product.seller?.total_reviews ?? 0);
+    const showRating   = avgRating > 0 && totalReviews > 0;
 
     const r2Base = typeof window !== 'undefined' && window.flockrConfig?.r2Url
         ? window.flockrConfig.r2Url.replace(/\/$/, '') : '';
@@ -650,11 +531,9 @@ const showRating   = avgRating > 0 && totalReviews > 0;
     }, [product.id]);
 
     useEffect(() => {
-    if (!showCheckout || !auth?.user) return;
-    axios.get('/api/addresses').then(r => setAddresses(r.data.addresses ?? [])).catch(() => {});
-}, [showCheckout, auth?.user]);
-
-
+        if (!showCheckout || !auth?.user) return;
+        axios.get('/api/addresses').then(r => setAddresses(r.data.addresses ?? [])).catch(() => {});
+    }, [showCheckout, auth?.user]);
 
     const generateSummary = useCallback(async () => {
         if (summary) return;
@@ -682,9 +561,9 @@ const showRating   = avgRating > 0 && totalReviews > 0;
     };
 
     const handleBuy = async () => {
-    if (!auth?.user) { router.visit('/login'); return; }
-    setShowCheckout(true);
-};
+        if (!auth?.user) { router.visit('/login'); return; }
+        setShowCheckout(true);
+    };
 
     const handleSave = async () => {
         if (!auth?.user) { router.visit('/login'); return; }
@@ -701,8 +580,7 @@ const showRating   = avgRating > 0 && totalReviews > 0;
             setTimeout(() => setAddedToCart(false), 2500);
             window.dispatchEvent(new CustomEvent('flockr:cart'));
         } catch (err) {
-            showToast(err.response?.data?.message ?? 'Failed to add to cart.', 'error')
-
+            showToast(err.response?.data?.message ?? 'Failed to add to cart.', 'error');
         } finally { setAddingToCart(false); }
     };
 
@@ -807,24 +685,22 @@ const showRating   = avgRating > 0 && totalReviews > 0;
 
                             <h1 className="font-display lg:text-2xl text-xl leading-snug font-bold text-white">{product.name}</h1>
 
-                            {/* Price + inline rating */}
+                            {/* Price + rating */}
                             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
                                     <span className="text-flockr-orange font-display text-3xl font-bold">₦{Number(product.price).toLocaleString()}</span>
                                     {product.compare_price && <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.compare_price).toLocaleString()}</span>}
                                 </div>
                                 {showRating && (
-                                    <button
-                                        onClick={() => handleTabClick('reviews')}
-                                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                                    >
+                                    <button onClick={() => handleTabClick('reviews')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                                         <StarsDisplay rating={avgRating} size={13} />
-<span style={{ color: '#FBBF24', fontSize: 13, fontWeight: 700 }}>{avgRating.toFixed(1)}</span>
-<span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>({totalReviews})</span>
+                                        <span style={{ color: '#FBBF24', fontSize: 13, fontWeight: 700 }}>{avgRating.toFixed(1)}</span>
+                                        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>({totalReviews})</span>
                                     </button>
                                 )}
                             </div>
 
+                            {/* Stock status */}
                             <div className="flex items-center gap-2">
                                 <span className={`h-2 w-2 rounded-full ${product.is_in_stock ? 'bg-flockr-green' : 'bg-flockr-red'}`} />
                                 <span className={`text-sm font-medium ${product.is_in_stock ? 'text-flockr-green' : 'text-flockr-red'}`}>
@@ -832,22 +708,43 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                                 </span>
                             </div>
 
-                            {product.attributes && Object.keys(product.attributes).length > 0 && (
-                                <div className="space-y-3">
-                                    {Object.entries(product.attributes).map(([key, val]) => (
-                                        <div key={key}>
-                                            <p className="text-flockr-muted mb-1.5 text-xs tracking-wider uppercase">{key}</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                {Array.isArray(val)
-                                                    ? val.map(v => <span key={v} className="hover:border-flockr-orange cursor-pointer rounded-xl border border-white/[0.1] px-3 py-1.5 text-sm text-white transition-colors">{v}</span>)
-                                                    : <span className="rounded-xl border border-white/[0.1] px-3 py-1.5 text-sm text-white">{val}</span>
-                                                }
-                                            </div>
-                                        </div>
+                            {/* Tags */}
+                            {Array.isArray(product.tags) && product.tags.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {product.tags.map((tag, i) => (
+                                        <a
+                                            key={i}
+                                            href={`/shop?q=${encodeURIComponent(tag)}`}
+                                            style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 10px', background: 'rgba(255,92,0,0.08)', border: '1px solid rgba(255,92,0,0.18)', borderRadius: 999, color: '#FF6B35', fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
+                                        >
+                                            #{tag}
+                                        </a>
                                     ))}
                                 </div>
                             )}
 
+                            {/* Attributes */}
+                            {product.attributes && Object.keys(product.attributes).length > 0 && (
+                                <div className="space-y-3">
+                                    {Object.entries(product.attributes).map(([key, val]) => {
+                                        const options = Array.isArray(val)
+                                            ? val
+                                            : String(val).split(',').map(v => v.trim()).filter(Boolean)
+                                        return (
+                                            <div key={key}>
+                                                <p className="text-flockr-muted mb-1.5 text-xs tracking-wider uppercase">{key}</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {options.map((v, i) => (
+                                                        <span key={i} className="rounded-xl border border-white/[0.1] px-3 py-1.5 text-sm text-white">{v}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+
+                            {/* Quantity */}
                             {product.is_in_stock && (
                                 <div className="flex items-center gap-3">
                                     <span className="text-flockr-muted text-sm">Qty</span>
@@ -859,18 +756,23 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                                 </div>
                             )}
 
+                            {/* Action buttons */}
                             <div className="flex gap-3">
                                 <button onClick={handleAddToCart} disabled={!product.is_in_stock || addingToCart} className="btn-ghost flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60">
                                     {addingToCart ? 'Adding...' : addedToCart ? '✓ Added' : `Cart · ₦${totalPrice}`}
                                 </button>
                                 <button onClick={handleBuy} disabled={!product.is_in_stock || buying} className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60">
-                                    {buying ? (<><svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>Processing...</>) : product.is_in_stock ? (<><RiFlashlightLine size={18} /> Buy Now</>) : 'Out of Stock'}
+                                    {buying
+                                        ? <><svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>Processing...</>
+                                        : product.is_in_stock ? <><RiFlashlightLine size={18} /> Buy Now</> : 'Out of Stock'
+                                    }
                                 </button>
                                 <button onClick={handleSave} className="btn-ghost flex items-center gap-1.5 rounded-2xl px-4 py-3.5">
                                     {saved ? <RiBookmarkFill size={17} color="#FBBF24" /> : <RiBookmarkLine size={17} />}
                                 </button>
                             </div>
 
+                            {/* Shipping + security info */}
                             <div className="bg-flockr-card space-y-3 rounded-2xl border border-white/[0.06] p-4">
                                 <div className="flex items-start gap-3 text-sm">
                                     <RiTruckLine size={18} color="#FF6B35" className="mt-0.5 shrink-0" />
@@ -885,6 +787,7 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                                 </div>
                             </div>
 
+                            {/* Seller card */}
                             <Link href={`/@${product.seller?.username}`} className="bg-flockr-card group flex items-center gap-3 rounded-2xl border border-white/[0.06] p-3.5 transition-all hover:border-white/[0.14]">
                                 <img src={product.seller?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(product.seller?.name ?? 'S')}&background=1a1a1a`} alt={product.seller?.name} className="h-11 w-11 shrink-0 rounded-full object-cover" />
                                 <div className="min-w-0 flex-1">
@@ -897,8 +800,8 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                                         {sellerAvg > 0 && (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                                 <RiStarFill size={11} color="#FBBF24" />
-<span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600 }}>{sellerAvg.toFixed(1)}</span>
-<span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>({sellerTotal > 99 ? '99+' : sellerTotal})</span>
+                                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600 }}>{sellerAvg.toFixed(1)}</span>
+                                                <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>({sellerTotal > 99 ? '99+' : sellerTotal})</span>
                                             </div>
                                         )}
                                     </div>
@@ -914,7 +817,7 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                             {[
                                 { key: 'description',    label: 'Description' },
                                 { key: 'ai_description', label: 'AI Summary',  Icon: RiSparkling2Line },
-                                { key: 'videos',         label: 'Videos',      Icon: RiVideoLine      },
+                                { key: 'videos',         label: 'Videos',      Icon: RiVideoLine },
                                 { key: 'reviews',        label: totalReviews > 0 ? `Reviews (${totalReviews})` : 'Reviews' },
                             ].map(({ key, label, Icon }) => (
                                 <button key={key} onClick={() => handleTabClick(key)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 16px 12px 0', background: 'none', border: 'none', borderBottom: activeTab === key ? '2px solid #FF6B35' : '2px solid transparent', color: activeTab === key ? '#fff' : 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: activeTab === key ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'color 0.15s', marginBottom: -1 }}>
@@ -926,7 +829,6 @@ const showRating   = avgRating > 0 && totalReviews > 0;
 
                     {/* Tab content */}
                     <div className="mt-4">
-
                         {activeTab === 'description' && (() => {
                             const text   = product.description || 'No description provided.';
                             const isLong = text.length > 500;
@@ -964,16 +866,11 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                         )}
 
                         {activeTab === 'reviews' && (
-                            <ReviewsSection
-                                product={product}
-                                reviews={reviews}
-                                userOrderId={userOrderId}
-                                auth={auth}
-                            />
+                            <ReviewsSection product={product} reviews={reviews} userOrderId={userOrderId} auth={auth} />
                         )}
                     </div>
 
-                    {/* More from seller + similar — hidden on reviews tab */}
+                    {/* More from seller + similar */}
                     {!isReviewsTab && (
                         <>
                             {sellerProducts.length > 0 && (
@@ -987,7 +884,6 @@ const showRating   = avgRating > 0 && totalReviews > 0;
                                     </div>
                                 </div>
                             )}
-
                             {similarProducts.length > 0 && (
                                 <div className="mt-10">
                                     <h2 className="font-display mb-4 text-lg font-bold text-white">You might also like</h2>
@@ -1020,47 +916,18 @@ const showRating   = avgRating > 0 && totalReviews > 0;
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
             {showCheckout && (
-    <CheckoutModal
-        items={[{ id: null, product: { ...product, seller: product.seller }, quantity }]}
-        addresses={addresses}
-        subtotal={Number(product.price) * quantity}
-        onClose={() => setShowCheckout(false)}
-        showToast={showToast}
-        singleProduct={{ productId: product.id, quantity }}
-    />
-)}
-{ToastComponent}
+                <CheckoutModal
+                    items={[{ id: null, product: { ...product, seller: product.seller }, quantity }]}
+                    addresses={addresses}
+                    subtotal={Number(product.price) * quantity}
+                    onClose={() => setShowCheckout(false)}
+                    showToast={showToast}
+                    singleProduct={{ productId: product.id, quantity }}
+                />
+            )}
+            {ToastComponent}
         </>
     );
 }
 
 ProductShow.layout = page => <AppLayout>{page}</AppLayout>;
-
-function SummaryRow({ label, value, bold, valueColor }) {
-    return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: bold ? '#fff' : 'rgba(255,255,255,0.5)', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400 }}>{label}</span>
-            <span style={{ color: valueColor ?? (bold ? '#FF6B35' : '#fff'), fontSize: bold ? 16 : 13, fontWeight: bold ? 800 : 500 }}>{value}</span>
-        </div>
-    );
-}
-
-const labelStyle = { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 7px' };
-
-function AddrField({ label, children }) {
-    return (
-        <div>
-            <p style={labelStyle}>{label}</p>
-            {children}
-        </div>
-    );
-}
-
-const inp = {
-    width: '100%', padding: '12px 13px',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 12, color: '#fff', fontSize: 14,
-    outline: 'none', boxSizing: 'border-box',
-    fontFamily: 'inherit', transition: 'border-color 0.2s',
-};

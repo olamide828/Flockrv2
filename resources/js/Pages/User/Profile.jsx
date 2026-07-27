@@ -21,7 +21,9 @@ import {
     RiUserFollowLine,
     RiVerifiedBadgeLine,
     RiVideoLine,
+    RiNewspaperLine,
 } from 'react-icons/ri';
+import PostCard from '@/Components/Community/PostCard';
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -347,6 +349,13 @@ export default function UserProfile({
     const [showMenu, setShowMenu] = useState(false);
     const [showReport, setShowReport] = useState(false);
 
+    // ── Community posts tab state ─────────────────────────────────────────
+    const [communityPosts, setCommunityPosts] = useState([]);
+    const [communityLoading, setCommunityLoading] = useState(false);
+    const [communityLoaded, setCommunityLoaded] = useState(false);
+    const [communityPage, setCommunityPage] = useState(1);
+    const [communityHasMore, setCommunityHasMore] = useState(true);
+
     // ── Fixed toast — position:fixed so it doesn't shift layout ──────────────
     const [toast, setToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
@@ -374,6 +383,85 @@ export default function UserProfile({
         });
     };
 
+    // Passed into PostCard so following/unfollowing from a post in the
+    // community tab stays in sync with the main profile Follow button —
+    // they're literally the same person, so it's the same state.
+    const handleCommunityFollowChange = (userId, next) => {
+        setFollowing(next);
+        setFollowersCount((c) => c + (next ? 1 : -1));
+    };
+
+    const loadCommunityPosts = async (reset = false) => {
+        if (communityLoading) return;
+        if (!reset && !communityHasMore) return;
+        setCommunityLoading(true);
+        const page = reset ? 1 : communityPage;
+        try {
+            const { data } = await axios.get(`/api/community/users/${profileUser.id}/posts`, { params: { page } });
+            const incoming = data.data ?? [];
+            setCommunityPosts((prev) => (reset ? incoming : [...prev, ...incoming]));
+            setCommunityHasMore(data.current_page < data.last_page);
+            setCommunityPage(reset ? 2 : page + 1);
+        } catch {
+            // leave whatever was already loaded in place
+        } finally {
+            setCommunityLoading(false);
+            setCommunityLoaded(true);
+        }
+    };
+
+    const handleTabClick = (key) => {
+        setActiveTab(key);
+        if (key === 'community' && !communityLoaded) {
+            loadCommunityPosts(true);
+        }
+    };
+
+    const handleCommunityLike = async (post) => {
+        const was = post.is_liked_by_me;
+        setCommunityPosts((p) =>
+            p.map((q) =>
+                q.id === post.id
+                    ? { ...q, is_liked_by_me: !was, likes_count: was ? Math.max(0, q.likes_count - 1) : q.likes_count + 1 }
+                    : q,
+            ),
+        );
+        try {
+            const { data } = await axios.post(`/api/community/posts/${post.id}/like`);
+            setCommunityPosts((p) => p.map((q) => (q.id === post.id ? { ...q, is_liked_by_me: data.liked, likes_count: data.likes_count } : q)));
+        } catch {
+            setCommunityPosts((p) => p.map((q) => (q.id === post.id ? { ...q, is_liked_by_me: was, likes_count: post.likes_count } : q)));
+        }
+    };
+
+    const handleCommunityDelete = async (post) => {
+        setCommunityPosts((p) => p.filter((q) => q.id !== post.id));
+        try {
+            await axios.delete(`/api/community/posts/${post.id}`);
+        } catch {
+            loadCommunityPosts(true);
+        }
+    };
+
+    const handleCommunityDismiss = (post) => {
+        setCommunityPosts((p) => p.filter((q) => q.id !== post.id));
+        axios.post(`/api/community/posts/${post.id}/dismiss`).catch(() => {});
+    };
+
+    const handleCommunityBlockAuthor = async () => {
+        // Blocking the profile you're currently viewing — reuse the page's
+        // own block handler so both stay consistent.
+        await handleBlock();
+    };
+
+    const handleCommunityReport = (post) => {
+        setShowReport(true);
+    };
+
+    const handleCommunityViewed = (postId, viewsCount) => {
+        setCommunityPosts((p) => p.map((q) => (q.id === postId ? { ...q, views_count: viewsCount } : q)));
+    };
+
     const handleShare = () => {
         const url = `${window.location.origin}/@${profileUser.username}`;
         if (navigator.share) navigator.share({ title: `Check out (@${profileUser.username}) on Flockr  \n Share and dicover quality products on Flockr`, url }).catch(() => {});
@@ -395,8 +483,17 @@ export default function UserProfile({
                 setFollowing(false);
                 setFollowersCount((c) => Math.max(0, c - 1));
             }
+            // The community feed caches its posts client-side (so returning
+            // from a post doesn't refetch) — that cache doesn't know about
+            // a block that just happened on THIS page, so without clearing
+            // it the blocked person's posts would keep showing there until
+            // a hard refresh. Server-side filtering is already correct; this
+            // just makes sure the next feed visit actually asks it again.
+            if (data.blocked) {
+                sessionStorage.removeItem('flockr_community_feed_cache');
+            }
         } catch {
-            alert('Failed. Try again.');
+            showToast('Failed to update block status. Try again.');
         }
     };
 
@@ -407,6 +504,7 @@ export default function UserProfile({
     const tabs = [
         { key: 'videos', label: 'Videos', Icon: RiVideoLine, count: videos?.length ?? 0 },
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
+        { key: 'community', label: 'Posts', Icon: RiNewspaperLine, count: null },
     ];
 
     const totalLikes = videos?.reduce((sum, v) => sum + (v.likes_count ?? 0), 0) ?? 0;
@@ -853,7 +951,7 @@ export default function UserProfile({
                                     return (
                                         <button
                                             key={key}
-                                            onClick={() => setActiveTab(key)}
+                                            onClick={() => handleTabClick(key)}
                                             style={{
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -991,10 +1089,60 @@ export default function UserProfile({
                                         cta={isOwnProfile ? { label: 'Add Product', href: '/seller/products/create' } : null}
                                     />
                                 ))}
+
+                            {activeTab === 'community' && (
+                                <div>
+                                    {communityLoading && communityPosts.length === 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+                                            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+                                        </div>
+                                    )}
+
+                                    {!communityLoading && communityLoaded && communityPosts.length === 0 && (
+                                        <EmptyState
+                                            Icon={RiNewspaperLine}
+                                            title={isOwnProfile ? "You haven't posted yet" : `${profileUser.name} hasn't posted yet`}
+                                            sub={isOwnProfile ? 'Share something with the community' : 'Check back later'}
+                                            cta={isOwnProfile ? { label: 'Go to Community', href: '/community' } : null}
+                                        />
+                                    )}
+
+                                    {communityPosts.map((post) => (
+                                        <PostCard
+                                            key={post.id}
+                                            post={post}
+                                            auth={auth}
+                                            showToast={showToast}
+                                            onDelete={handleCommunityDelete}
+                                            onLike={handleCommunityLike}
+                                            onDismiss={handleCommunityDismiss}
+                                            onBlockAuthor={handleCommunityBlockAuthor}
+                                            onReport={handleCommunityReport}
+                                            isFollowingAuthor={following}
+                                            onFollowChange={handleCommunityFollowChange}
+                                            onViewed={handleCommunityViewed}
+                                        />
+                                    ))}
+
+                                    {communityHasMore && communityPosts.length > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+                                            <button
+                                                onClick={() => loadCommunityPosts(false)}
+                                                disabled={communityLoading}
+                                                style={{ padding: '8px 20px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 13, cursor: 'pointer' }}
+                                            >
+                                                {communityLoading ? 'Loading…' : 'Load more'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
             </div>
+
+            <style>{`@keyframes profileSpin { to { transform: rotate(360deg); } }`}</style>
         </>
     );
 }

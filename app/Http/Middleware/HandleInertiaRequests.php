@@ -42,6 +42,7 @@ class HandleInertiaRequests extends Middleware
                     'location' => $user->location,
                     'avatar_url' => $user->avatar_url,   // computed accessor
                     'is_verified' => $user->is_verified,
+                    'email_verified_at' => $user->email_verified_at,
                     'is_active' => $user->is_active,
                     'followers_count' => $user->followers_count ?? 0,
                     'following_count' => $user->following_count ?? 0,

@@ -21,6 +21,7 @@ class Product extends Model
         'description',
         'ai_description',
         'price',
+        'seller_price',
         'compare_price',
         'stock_quantity',
         'status',
@@ -47,6 +48,7 @@ class Product extends Model
         'ships_nationwide' => 'boolean',
         'is_in_stock'      => 'boolean',
         'price'            => 'decimal:2',
+        'seller_price'     => 'decimal:2', 
         'compare_price'    => 'decimal:2',
         'shipping_fee'     => 'decimal:2',
     ];
@@ -194,4 +196,29 @@ class Product extends Model
             return false;
         }
     }
+
+    // Add to Product.php relationships:
+
+public function skus(): HasMany
+{
+    return $this->hasMany(ProductSku::class)->where('is_active', true)->orderBy('id');
+}
+
+public function allSkus(): HasMany
+{
+    return $this->hasMany(ProductSku::class)->orderBy('id');
+}
+
+/**
+ * Whether this product uses SKU-based variants.
+ * True when at least one active SKU exists.
+ */
+public function getHasSkusAttribute(): bool
+{
+    try {
+        return $this->skus()->exists();
+    } catch (\Throwable) {
+        return false;
+    }
+}
 }

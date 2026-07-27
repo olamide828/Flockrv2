@@ -16,7 +16,11 @@ class UserController extends Controller
 {
     public function show(string $username): Response
     {
-        $user     = User::where('username', $username)->where('is_active', true)->firstOrFail();
+        $user = User::withTrashed()->where('username', $username)->firstOrFail();
+
+    if ($user->trashed() || !$user->is_active) {
+        return Inertia::render('Errors/UserGone');
+    }
         $authUser = Auth::user();
 
         $iBlockedThem  = $authUser && UserBlock::where('blocker_id', $authUser->id)->where('blocked_id', $user->id)->exists();
@@ -231,15 +235,104 @@ if ($authUserId && $products->isNotEmpty()) {
     }
 
     public function deleteAccount(Request $request): JsonResponse
-    {
-        $user = Auth::user();
-        Auth::logout();
-        $user->delete();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-        return response()->json(['message' => 'Account deleted.']);
+{
+    $user = Auth::user();
+
+    // ── 1. Check blockers ─────────────────────────────────────────────────
+    $pendingBuyerOrders = \App\Models\Order::where('buyer_id', $user->id)
+        ->whereIn('status', ['pending', 'paid', 'processing', 'shipped'])
+        ->count();
+
+    if ($pendingBuyerOrders > 0) {
+        return response()->json([
+            'message' => 'You have active orders in progress. Please wait for them to complete before deleting your account.',
+            'blocker' => 'pending_orders',
+            'count'   => $pendingBuyerOrders,
+        ], 422);
     }
 
+    $pendingSellerOrders = \App\Models\Order::where('seller_id', $user->id)
+        ->whereIn('status', ['pending', 'paid', 'processing', 'shipped'])
+        ->count();
+
+    if ($pendingSellerOrders > 0) {
+        return response()->json([
+            'message' => 'You have active customer orders to fulfil. Please resolve all orders before deleting your account.',
+            'blocker' => 'pending_seller_orders',
+            'count'   => $pendingSellerOrders,
+        ], 422);
+    }
+
+    $pendingPayouts = \DB::table('payouts')
+        ->where('seller_id', $user->id)
+        ->whereIn('status', ['pending', 'processing'])
+        ->count();
+
+    if ($pendingPayouts > 0) {
+        return response()->json([
+            'message' => 'You have a payout being processed. Please wait for it to complete before deleting your account.',
+            'blocker' => 'pending_payouts',
+        ], 422);
+    }
+
+    $openDisputes = \App\Models\Order::where(function ($q) use ($user) {
+            $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
+        })
+        ->where('status', 'disputed')
+        ->count();
+
+    if ($openDisputes > 0) {
+        return response()->json([
+            'message' => 'You have an open dispute that must be resolved before deleting your account.',
+            'blocker' => 'open_disputes',
+        ], 422);
+    }
+
+    // ── 2. Preserve identity for admin/fraud reference BEFORE anonymising ─
+    \DB::transaction(function () use ($user) {
+        $user->update([
+            // Save original values admin can still search
+            'deleted_name'          => $user->name,
+            'deleted_email'         => $user->email,
+            // Schedule hard deletion in 30 days
+            'deletion_scheduled_at' => now()->addDays(30),
+            // Anonymise immediately — account becomes unusable
+            'is_active'             => false,
+            'email'                 => 'deleted_' . $user->id . '_' . time() . '@flockr.deleted',
+            'username'              => 'deleted_' . $user->id,
+            'name'                  => 'Deleted User',
+            'avatar'                => null,
+            'bio'                   => null,
+            'phone'                 => null,
+        ]);
+
+        // Soft-delete all their content immediately
+        \App\Models\Video::where('user_id', $user->id)
+            ->whereNull('deleted_at')
+            ->update(['deleted_at' => now()]);
+
+        \App\Models\Product::where('seller_id', $user->id)
+            ->whereNull('deleted_at')
+            ->update(['deleted_at' => now()]);
+
+        // Soft-delete the user
+        $user->delete();
+    });
+
+    // ── 3. Sign out — Sanctum RequestGuard has no logout() method ────────
+    if (method_exists($user, 'tokens')) {
+        $user->tokens()->delete();
+    }
+
+    if ($request->hasSession()) {
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+    }
+
+    return response()->json([
+        'message' => 'Your account has been scheduled for deletion and will be permanently removed in 30 days.',
+    ]);
+}
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**

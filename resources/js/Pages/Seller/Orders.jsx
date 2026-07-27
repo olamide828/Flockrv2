@@ -1,664 +1,400 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
+import axios from 'axios';
 import { useState } from 'react';
 import {
-    RiArrowLeftLine,
-    RiCalendarLine,
-    RiCheckboxCircleLine,
-    RiCloseCircleFill,
-    RiCloseCircleLine,
+    RiArchiveDrawerLine,
+    RiCheckDoubleLine,
+    RiCheckLine,
+    RiCloseLine,
+    RiExternalLinkLine,
     RiGiftLine,
     RiLoader4Line,
-    RiMoneyDollarCircleLine,
+    RiMapPinLine,
     RiRefreshLine,
     RiSearchLine,
-    RiShoppingBagLine,
     RiTimeLine,
     RiTruckLine,
 } from 'react-icons/ri';
-import axios from 'axios';
+import Toast, { useToast } from '@/Components/Toast';
 
-const STATUS_FILTERS = ['all', 'pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'];
+// ── Status config ─────────────────────────────────────────────────────────────
+const STATUS_CFG = {
+    pending:         { label: 'Pending Payment',   color: '#EAB308', bg: 'rgba(234,179,8,0.12)'   },
+    paid:            { label: 'Paid — Pack Item',  color: '#3B82F6', bg: 'rgba(59,130,246,0.12)'  },
+    confirmed:       { label: 'Courier Dispatched',color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)'  },
+    processing:      { label: 'Ready for Pickup',  color: '#FF6B35', bg: 'rgba(255,107,53,0.12)'  },
+    shipped:         { label: 'In Transit',        color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)'  },
+    delivered:       { label: 'Delivered',         color: '#10B981', bg: 'rgba(16,185,129,0.12)'  },
+    pickup_failed:   { label: 'Pickup Failed',     color: '#EF4444', bg: 'rgba(239,68,68,0.12)'   },
+    delivery_failed: { label: 'Delivery Failed',   color: '#EF4444', bg: 'rgba(239,68,68,0.12)'   },
+    returned:        { label: 'Returned',          color: '#9CA3AF', bg: 'rgba(156,163,175,0.12)' },
+    cancelled:       { label: 'Cancelled',         color: '#EF4444', bg: 'rgba(239,68,68,0.12)'   },
+    disputed:        { label: 'Disputed',          color: '#F59E0B', bg: 'rgba(245,158,11,0.12)'  },
+    refunded:        { label: 'Refunded',          color: '#9CA3AF', bg: 'rgba(156,163,175,0.12)' },
+};
 
-export default function SellerOrders({ orders: initialOrders = { data: [], meta: {} } }) {
-    const [orders, setOrders] = useState(initialOrders.data ?? []);
-    const [meta, setMeta] = useState(initialOrders.meta ?? {});
-    const [search, setSearch] = useState('');
-    const [status, setStatus] = useState('all');
-    const [selected, setSelected] = useState(null);
-    const [updatingStatus, setUpdatingStatus] = useState(false);
+const FILTER_TABS = [
+    { key: 'all',       label: 'All' },
+    { key: 'paid',      label: 'To Pack' },
+    { key: 'processing',label: 'Awaiting Pickup' },
+    { key: 'shipped',   label: 'In Transit' },
+    { key: 'delivered', label: 'Delivered' },
+    { key: 'cancelled', label: 'Cancelled' },
+];
 
-    const filtered = orders.filter((o) => {
-        const matchStatus = status === 'all' || o.status === status;
-        const matchSearch =
-            !search || o.reference?.toLowerCase().includes(search.toLowerCase()) || o.buyer?.name?.toLowerCase().includes(search.toLowerCase());
-        return matchStatus && matchSearch;
+function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-NG', {
+        day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
     });
-
-    const totalRevenue = filtered
-        .filter((o) => ['paid', 'delivered', 'shipped', 'confirmed', 'processing'].includes(o.status))
-        .reduce((sum, o) => sum + Number(o.total ?? 0), 0);
-
-   const handleStatusUpdate = async (orderId, newStatus) => {
-    setUpdatingStatus(true)
-    try {
-        await axios.patch(`/api/orders/${orderId}/status`, 
-            { status: newStatus }, 
-            { withCredentials: true }
-        )
-        setOrders(prev => prev.map(o => 
-            o.id === orderId ? { ...o, status: newStatus } : o
-        ))
-        setSelected(prev => prev ? { ...prev, status: newStatus } : null)
-        
-    } catch {
-        alert('Failed to update order status.')
-
-    } finally {
-        setUpdatingStatus(false)
-    }
 }
 
+// ── Single order row ──────────────────────────────────────────────────────────
+function OrderRow({ order: initial, showToast }) {
+    const [order,    setOrder]    = useState(initial);
+    const [open,     setOpen]     = useState(false);
+    const [loading,  setLoading]  = useState(false);
+
+    const cfg = STATUS_CFG[order.status] ?? STATUS_CFG.pending;
+
+    const markReady = async () => {
+        if (!confirm('Confirm your item is packed and ready for courier pickup?')) return;
+        setLoading(true);
+        try {
+            await axios.patch('/api/orders/' + order.id + '/status', { status: 'processing' });
+            setOrder(o => ({ ...o, status: 'processing' }));
+            showToast('Marked as ready! Courier will be dispatched shortly.', 'success');
+        } catch (err) {
+            showToast(err.response?.data?.message ?? 'Failed to update order.', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const reschedule = async () => {
+        setLoading(true);
+        try {
+            await axios.post('/api/orders/' + order.id + '/reschedule-pickup');
+            setOrder(o => ({ ...o, status: 'processing' }));
+            showToast('Pickup rescheduled. A courier will try again.', 'success');
+        } catch (err) {
+            showToast(err.response?.data?.message ?? 'Failed to reschedule.', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const sellerEarning = Math.max(0, Number(order.subtotal ?? 0) - Number(order.platform_fee ?? 0));
+
     return (
-        <>
-            <Head title="Orders" />
+        <div style={{
+            background: 'var(--flockr-card)',
+            border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: 16,
+            overflow: 'hidden',
+            transition: 'border-color 0.2s',
+        }}>
+            {/* Paid — pack item banner */}
+            {order.status === 'paid' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(59,130,246,0.08)', borderBottom: '1px solid rgba(59,130,246,0.15)' }}>
+                    <RiArchiveDrawerLine size={14} color="#3B82F6" style={{ flexShrink: 0 }} />
+                    <p style={{ margin: 0, color: '#3B82F6', fontSize: 12, fontWeight: 600 }}>
+                        Pack your item and mark as ready — a courier will come to you.
+                    </p>
+                </div>
+            )}
 
-            <div className="sp">
-                {/* ── Header ──────────────────────────────────────────────── */}
-                <header className="sp-header">
-                    <div className="sp-header-inner">
-                        <Link href="/seller/dashboard" className="sp-back">
-                            <RiArrowLeftLine size={18} />
-                        </Link>
-                        <div className="sp-header-text">
-                            <h1>Orders</h1>
-                            <p>{meta.total ?? orders.length} total</p>
-                        </div>
+            {/* Pickup failed banner */}
+            {order.status === 'pickup_failed' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+                    <RiCloseLine size={14} color="#EF4444" style={{ flexShrink: 0 }} />
+                    <p style={{ margin: 0, color: '#EF4444', fontSize: 12, fontWeight: 600 }}>
+                        Courier couldn't reach you. Be available and reschedule pickup.
+                    </p>
+                </div>
+            )}
+
+            {/* Header row — always visible */}
+            <div
+                onClick={() => setOpen(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
+            >
+                {/* Buyer avatar */}
+                <img
+                    src={order.buyer?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(order.buyer?.name ?? 'B')}&background=1a1a1a&size=40`}
+                    alt={order.buyer?.name}
+                    style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                />
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>
+                            {order.buyer?.name ?? 'Buyer'}
+                        </span>
+                        <span style={{
+                            padding: '2px 8px',
+                            background: cfg.bg,
+                            border: '1px solid ' + cfg.color + '44',
+                            borderRadius: 999,
+                            color: cfg.color,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                        }}>
+                            {cfg.label}
+                        </span>
                     </div>
-                </header>
+                    <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11, fontFamily: 'monospace' }}>
+                        {order.reference} · {fmtDate(order.created_at)}
+                    </p>
+                </div>
 
-                <main className="sp-main">
-                    {/* ── Summary ─────────────────────────────────────────────── */}
-                    <div className="sp-summary">
-                        <div className="sp-stat">
-                            <div className="sp-stat-icon">
-                                <RiShoppingBagLine size={18} />
-                            </div>
-                            <div>
-                                <span className="sp-stat-val">{filtered.length}</span>
-                                <span className="sp-stat-label">Showing</span>
-                            </div>
-                        </div>
-                        <div className="sp-stat sp-stat-accent">
-                            <div className="sp-stat-icon">
-                                <RiMoneyDollarCircleLine size={18} />
-                            </div>
-                            <div>
-                                <span className="sp-stat-val">₦{totalRevenue.toLocaleString()}</span>
-                                <span className="sp-stat-label">Revenue</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ── Search ──────────────────────────────────────────────── */}
-                    <div className="sp-search-wrap">
-                        <RiSearchLine size={15} color="rgba(255,255,255,0.3)" style={{ flexShrink: 0 }} />
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search by reference or buyer..."
-                            className="sp-search-input"
-                        />
-                        {search && (
-                            <button onClick={() => setSearch('')} className="sp-search-clear">
-                                <RiCloseCircleFill size={16} />
-                            </button>
-                        )}
-                    </div>
-
-                    {/* ── Status tabs ─────────────────────────────────────────── */}
-                    <div className="sp-tabs-wrap">
-                        {STATUS_FILTERS.map((s) => (
-                            <button key={s} onClick={() => setStatus(s)} className={`sp-tab ${status === s ? 'sp-tab-active' : ''}`}>
-                                {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                {s !== 'all' && status === s && filtered.length > 0 && <span className="sp-tab-count">{filtered.length}</span>}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* ── Orders list ─────────────────────────────────────────── */}
-                    {filtered.length === 0 ? (
-                        <div className="sp-empty">
-                            <RiShoppingBagLine size={40} color="rgba(255,255,255,0.15)" />
-                            <h4>No orders found</h4>
-                            <p>Try adjusting your filters.</p>
-                        </div>
-                    ) : (
-                        <div className="sp-list">
-                            {filtered.map((order) => {
-                                const sc = statusColor(order.status);
-                                const isSelected = selected?.id === order.id;
-                                return (
-                                    <div key={order.id}>
-                                        <div
-                                            className={`sp-order ${isSelected ? 'sp-order-selected' : ''}`}
-                                            onClick={() => setSelected(isSelected ? null : order)}
-                                        >
-                                            {/* Status icon */}
-                                            <div className="sp-order-icon" style={{ background: sc.bg, color: sc.text }}>
-                                                {statusIcon(order.status)}
-                                            </div>
-
-                                            {/* Meta */}
-                                            <div className="sp-order-meta">
-                                                <div className="sp-order-ref">{order.reference}</div>
-                                                <div className="sp-order-buyer">
-                                                    <img
-                                                        src={
-                                                            order.buyer?.avatar_url ??
-                                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(order.buyer?.name ?? 'B')}&background=1a1a1a&size=32`
-                                                        }
-                                                        alt=""
-                                                        className="sp-buyer-avatar"
-                                                    />
-                                                    <span>{order.buyer?.name}</span>
-                                                    <span className="sp-dot">·</span>
-                                                    <span>
-                                                        {order.items_count} item{order.items_count !== 1 ? 's' : ''}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Right side */}
-                                            <div className="sp-order-right">
-                                                <strong className="sp-order-amount">₦{Number(order.total).toLocaleString()}</strong>
-                                                <span className="sp-pill" style={{ background: sc.bg, color: sc.text }}>
-                                                    {order.status}
-                                                </span>
-                                                <div className="sp-order-date">
-                                                    <RiCalendarLine size={11} />
-                                                    {new Date(order.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Inline detail panel — expands under the row on all screens */}
-                                        {isSelected && (
-                                            <div className="sp-detail">
-                                                <div className="sp-detail-header">
-                                                    <div>
-                                                        <p className="sp-detail-ref">{selected.reference}</p>
-                                                        <span className="sp-pill" style={{ background: sc.bg, color: sc.text }}>
-                                                            {selected.status}
-                                                        </span>
-                                                    </div>
-                                                    <button onClick={() => setSelected(null)} className="sp-detail-close">
-                                                        <RiCloseCircleFill size={20} />
-                                                    </button>
-                                                </div>
-
-                                                <div className="sp-detail-rows">
-                                                   {/* Status dropdown — only show for statuses seller can action */}
-{['paid', 'processing', 'shipped'].includes(selected.status) && (
-    <div style={{
-        padding: '12px 18px 16px',
-        borderTop: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex', alignItems: 'center', gap: 10,
-    }}>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
-            Update status:
-        </span>
-        <select
-            disabled={updatingStatus}
-            onChange={async (e) => {
-                if (!e.target.value) return
-                await handleStatusUpdate(selected.id, e.target.value)
-                e.target.value = '' // reset dropdown
-            }}
-            style={{
-                flex: 1, padding: '9px 12px',
-                background: '#1a1a1a',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 10, color: '#fff',
-                fontSize: 13, fontFamily: 'inherit',
-                cursor: updatingStatus ? 'not-allowed' : 'pointer',
-                opacity: updatingStatus ? 0.6 : 1,
-                outline: 'none',
-            }}
-        >
-            <option value="">— Select new status —</option>
-            {{
-                paid:       ['processing', 'cancelled'],
-                processing: ['shipped',    'cancelled'],
-                shipped:    ['delivered'],
-            }[selected.status]?.map(s => (
-                <option key={s} value={s}>
-                    {s === 'processing' ? '🔄 Processing'
-                     : s === 'shipped'  ? '🚚 Shipped'
-                     : s === 'delivered'? '✅ Delivered'
-                     : s === 'cancelled'? '❌ Cancelled'
-                     : s}
-                </option>
-            ))}
-        </select>
-        {updatingStatus && (
-            <span style={{ fontSize: 12, color: '#ff6b35', flexShrink: 0 }}>Updating...</span>
-        )}
-    </div>
-)}
-                                                    <DetailRow label="Buyer" value={`${selected.buyer?.name} (@${selected.buyer?.username})`} />
-                                                    <DetailRow label="Total" value={`₦${Number(selected.total).toLocaleString()}`} accent />
-                                                    <DetailRow
-                                                        label="Date"
-                                                        value={new Date(selected.created_at).toLocaleDateString('en-NG', {
-                                                            day: 'numeric',
-                                                            month: 'long',
-                                                            year: 'numeric',
-                                                        })}
-                                                    />
-                                                    {selected.items?.map((item, i) => (
-                                                        <DetailRow
-                                                            key={i}
-                                                            label={item.product?.name ?? `Item ${i + 1}`}
-                                                            value={`×${item.quantity} · ₦${Number(item.price).toLocaleString()}`}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </main>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 15 }}>
+                        ₦{Number(order.total).toLocaleString()}
+                    </p>
+                    <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>
+                        {open ? '▲' : '▼'}
+                    </p>
+                </div>
             </div>
 
-            <style>{styles}</style>
-        </>
-    );
-}
+            {/* Expanded detail */}
+            {open && (
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
 
-SellerOrders.layout = (page) => <AppLayout>{page}</AppLayout>;
+                    {/* Items */}
+                    {order.items?.map((item, i) => (
+                        <div key={item.id ?? i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                                {item.product?.primary_image
+                                    ? <img src={item.product.primary_image} alt={item.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiGiftLine size={16} color="rgba(255,255,255,0.2)" /></div>
+                                }
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.product_name}</p>
+                                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Qty {item.quantity} · ₦{Number(item.unit_price).toLocaleString()} each</p>
+                            </div>
+                            <p style={{ margin: 0, color: '#fff', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>₦{Number(item.total).toLocaleString()}</p>
+                        </div>
+                    ))}
 
-function DetailRow({ label, value, accent }) {
-    return (
-        <div className="sp-detail-row">
-            <span className="sp-detail-label">{label}</span>
-            <span className="sp-detail-val" style={accent ? { color: '#ff6b35', fontWeight: 700 } : {}}>
-                {value}
-            </span>
+                    {/* Delivery address */}
+                    {order.shipping_address && (
+                        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                                <RiMapPinLine size={12} color="#FF6B35" />
+                                <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Deliver to</span>
+                            </div>
+                            <p style={{ margin: 0, color: '#fff', fontSize: 13 }}>
+                                {order.shipping_address.name} · {order.shipping_address.phone}
+                            </p>
+                            <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+                                {[order.shipping_address.address, order.shipping_address.city, order.shipping_address.state].filter(Boolean).join(', ')}
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Courier info */}
+                    {(order.courier_name || order.tracking_number) && (
+                        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <RiTruckLine size={14} color="#8B5CF6" style={{ flexShrink: 0 }} />
+                            <div>
+                                {order.courier_name && <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{order.courier_name}</p>}
+                                {order.tracking_number && <p style={{ margin: '1px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11, fontFamily: 'monospace' }}>#{order.tracking_number}</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Earnings breakdown */}
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Subtotal</span>
+                            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>₦{Number(order.subtotal ?? 0).toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Flockr fee</span>
+                            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>-₦{Number(order.platform_fee ?? 0).toLocaleString()}</span>
+                        </div>
+                        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '2px 0' }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>You earn</span>
+                            <span style={{ color: '#10B981', fontSize: 14, fontWeight: 800 }}>₦{sellerEarning.toLocaleString()}</span>
+                        </div>
+                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>
+                            Paid to your wallet after delivery is confirmed
+                        </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Mark ready for pickup */}
+                        {order.status === 'paid' && (
+                            <button
+                                type="button"
+                                onClick={markReady}
+                                disabled={loading}
+                                style={{ width: '100%', padding: '13px', background: loading ? 'rgba(59,130,246,0.4)' : '#3B82F6', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                            >
+                                {loading
+                                    ? <><RiLoader4Line size={15} style={{ animation: 'spin 0.8s linear infinite' }} />Updating…</>
+                                    : <><RiCheckLine size={15} />Mark Ready for Pickup</>
+                                }
+                            </button>
+                        )}
+
+                        {/* Reschedule pickup */}
+                        {order.status === 'pickup_failed' && (
+                            <button
+                                type="button"
+                                onClick={reschedule}
+                                disabled={loading}
+                                style={{ width: '100%', padding: '13px', background: loading ? 'rgba(255,107,53,0.4)' : '#FF6B35', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                            >
+                                {loading
+                                    ? <><RiLoader4Line size={15} style={{ animation: 'spin 0.8s linear infinite' }} />Rescheduling…</>
+                                    : <><RiTruckLine size={15} />Reschedule Pickup</>
+                                }
+                            </button>
+                        )}
+
+                        {/* View full order */}
+                        <a
+                            href={'/orders/' + order.id}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
+                        >
+                            <RiExternalLinkLine size={13} /> View Full Order
+                        </a>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
-function statusColor(status) {
-    const map = {
-        pending: { bg: 'rgba(234,179,8,0.12)', text: '#EAB308' },
-        paid: { bg: 'rgba(16,185,129,0.12)', text: '#10B981' },
-        confirmed: { bg: 'rgba(59,130,246,0.12)', text: '#3B82F6' },
-        processing: { bg: 'rgba(139,92,246,0.12)', text: '#8B5CF6' },
-        shipped: { bg: 'rgba(59,130,246,0.12)', text: '#3B82F6' },
-        delivered: { bg: 'rgba(16,185,129,0.12)', text: '#10B981' },
-        cancelled: { bg: 'rgba(239,68,68,0.12)', text: '#EF4444' },
-        refunded: { bg: 'rgba(156,163,175,0.12)', text: '#9CA3AF' },
-    };
-    return map[status] ?? { bg: 'rgba(255,255,255,0.08)', text: '#fff' };
+// ── Main page ─────────────────────────────────────────────────────────────────
+export default function SellerOrders({ orders: initialOrders = [], stats = {} }) {
+    const { auth } = usePage().props;
+    const { showToast, ToastComponent } = useToast();
+
+    const [orders, setOrders] = useState(
+    Array.isArray(initialOrders) ? initialOrders : (initialOrders?.data ?? [])
+    );
+    const [filterTab,   setFilterTab]   = useState('all');
+    const [search,      setSearch]      = useState('');
+
+    const filtered = orders.filter(o => {
+        const matchesTab    = filterTab === 'all' || o.status === filterTab;
+        const matchesSearch = !search || o.reference.toLowerCase().includes(search.toLowerCase()) || o.buyer?.name?.toLowerCase().includes(search.toLowerCase());
+        return matchesTab && matchesSearch;
+    });
+
+    // Counts per tab
+    const counts = orders.reduce((acc, o) => {
+        acc[o.status] = (acc[o.status] ?? 0) + 1;
+        return acc;
+    }, {});
+
+    return (
+        <>
+            <Head title="My Orders" />
+            <div className="scroll-hidden h-screen overflow-y-auto" style={{ background: 'var(--flockr-black)' }}>
+
+                {/* Header */}
+                <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(10,10,10,0.92)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px' }}>
+                    <div style={{ maxWidth: 720, margin: '0 auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                            <h1 style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>Orders</h1>
+                            {/* Quick stats */}
+                            <div style={{ display: 'flex', gap: 16 }}>
+                                {[
+                                    { label: 'To Pack',  value: counts['paid']      ?? 0, color: '#3B82F6' },
+                                    { label: 'In Transit',value: counts['shipped']  ?? 0, color: '#8B5CF6' },
+                                    { label: 'Delivered', value: counts['delivered'] ?? 0, color: '#10B981' },
+                                ].map(s => (
+                                    <div key={s.label} style={{ textAlign: 'center' }}>
+                                        <p style={{ margin: 0, color: s.color, fontWeight: 800, fontSize: 18, fontFamily: 'var(--font-display)' }}>{s.value}</p>
+                                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{s.label}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Search */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
+                            <RiSearchLine size={15} color="rgba(255,255,255,0.3)" />
+                            <input
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                placeholder="Search by reference or buyer name…"
+                                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontFamily: 'inherit' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Filter tabs */}
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    <div style={{ display: 'flex', maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
+                        {FILTER_TABS.map(tab => {
+                            const count   = tab.key === 'all' ? orders.length : (counts[tab.key] ?? 0);
+                            const active  = filterTab === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setFilterTab(tab.key)}
+                                    style={{
+                                        padding: '12px 14px 10px',
+                                        background: 'none', border: 'none',
+                                        borderBottom: active ? '2px solid #FF6B35' : '2px solid transparent',
+                                        color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                                        fontSize: 13, fontWeight: active ? 700 : 400,
+                                        cursor: 'pointer', whiteSpace: 'nowrap',
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        marginBottom: -1,
+                                    }}
+                                >
+                                    {tab.label}
+                                    {count > 0 && (
+                                        <span style={{ padding: '1px 6px', background: active ? '#FF6B35' : 'rgba(255,255,255,0.1)', borderRadius: 999, fontSize: 10, fontWeight: 700, color: active ? '#fff' : 'rgba(255,255,255,0.5)' }}>
+                                            {count}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Order list */}
+                <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 20px 100px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {filtered.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                            <RiGiftLine size={40} color="rgba(255,255,255,0.1)" style={{ display: 'block', margin: '0 auto 12px' }} />
+                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0, fontWeight: 600 }}>
+                                {search ? 'No orders match your search' : 'No orders yet'}
+                            </p>
+                            {!search && <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 13, margin: '6px 0 0' }}>Orders from buyers will appear here</p>}
+                        </div>
+                    ) : (
+                        filtered.map(order => (
+                            <OrderRow
+                                key={order.id}
+                                order={order}
+                                showToast={showToast}
+                            />
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {ToastComponent}
+            <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
+        </>
+    );
 }
 
-function statusIcon(status) {
-    const s = 15;
-    const map = {
-        pending: <RiTimeLine size={s} />,
-        paid: <RiCheckboxCircleLine size={s} />,
-        confirmed: <RiCheckboxCircleLine size={s} />,
-        processing: <RiLoader4Line size={s} />,
-        shipped: <RiTruckLine size={s} />,
-        delivered: <RiGiftLine size={s} />,
-        cancelled: <RiCloseCircleLine size={s} />,
-        refunded: <RiRefreshLine size={s} />,
-    };
-    return map[status] ?? <RiShoppingBagLine size={s} />;
-}
-
-const styles = `
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-.sp {
-  min-height: 100vh;
-  background: #0a0a0a;
-  color: #fff;
-  font-family: "DM Sans", system-ui, sans-serif;
-  overflow-y: auto;
-}
-
-/* ── Header ──────────────────────────────────────────────────────────── */
-.sp-header {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  background: rgba(10,10,10,0.88);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-
-.sp-header-inner {
-  max-width: 960px;
-  margin: auto;
-  padding: 0 20px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.sp-back {
-  width: 36px; height: 36px;
-  border-radius: 11px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; text-decoration: none; flex-shrink: 0;
-  transition: background 0.15s;
-}
-.sp-back:hover { background: rgba(255,255,255,0.1); }
-
-.sp-header-text h1 {
-  font-size: 17px; font-weight: 700; line-height: 1.1; color: #fff;
-}
-.sp-header-text p {
-  font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 2px;
-}
-
-/* ── Main ────────────────────────────────────────────────────────────── */
-.sp-main {
-  max-width: 960px;
-  margin: auto;
-  padding: 24px 20px 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* ── Summary ─────────────────────────────────────────────────────────── */
-.sp-summary {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.sp-stat {
-  background: #111;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 18px;
-  padding: 18px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.sp-stat-icon {
-  width: 40px; height: 40px; border-radius: 12px;
-  background: rgba(255,255,255,0.05);
-  display: flex; align-items: center; justify-content: center;
-  color: rgba(255,255,255,0.4); flex-shrink: 0;
-}
-.sp-stat-accent .sp-stat-icon { color: #ff6b35; background: rgba(255,107,53,0.1); }
-
-.sp-stat-val {
-  display: block;
-  font-size: 20px; font-weight: 800; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.sp-stat-accent .sp-stat-val { color: #ff6b35; }
-
-.sp-stat-label {
-  display: block;
-  font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 2px;
-}
-
-/* ── Search ──────────────────────────────────────────────────────────── */
-.sp-search-wrap {
-  display: flex; align-items: center; gap: 10px;
-  background: #111; border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 14px; padding: 12px 16px;
-  transition: border-color 0.2s;
-}
-.sp-search-wrap:focus-within { border-color: rgba(255,107,53,0.4); }
-
-.sp-search-input {
-  flex: 1; min-width: 0;
-  background: none; border: none; outline: none;
-  color: #fff; font-size: 14px; font-family: inherit;
-}
-.sp-search-input::placeholder { color: rgba(255,255,255,0.25); }
-
-.sp-search-clear {
-  background: none; border: none; cursor: pointer;
-  color: rgba(255,255,255,0.3); display: flex; flex-shrink: 0;
-  transition: color 0.15s;
-}
-.sp-search-clear:hover { color: rgba(255,255,255,0.6); }
-
-/* ── Status tabs ─────────────────────────────────────────────────────── */
-.sp-tabs-wrap {
-  display: flex; gap: 6px;
-  overflow-x: auto; scrollbar-width: none;
-  padding-bottom: 2px; -webkit-overflow-scrolling: touch;
-}
-.sp-tabs-wrap::-webkit-scrollbar { display: none; }
-
-.sp-tab {
-  padding: 7px 14px; border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: #111; color: rgba(255,255,255,0.4);
-  font-size: 12px; font-weight: 600; font-family: inherit;
-  cursor: pointer; white-space: nowrap; flex-shrink: 0;
-  display: flex; align-items: center; gap: 5px;
-  transition: all 0.15s;
-}
-.sp-tab:hover { color: rgba(255,255,255,0.7); }
-.sp-tab-active { background: #fff; color: #000; border-color: #fff; }
-
-.sp-tab-count {
-  background: rgba(0,0,0,0.2);
-  border-radius: 999px;
-  padding: 1px 6px;
-  font-size: 10px;
-}
-
-/* ── Empty ───────────────────────────────────────────────────────────── */
-.sp-empty {
-  text-align: center; padding: 60px 24px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-}
-.sp-empty h4 { font-size: 16px; color: #fff; }
-.sp-empty p  { font-size: 13px; color: rgba(255,255,255,0.35); }
-
-/* ── Orders list ─────────────────────────────────────────────────────── */
-.sp-list {
-  display: flex; flex-direction: column;
-  background: #111; border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 22px; overflow: hidden;
-}
-
-/* ── Order row ───────────────────────────────────────────────────────── */
-.sp-order {
-  display: flex; align-items: center; gap: 12px;
-  padding: 15px 18px;
-  cursor: pointer;
-  transition: background 0.15s;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-.sp-order:last-child { border-bottom: none; }
-.sp-order:hover { background: rgba(255,255,255,0.02); }
-.sp-order-selected { background: rgba(255,107,53,0.04) !important; }
-
-.sp-order-icon {
-  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.sp-order-meta { flex: 1; min-width: 0; }
-
-.sp-order-ref {
-  font-size: 13px; font-weight: 600; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-
-.sp-order-buyer {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 12px; color: rgba(255,255,255,0.4);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
-.sp-buyer-avatar {
-  width: 16px; height: 16px; border-radius: 50%;
-  object-fit: cover; flex-shrink: 0;
-}
-
-.sp-dot { color: rgba(255,255,255,0.2); }
-
-.sp-order-right {
-  flex-shrink: 0; text-align: right;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
-}
-
-.sp-order-amount { font-size: 14px; font-weight: 700; color: #fff; }
-
-.sp-order-date {
-  display: flex; align-items: center; gap: 3px;
-  font-size: 11px; color: rgba(255,255,255,0.3);
-}
-
-/* ── Status pill ─────────────────────────────────────────────────────── */
-.sp-pill {
-  display: inline-block;
-  padding: 3px 9px; border-radius: 999px;
-  font-size: 10px; font-weight: 700;
-  text-transform: capitalize; white-space: nowrap;
-}
-
-/* ── Detail panel (inline, expands under row) ────────────────────────── */
-.sp-detail {
-  border-top: 1px solid rgba(255,107,53,0.15);
-  background: rgba(255,107,53,0.03);
-  animation: detailIn 0.18s ease;
-}
-
-@keyframes detailIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.sp-detail-header {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; padding: 16px 18px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-
-.sp-detail-ref {
-  font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 6px;
-}
-
-.sp-detail-close {
-  background: none; border: none; cursor: pointer;
-  color: rgba(255,255,255,0.3); display: flex; flex-shrink: 0;
-  margin-top: 2px; transition: color 0.15s;
-}
-.sp-detail-close:hover { color: rgba(255,255,255,0.7); }
-
-.sp-detail-rows { padding: 4px 0 8px; }
-
-.sp-detail-row {
-  display: flex; align-items: flex-start;
-  justify-content: space-between; gap: 16px;
-  padding: 11px 18px; font-size: 13px;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
-}
-.sp-detail-row:last-child { border-bottom: none; }
-
-.sp-detail-label { color: rgba(255,255,255,0.4); flex-shrink: 0; }
-.sp-detail-val   { color: #fff; font-weight: 600; text-align: right; word-break: break-word; }
-
-/* ══════════════════════════════════════════════
-   RESPONSIVE
-══════════════════════════════════════════════ */
-
-/* Tablet */
-@media (max-width: 768px) {
-  .sp-main { padding: 18px 14px 100px; gap: 14px; }
-  .sp-header-inner { padding: 0 14px; height: 58px; }
-
-  .sp-summary { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .sp-stat { padding: 14px; border-radius: 16px; gap: 10px; }
-  .sp-stat-val { font-size: 17px; }
-
-  /* On tablet, show order rows in card style — no table look */
-  .sp-list { background: transparent; border: none; border-radius: 0; gap: 10px; }
-  .sp-order {
-    background: #111; border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 18px; padding: 14px;
-  }
-  .sp-order:last-child { border-bottom: 1px solid rgba(255,255,255,0.06); }
-
-  .sp-detail {
-    border-radius: 0 0 18px 18px;
-    margin-top: -10px; /* pull up under the card */
-    border: 1px solid rgba(255,255,255,0.06);
-    border-top: 1px solid rgba(255,107,53,0.15);
-  }
-}
-
-/* Mobile */
-@media (max-width: 480px) {
-  .sp-main { padding: 14px 12px 100px; }
-  .sp-header-inner { padding: 0 12px; height: 54px; }
-  .sp-header-text h1 { font-size: 16px; }
-
-  /* Stack summary vertically on very small screens */
-  .sp-summary { grid-template-columns: 1fr 1fr; }
-  .sp-stat-val { font-size: 15px; }
-  .sp-stat-label { font-size: 11px; }
-  .sp-stat-icon { width: 34px; height: 34px; border-radius: 10px; }
-
-  /* Order card layout: icon + content stacked nicely */
-  .sp-order { gap: 10px; padding: 13px; }
-  .sp-order-icon { width: 36px; height: 36px; border-radius: 10px; }
-  .sp-order-ref { font-size: 12px; }
-  .sp-order-buyer { font-size: 11px; }
-  .sp-order-amount { font-size: 13px; }
-
-  /* Detail rows stack label/value vertically */
-  .sp-detail-row {
-    flex-direction: column; gap: 3px; padding: 10px 14px;
-  }
-  .sp-detail-val { text-align: left; }
-  .sp-detail-header { padding: 14px 14px 10px; }
-
-  .sp-search-wrap { padding: 10px 13px; }
-  .sp-search-input { font-size: 13px; }
-
-  .sp-tab { font-size: 11px; padding: 6px 11px; }
-}
-
-/* Extra small (320px) */
-@media (max-width: 360px) {
-  .sp-summary { grid-template-columns: 1fr; }
-  .sp-order {
-    display: grid;
-    grid-template-columns: 36px 1fr;
-    grid-template-rows: auto auto;
-    gap: 8px 10px;
-  }
-  .sp-order-right {
-    grid-column: 1 / -1;
-    flex-direction: row; align-items: center; justify-content: space-between;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255,255,255,0.05);
-    text-align: left;
-  }
-  .sp-order-date { display: none; }
-}
-`;
+SellerOrders.layout = page => <AppLayout>{page}</AppLayout>;

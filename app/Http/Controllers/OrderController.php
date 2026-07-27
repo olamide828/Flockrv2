@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -48,15 +49,43 @@ class OrderController extends Controller
         return Inertia::render('Order/Show', ['order' => $order]);
     }
 
-    public function success(Request $request): Response
-    {
-        $order = Order::where('reference', $request->query('reference'))
-            ->where('buyer_id', Auth::id())
-            ->with(['items.product', 'seller:id,name,username'])
-            ->firstOrFail();
-
-        return Inertia::render('Order/Success', ['order' => $order]);
+ public function success(Request $request): Response|\Illuminate\Http\RedirectResponse
+{
+    $reference = $request->query('reference') ?? $request->query('trxref');
+ 
+    if (!$reference) {
+        return redirect()->route('orders.index');
     }
+ 
+    // Don't restrict by buyer_id here — Paystack redirect may arrive
+    // before session is fully restored on some browsers/devices.
+    $order = Order::where('reference', $reference)
+        ->with([
+            'items.product:id,name,images,slug',
+            'seller:id,name,username,avatar',
+            'buyer:id,name,email',
+        ])
+        ->first();
+ 
+    if (!$order) {
+        return redirect()->route('orders.index');
+    }
+ 
+    // Security: only buyer or seller can view this page
+    $userId = Auth::id();
+    if ($order->buyer_id !== $userId && $order->seller_id !== $userId) {
+        return redirect()->route('orders.index');
+    }
+ 
+    return Inertia::render('Order/Success', [
+        'order' => array_merge($order->toArray(), [
+            'formatted_total' => '₦' . number_format($order->total, 2),
+            'courier_name'    => $order->courier_name ?? $order->courier ?? null,
+            'tracking_number' => $order->tracking_number ?? null,
+            'courier_fee'     => (float) ($order->courier_fee ?? 0),
+        ]),
+    ]);
+}
 
     // ── API ───────────────────────────────────────────────────────────────────
 
@@ -68,29 +97,35 @@ class OrderController extends Controller
      */
     public function checkout(Request $request): JsonResponse
     {
-        
-       $validated = $request->validate([
-    'product_id'  => 'required|integer|exists:products,id',
-    'quantity'    => 'required|integer|min:1|max:100',
-    'address_id'  => 'nullable|integer|exists:user_addresses,id',
-    'rate_id'     => 'nullable|string',
-    'carrier'     => 'nullable|string|max:100',
-    'courier_fee' => 'nullable|numeric|min:0',
-    'coupon_code' => 'nullable|string',
-    'video_id'         => 'nullable|integer|exists:videos,id',
-]);
+        $validated = $request->validate([
+            'product_id'           => 'required|integer|exists:products,id',
+            'quantity'             => 'required|integer|min:1|max:100',
+            'shipping_address'     => 'nullable|array',
+            'video_id'             => 'nullable|integer|exists:videos,id',
+            'address_id'           => 'nullable|integer|exists:user_addresses,id',
+            'rate_id'              => 'nullable|string',
+            'carrier'              => 'nullable|string|max:100',
+            'courier_fee'          => 'nullable|numeric|min:0',
+            'delivery_platform_fee'=> 'nullable|numeric|min:0',
+            'coupon_code'          => 'nullable|string',
+        ]);
 
-        $product = Product::active()->inStock()->findOrFail($validated['product_id']);
-        $qty     = $validated['quantity'];
+$product = Product::active()->inStock()->findOrFail($validated['product_id']);
+$qty     = $validated['quantity'];
 
-        if ($product->stock_quantity < $qty) {
-            return response()->json(['message' => 'Not enough stock available.'], 422);
-        }
+if ($product->stock_quantity < $qty) {
+    return response()->json(['message' => 'Not enough stock available.'], 422);
+}
 
-        $subtotal    = $product->price * $qty;
-        $shipping    = $product->shipping_fee;
-        $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
-        $total       = $subtotal + $shipping;
+$subtotal            = $product->price * $qty;
+
+$unitPrice = (float) ($sku?->price ?? $product->price);
+$subtotal  = $unitPrice * $qty;
+        $shipping            = $product->shipping_fee;
+        $courierFee          = (float) ($validated['courier_fee'] ?? 0);
+        $deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
+        $platformFee         = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
+        $total               = $subtotal + $courierFee + $deliveryPlatformFee;
 
         // ── Coupon auto-apply ─────────────────────────────────────────────────
         // Find the buyer's best valid unused coupon that fits this order total
@@ -131,24 +166,15 @@ class OrderController extends Controller
                 'platform_fee'     => $platformFee,
                 'total'            => $total,
                 'shipping_address' => $validated['shipping_address'] ?? null,
-                'delivery_address_id' => $validated['address_id'] ?? null,
-    'courier_name'        => $validated['carrier'] ?? null,
-    'courier_fee'         => $validated['courier_fee'] ?? 0,
-    'terminal_rate_id'    => $validated['rate_id'] ?? null,
-    'shipping_fee'        => $validated['courier_fee'] ?? $shipping,
-    'shipping_address'    => $validated['address_id']
-        ? \App\Models\UserAddress::find($validated['address_id'])?->toTerminalFormat()
-        : null,
             ]);
-
-            OrderItem::create([
-                'order_id'     => $order->id,
-                'product_id'   => $product->id,
-                'product_name' => $product->name,
-                'unit_price'   => $product->price,
-                'quantity'     => $qty,
-                'total'        => $subtotal,
-            ]);
+OrderItem::create([
+    'order_id'     => $order->id,
+    'product_id'   => $product->id,
+    'product_name' => $product->name,
+    'unit_price'   => $product->price,
+    'quantity'     => $qty,
+    'total'        => $subtotal,
+]);
 
             // Reserve the coupon immediately so it can't be used on another order
             // We'll mark used_at when payment is confirmed (in markAsPaid)
@@ -298,7 +324,7 @@ class OrderController extends Controller
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
         if (Auth::id() !== $order->seller_id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+            return response()->json(['message' => 'You cannot purchase your own product.'], 403);
         }
 
         $validated = $request->validate([
@@ -373,12 +399,13 @@ class OrderController extends Controller
             'cancellation_reason' => $fullReason,
         ]);
 
-        \App\Models\Report::upsertReport(
-    reporterId: Auth::id(),
-    reportedId: $order->seller_id,
-    reason:     "Order dispute ({$order->reference}): {$fullReason}",
-    context:    ['order_id' => $order->id]
-);
+        \App\Models\Report::create([
+            'reporter_id' => Auth::id(),
+            'reported_id' => $order->seller_id,
+            'reason'      => "Order dispute ({$order->reference}): {$fullReason}",
+            'status'      => 'pending',
+        ]);
+
         try {
             $order->seller->notify(new \App\Notifications\NewOrderNotification($order));
         } catch (\Throwable) {}
@@ -387,4 +414,58 @@ class OrderController extends Controller
             'message' => 'Dispute submitted. Our team will review within 24–48 hours.',
         ]);
     }
+
+    public function reschedulePickup(Order $order): JsonResponse
+{
+    if (Auth::id() !== $order->seller_id) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+ 
+    if ($order->status !== 'pickup_failed') {
+        return response()->json(['message' => 'This order does not have a failed pickup.'], 422);
+    }
+ 
+    if (!$order->terminal_shipment_id) {
+        return response()->json(['message' => 'No Terminal shipment found for this order.'], 422);
+    }
+ 
+    try {
+        // Terminal reschedule endpoint
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . config('services.terminal.secret_key'),
+            'Content-Type'  => 'application/json',
+        ])->timeout(20)->post(
+            rtrim(config('services.terminal.base_url'), '/') . '/shipments/' . $order->terminal_shipment_id . '/reschedule',
+            []
+        );
+ 
+        if ($response->failed()) {
+            Log::warning('Terminal reschedule failed', [
+                'order'  => $order->reference,
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+            return response()->json([
+                'message' => 'Could not reschedule with Terminal. Please try again or contact support.',
+            ], 422);
+        }
+ 
+        // Reset status to processing so we're waiting for pickup again
+        $order->update(['status' => 'processing']);
+ 
+        // Notify buyer
+        $order->buyer->notify(new \App\Notifications\OrderStatusNotification(
+            $order,
+            'Pickup Rescheduled',
+            "The seller has rescheduled courier pickup for order #{$order->reference}."
+        ));
+ 
+        return response()->json(['message' => 'Pickup rescheduled successfully.']);
+ 
+    } catch (\Throwable $e) {
+        Log::error('reschedulePickup failed', ['order' => $order->reference, 'error' => $e->getMessage()]);
+        return response()->json(['message' => 'Something went wrong. Please try again.'], 503);
+    }
+}
+
 }

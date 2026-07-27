@@ -42,11 +42,15 @@ class User extends Authenticatable implements MustVerifyEmail
     'bank_code',
     'account_name',
     'account_last4',
-    'account_number',   // ← this was missing
+    'account_number',   
     'pickup_street', 
     'pickup_city', 
     'pickup_state', 
     'pickup_postal_code',
+    'deletion_scheduled_at',
+    'email_verified_at',
+    'deleted_name',
+    'deleted_email',
 ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -59,6 +63,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'notification_preferences' => 'array',
         'preferences' => 'array',
         'last_seen_at' => 'datetime',
+        'deletion_scheduled_at' => 'datetime',
+
     ];
 
     protected $appends = ['avatar_url', 'is_online'];
@@ -238,4 +244,10 @@ public function posts(): HasMany
 {
     return $this->hasMany(\App\Models\Post::class);
 }
+
+public function loginHistory(): HasMany
+{
+    return $this->hasMany(LoginHistory::class);
+}
+
 }

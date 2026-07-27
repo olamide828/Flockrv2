@@ -13,6 +13,7 @@ import PostReportModal from '@/Components/Community/PostReportModal'
 import RoomChat from '@/Components/Community/RoomChat'
 import RoomDiscovery from '@/Components/Community/RoomDiscovery'
 import RoomJoinModal from '@/Components/Community/RoomJoinModal'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 import RulesModal from '@/Components/Community/RulesModal'
 import MembersDrawer from '@/Components/Community/MembersDrawer'
 import RoomSettingsModal from '@/Components/Community/RoomSettingsModal'
@@ -21,6 +22,28 @@ import RoomTrayAvatar from '@/Components/Community/RoomTrayAvatar'
 import ShareRoomSheet from '@/Components/Community/ShareRoomSheet'
 
 const FEED_CACHE_KEY = 'flockr_community_feed_cache'
+
+/**
+ * Read the feed cache synchronously, BEFORE the component's first render —
+ * used as a lazy useState initializer below. This is what actually kills
+ * the loading-flash: previously `loading` always started `true` and only
+ * flipped to `false` inside a useEffect (which runs AFTER the first paint),
+ * so returning from CommunityPost always showed one frame — sometimes more,
+ * depending on render timing — of the skeleton loader even though no
+ * network request was happening. Seeding state from the cache before the
+ * first render ever happens means there's nothing to flash.
+ */
+function readFeedCache() {
+  try {
+    const nav = performance.getEntriesByType?.('navigation')?.[0]
+    if (nav?.type === 'reload') {
+      sessionStorage.removeItem(FEED_CACHE_KEY)
+      return null
+    }
+    const cached = sessionStorage.getItem(FEED_CACHE_KEY)
+    return cached ? JSON.parse(cached) : null
+  } catch { return null }
+}
 
 export default function Community({ joinedRooms: initJoined = [], discoverRooms: initDiscover = [] }) {
   const { auth } = usePage().props
@@ -44,14 +67,26 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   const [joinTarget,     setJoinTarget]     = useState(null) // room pending the Discord-style confirm modal
   const [reportPost,     setReportPost]     = useState(null)
 
-  const [posts,   setPosts]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [page,    setPage]    = useState(1)
-  const [hasMore, setHasMore] = useState(true)
+  // Read once, synchronously, before the first render — every state below
+  // that depends on it uses a lazy initializer so there's no in-between
+  // "empty then filled" render.
+  const cachedFeedRef = useRef(undefined)
+  if (cachedFeedRef.current === undefined) cachedFeedRef.current = readFeedCache()
+  const cachedFeed = cachedFeedRef.current
+
+  const [posts,   setPosts]   = useState(() => cachedFeed?.posts ?? [])
+  const [loading, setLoading] = useState(() => !cachedFeed)
+  const [page,    setPage]    = useState(() => cachedFeed?.page ?? 1)
+  const [hasMore, setHasMore] = useState(() => cachedFeed?.hasMore ?? true)
   const [pullY,   setPullY]   = useState(0)
   const [refreshing, setRefreshing] = useState(false)
-  const [followingMap, setFollowingMap] = useState({}) // { [userId]: boolean } — shared source of truth so following someone on one post updates every post by that author instantly
-  const [initialized, setInitialized] = useState(false) // true once the very first load (cache or network) has settled
+  const [followingMap, setFollowingMap] = useState(() => {
+    const map = {}
+    ;(cachedFeed?.posts ?? []).forEach(post => { map[post.user_id] = !!post.is_following_author })
+    return map
+  })
+  const [initialized, setInitialized] = useState(() => !!cachedFeed) // true once the very first load (cache or network) has settled
+  const [leaveTarget, setLeaveTarget] = useState(null) // room pending the leave-confirmation modal
 
   const loaderRef      = useRef(null)
   const scrollElRef    = useRef(null)
@@ -94,21 +129,13 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     } catch {} finally { setLoading(false) }
   }, [page, hasMore])
 
+  // Only need to actually fetch when there was no cache to seed from —
+  // `posts`/`loading`/`page`/`hasMore`/`initialized` above are already
+  // correct as of the very first render in the cache-hit case.
   useEffect(() => {
-    const nav = performance.getEntriesByType?.('navigation')?.[0]
-    const isHardReload = nav?.type === 'reload'
-    if (isHardReload) sessionStorage.removeItem(FEED_CACHE_KEY)
-
-    const cached = sessionStorage.getItem(FEED_CACHE_KEY)
-    if (cached && !isHardReload) {
-      try {
-        const { posts: cp, page: cpg, hasMore: chm } = JSON.parse(cached)
-        setPosts(cp); setPage(cpg); setHasMore(chm); setLoading(false)
-        setInitialized(true)
-        return
-      } catch {}
-    }
+    if (cachedFeed) return
     loadFeed(true).then(() => setInitialized(true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -241,13 +268,13 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
           showToast(`Joined ${data.room.name}!`)
           return data.room
         }
-        showToast(`Request sent to join ${room.name}`)
+        showToast(`Your request to join ${room.name} has been sent`)
         return null
       }
 
       if (room.is_private) {
         await axios.post(`/api/community/rooms/${room.id}/request-join`)
-        showToast(`Request sent to join ${room.name}`)
+        showToast(`Your request to join ${room.name} has been sent`)
         return null
       }
       const { data } = await axios.post(`/api/community/rooms/${room.id}/join`)
@@ -278,8 +305,13 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     catch { showToast('Failed', 'error') }
   }
 
-  const handleLeaveRoom = async (room) => {
-    if (!confirm(`Leave ${room.name}?`)) return
+  const handleLeaveRoom = (room) => {
+    setLeaveTarget(room)
+  }
+
+  const confirmLeaveRoom = async () => {
+    const room = leaveTarget
+    if (!room) return
     try {
       await axios.post(`/api/community/rooms/${room.id}/join`) // toggles -> leaves since already a member
       setJoinedRooms(p => p.filter(r => r.id !== room.id))
@@ -305,8 +337,9 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
           onShare={setShareRoom}
           onSaved={updated => setJoinedRooms(p => p.map(r => r.id === updated.id ? { ...r, ...updated } : r))} />}
         {shareRoom    && <ShareRoomSheet room={shareRoom} onClose={() => setShareRoom(null)} />}
+        {leaveTarget  && <ConfirmModal title={`Leave ${leaveTarget.name}?`} message="You'll need to rejoin (or be re-approved, for private rooms) to see messages again." confirmLabel="Leave" onConfirm={confirmLeaveRoom} onClose={() => setLeaveTarget(null)} />}
         <div style={{ height:'100%', overflow:'hidden' }}>
-          <RoomChat room={activeRoom} auth={auth}
+          <RoomChat room={activeRoom} auth={auth} showToast={showToast}
             onBack={() => setActiveRoomId(null)}
             onOpenMembers={() => setMembersRoom(activeRoom)}
             onOpenRules={() => setRulesRoom(activeRoom)}
@@ -322,7 +355,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     <>
       <Head title="Community" />
       {ToastComponent}
-      {showComposer    && <PostComposer auth={auth} onClose={() => setShowComposer(false)} onPosted={p => setPosts(prev => { const next = [p, ...prev]; sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ posts: next, page, hasMore })); return next })} />}
+      {showComposer    && <PostComposer auth={auth} showToast={showToast} onClose={() => setShowComposer(false)} onPosted={p => setPosts(prev => { const next = [p, ...prev]; sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ posts: next, page, hasMore })); return next })} />}
       {showCreateRoom  && <CreateRoomModal onClose={() => setShowCreateRoom(false)} onCreated={handleRoomCreated} />}
       {showDiscover    && <RoomDiscovery auth={auth} onClose={() => { setShowDiscover(false); setInviteFromUrl('') }} onJoin={handleJoin} onPreviewInvite={(room) => setJoinTarget(room)} joinedIds={joinedRooms.map(r => r.id)} initialInvite={inviteFromUrl} />}
       {membersRoom     && <MembersDrawer room={membersRoom} auth={auth} onClose={() => setMembersRoom(null)} onKick={handleKick} showToast={showToast} />}

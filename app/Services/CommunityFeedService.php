@@ -51,7 +51,7 @@ class CommunityFeedService
             : [];
 
         $base = Post::whereNull('room_id')
-            ->with('user:id,name,username,avatar,is_verified,role')
+            ->with(['user:id,name,username,avatar,is_verified,role', 'media'])
             ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds))
             ->when(!empty($dismissedIds), fn($q) => $q->whereNotIn('id', $dismissedIds));
 
@@ -196,4 +196,4 @@ class CommunityFeedService
             return $iBlocked->concat($blockedMe)->unique()->toArray();
         });
     }
-}     
+}

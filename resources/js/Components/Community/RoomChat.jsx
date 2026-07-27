@@ -12,7 +12,7 @@ import RoomInfoModal from './RoomInfoModal'
 import RoomMediaPlayer from './RoomMediaPlayer'
 import { fmtTime } from './helpers'
 
-export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom }) {
+export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast }) {
   const [messages,  setMessages]  = useState([])
   const [loading,   setLoading]   = useState(true)
   const [hasMore,   setHasMore]   = useState(false)
@@ -57,11 +57,28 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     channelRef.current?.unsubscribe()
     const channel = window.Echo.private(`room.${room.id}`)
     channel.listen('.RoomMessageSent', (e) => setMessages(p => {
-      // Defensive dedup: if toOthers() isn't excluding the sender's own
-      // socket (commonly because X-Socket-ID isn't wired into axios in
-      // bootstrap.js), this stops the sender from seeing their own message
-      // twice — once from the optimistic->real swap, once from the echo.
+      // Already have the real message (e.g. the HTTP response for our own
+      // send already landed) — nothing to do.
       if (p.some(m => m.id === e.message.id)) return p
+
+      // If this is our own message and its optimistic placeholder is still
+      // showing, swap it in-place instead of appending a second bubble.
+      // Previously this always appended, then relied on the later HTTP
+      // response to prune the optimistic copy — which worked, but left a
+      // brief window where both were visible (the "flashes then leaves"
+      // duplicate). Merging here means there's never a second bubble at all,
+      // regardless of whether the broadcast or the HTTP response wins the race.
+      const optIndex = p.findIndex(m =>
+        String(m.id).startsWith('opt-') &&
+        m.user_id === e.message.user_id &&
+        m.body === e.message.body &&
+        m.media_url === e.message.media_url
+      )
+      if (optIndex !== -1) {
+        const copy = [...p]
+        copy[optIndex] = e.message
+        return copy
+      }
       return [...p, e.message]
     }))
     channel.listen('.RoomMessageDeleted', (e) => {
@@ -103,7 +120,7 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
-      alert(`That file is too big — max ${MAX_UPLOAD_MB}MB.`)
+      showToast?.(`That file is too big — max ${MAX_UPLOAD_MB}MB.`, 'error')
       e.target.value = ''
       return
     }
@@ -132,7 +149,7 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
         })
         media_url = data.url; media_type = pendingMedia.type
       } catch (err) {
-        alert(err.response?.data?.message ?? 'Upload failed. Please try again.')
+        showToast?.(err.response?.data?.message ?? 'Upload failed. Please try again.', 'error')
         setSending(false)
         setUploadProgress(null)
         return
@@ -153,7 +170,11 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
       const { data } = await axios.post(`/api/community/rooms/${room.id}/messages`, {
         body: b || null, media_url, media_type, reply_to_id: opt.reply_to_id,
       })
-      setMessages(p => p.map(m => m.id === opt.id ? data : m))
+      setMessages(p => {
+        const alreadyDeliveredByBroadcast = p.some(m => m.id === data.id && m.id !== opt.id)
+        if (alreadyDeliveredByBroadcast) return p.filter(m => m.id !== opt.id)
+        return p.map(m => m.id === opt.id ? data : m)
+      })
     } catch { setMessages(p => p.filter(m => m.id !== opt.id)); setBody(b) }
     finally { setSending(false) }
   }

@@ -60,6 +60,11 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
       setAmount("")
       setShowForm(false)
     } catch (err) {
+      if (err.response?.status === 409) {
+        setError("Please verify your email before requesting a payout.")
+        router.visit('/verify-email')
+        return
+      }
       setError(err.response?.data?.message ?? "Request failed. Please try again.")
     } finally { setRequesting(false) }
   }

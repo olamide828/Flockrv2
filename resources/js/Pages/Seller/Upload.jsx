@@ -296,6 +296,11 @@ export default function Upload({ products = [] }) {
             setDone(true)
             setTimeout(() => router.visit('/seller/dashboard'), 2200)
         } catch (err) {
+            if (err.response?.status === 409) {
+                setErrors({ _general: 'Please verify your email before uploading videos.' })
+                setTimeout(() => router.visit('/verify-email'), 1500)
+                return
+            }
             const d = err.response?.data
             setErrors(d?.errors ?? { _general: d?.message ?? 'Upload failed.' })
             setStep(d?.errors?.video ? 1 : 3)
@@ -320,6 +325,10 @@ export default function Upload({ products = [] }) {
         </>
     )
 
+    const back = () => {
+        window.history.back()
+    }
+
     // ── Layout ────────────────────────────────────────────────────────────────
     return (
         <>
@@ -329,7 +338,7 @@ export default function Upload({ products = [] }) {
                 {/* Header */}
                 <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(10,10,10,0.96)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '0 16px' }}>
                     <div style={{ maxWidth: 860, margin: '0 auto', height: 56, display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <button onClick={() => step === 1 ? router.visit('/seller/dashboard') : goBack()} style={S.iconBtn}>
+                        <button onClick={() => step === 1 ? back() : goBack()} style={S.iconBtn}>
                             <RiArrowLeftLine size={18} />
                         </button>
                         <div style={{ flex: 1, minWidth: 0 }}>

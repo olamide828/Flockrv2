@@ -6,6 +6,7 @@ use App\Events\RoomMessageDeleted;
 use App\Events\RoomMessageSent;
 use App\Models\Post;
 use App\Models\PostComment;
+use App\Models\PostMedia;
 use App\Models\Room;
 use App\Models\RoomMessage;
 use App\Models\User;
@@ -87,21 +88,82 @@ class CommunityController extends Controller
         ]);
     }
 
+    /**
+     * GET /api/community/users/{user}/posts — powers the "Posts" tab on the
+     * user profile page. Straight reverse-chronological, no algorithmic
+     * ranking (this is someone's own timeline, not a discovery feed).
+     */
+    public function userPosts(Request $request, User $user): JsonResponse
+    {
+        $viewerId = Auth::id();
+        $page = (int) $request->get('page', 1);
+
+        $blockedIds = $viewerId ? $this->blockedIdsFor($viewerId) : [];
+        if (in_array($user->id, $blockedIds)) {
+            return response()->json(['data' => [], 'current_page' => 1, 'last_page' => 1]);
+        }
+
+        $paginated = Post::whereNull('room_id')
+            ->where('user_id', $user->id)
+            ->with(['user:id,name,username,avatar,is_verified,role', 'media'])
+            ->latest()
+            ->paginate(20, ['*'], 'page', $page);
+
+        $posts = collect($paginated->items());
+
+        $likedIds = [];
+        if ($viewerId && $posts->isNotEmpty()) {
+            $likedIds = DB::table('post_likes')
+                ->where('user_id', $viewerId)
+                ->whereIn('post_id', $posts->pluck('id'))
+                ->pluck('post_id')->all();
+        }
+
+        $isFollowing = $viewerId && DB::table('follows')
+            ->where('follower_id', $viewerId)->where('following_id', $user->id)->exists();
+
+        $data = $posts->map(function ($p) use ($likedIds, $isFollowing) {
+            $arr = $p->toArray();
+            $arr['is_liked_by_me'] = in_array($p->id, $likedIds);
+            $arr['is_following_author'] = $isFollowing;
+            $arr['comments_count'] = PostComment::where('post_id', $p->id)->whereNull('parent_id')->count();
+            if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
+            return $arr;
+        });
+
+        return response()->json([
+            'data'         => $data,
+            'current_page' => $paginated->currentPage(),
+            'last_page'    => $paginated->lastPage(),
+        ]);
+    }
+
+    private function blockedIdsFor(int $userId): array
+    {
+        $iBlocked  = \App\Models\UserBlock::where('blocker_id', $userId)->pluck('blocked_id');
+        $blockedMe = \App\Models\UserBlock::where('blocked_id', $userId)->pluck('blocker_id');
+        return $iBlocked->concat($blockedMe)->unique()->toArray();
+    }
+
     public function showPost(Post $post): JsonResponse
     {
         $userId = Auth::id();
-        $post->load('user:id,name,username,avatar,is_verified');
+        $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         $liked = $userId && DB::table('post_likes')
             ->where('post_id', $post->id)->where('user_id', $userId)->exists();
+
+        $following = $userId && DB::table('follows')
+            ->where('follower_id', $userId)->where('following_id', $post->user_id)->exists();
 
         $comments = $this->serialisedComments($post, $userId);
 
         return response()->json([
             'post'     => array_merge($post->toArray(), [
-                'is_liked_by_me' => $liked,
-                'comments_count' => $this->countComments($post),
-                'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
+                'is_liked_by_me'      => $liked,
+                'is_following_author' => $following,
+                'comments_count'      => $this->countComments($post),
+                'user'                => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
         ]);
@@ -110,18 +172,22 @@ class CommunityController extends Controller
     public function showPostPage(Post $post): Response
     {
         $userId = Auth::id();
-        $post->load('user:id,name,username,avatar,is_verified');
+        $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         $liked = $userId && DB::table('post_likes')
             ->where('post_id', $post->id)->where('user_id', $userId)->exists();
 
+        $following = $userId && DB::table('follows')
+            ->where('follower_id', $userId)->where('following_id', $post->user_id)->exists();
+
         $comments = $this->serialisedComments($post, $userId);
 
-        return Inertia::render('Community/CommunityPost', [
+        return Inertia::render('CommunityPost', [
             'post'     => array_merge($post->toArray(), [
-                'is_liked_by_me' => $liked,
-                'comments_count' => $this->countComments($post),
-                'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
+                'is_liked_by_me'      => $liked,
+                'is_following_author' => $following,
+                'comments_count'      => $this->countComments($post),
+                'user'                => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
         ]);
@@ -216,6 +282,17 @@ class CommunityController extends Controller
         ]), 201);
     }
 
+    public function destroyPostComment(PostComment $comment): JsonResponse
+    {
+        abort_unless(Auth::id() === $comment->user_id || Auth::user()->isAdmin(), 403);
+
+        $post = $comment->post;
+        $comment->delete();
+        if ($post) $post->decrement('comments_count');
+
+        return response()->json(['message' => 'Deleted.']);
+    }
+
     public function likePostComment(PostComment $comment): JsonResponse
     {
         $userId = Auth::id();
@@ -259,12 +336,24 @@ class CommunityController extends Controller
     public function storePost(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'content'    => 'nullable|string|max:2000',
-            'media_url'  => 'nullable|string|max:1000',
-            'media_type' => 'nullable|in:image,video',
+            'content'           => 'nullable|string|max:2000',
+            // Legacy single-media fields — still accepted so nothing that
+            // calls this endpoint the old way breaks.
+            'media_url'         => 'nullable|string|max:1000',
+            'media_type'        => 'nullable|in:image,video',
+            // New multi-media field — array of {url, type}.
+            'media'             => 'nullable|array|max:10',
+            'media.*.url'       => 'required_with:media|string|max:1000',
+            'media.*.type'      => 'required_with:media|in:image,video',
         ]);
 
-        if (empty($validated['content']) && empty($validated['media_url'])) {
+        $mediaItems = $validated['media'] ?? (
+            !empty($validated['media_url'])
+                ? [['url' => $validated['media_url'], 'type' => $validated['media_type'] ?? 'image']]
+                : []
+        );
+
+        if (empty($validated['content']) && empty($mediaItems)) {
             return response()->json(['message' => 'Post must have content or media.'], 422);
         }
 
@@ -272,11 +361,22 @@ class CommunityController extends Controller
             'user_id'    => Auth::id(),
             'room_id'    => null,
             'content'    => $validated['content'] ?? null,
-            'media_url'  => $validated['media_url'] ?? null,
-            'media_type' => $validated['media_type'] ?? null,
+            // Kept in sync with the first media item for any older code
+            // (or DB queries) that still reads the single-media columns.
+            'media_url'  => $mediaItems[0]['url'] ?? null,
+            'media_type' => $mediaItems[0]['type'] ?? null,
         ]);
 
-        $post->load('user:id,name,username,avatar,is_verified');
+        foreach ($mediaItems as $i => $item) {
+            PostMedia::create([
+                'post_id'    => $post->id,
+                'media_url'  => $item['url'],
+                'media_type' => $item['type'],
+                'position'   => $i,
+            ]);
+        }
+
+        $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         return response()->json(array_merge($post->toArray(), [
             'is_liked_by_me' => false,
@@ -333,12 +433,26 @@ class CommunityController extends Controller
     {
         $this->assertMember($room);
 
+        // If this user has EVER left/been-kicked from this room before
+        // (i.e. this is a rejoin, not their first time), hide messages sent
+        // before their current membership started — otherwise rejoining
+        // would replay the entire history they weren't supposed to see
+        // while they were out. First-time joiners are unaffected and see
+        // the room's full history as normal.
+        $hasPriorExit = DB::table('room_exit_log')
+            ->where('room_id', $room->id)->where('user_id', Auth::id())->exists();
+
+        $myMembership = $hasPriorExit
+            ? DB::table('room_user')->where('room_id', $room->id)->where('user_id', Auth::id())->first()
+            : null;
+
         $messages = RoomMessage::where('room_id', $room->id)
             ->with([
                 'user:id,name,username,avatar,is_verified',
                 'replyTo:id,user_id,body,media_url',
                 'replyTo.user:id,name,username',
             ])
+            ->when($myMembership, fn($q) => $q->where('created_at', '>=', $myMembership->created_at))
             ->when($request->before_id, fn($q) => $q->where('id', '<', $request->before_id))
             ->latest()
             ->limit(40)
@@ -353,6 +467,7 @@ class CommunityController extends Controller
         return response()->json([
             'messages' => $messages->map(fn($m) => $this->serialiseMessage($m)),
             'has_more' => RoomMessage::where('room_id', $room->id)
+                ->when($myMembership, fn($q) => $q->where('created_at', '>=', $myMembership->created_at))
                 ->when($messages->first(), fn($q) => $q->where('id', '<', $messages->first()['id']))
                 ->exists(),
         ]);
@@ -491,8 +606,17 @@ class CommunityController extends Controller
             $leavingUserName = Auth::user()->name;
             DB::table('room_user')->where('room_id', $room->id)->where('user_id', $userId)->delete();
             $room->decrement('members_count');
+            DB::table('room_exit_log')->insert([
+                'room_id' => $room->id, 'user_id' => $userId, 'reason' => 'left',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
             $this->postSystemMessage($room, $leavingUserName . ' left the room', $userId);
             return response()->json(['joined' => false, 'members_count' => max(0, $room->fresh()->members_count)]);
+        }
+
+        [$allowed, $message] = $this->checkCanJoin($room, $userId);
+        if (!$allowed) {
+            return response()->json(['message' => $message], 403);
         }
 
         DB::table('room_user')->insert([
@@ -566,6 +690,11 @@ class CommunityController extends Controller
                 'message' => 'Already a member.',
                 'room'    => $this->serialiseRoom($room->load('seller:id,name,username,avatar,is_verified')),
             ]);
+        }
+
+        [$allowed, $banMessage] = $this->checkCanJoin($room, $userId);
+        if (!$allowed) {
+            return response()->json(['message' => $banMessage], 403);
         }
 
         if ($room->is_private) {

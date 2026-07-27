@@ -359,8 +359,11 @@ function EmojiRain({ emojis }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Secret effect: confetti burst (self-search easter egg)
+// Renders its own message pill instead of using the shared Toast component,
+// since Toast sits at zIndex 9000 — below the search overlay's 9999 — so a
+// toast fired while the overlay is open would be invisible behind it.
 // ─────────────────────────────────────────────────────────────────────────────
-function ConfettiBurst() {
+function ConfettiBurst({ label }) {
   const pieces = useMemo(() => Array.from({ length: 60 }, (_, i) => {
     const angle    = Math.random() * 360
     const distance = 120 + Math.random() * 220
@@ -395,10 +398,29 @@ function ConfettiBurst() {
           />
         ))}
       </div>
+
+      {label && (
+        <div style={{
+          position: 'absolute', top: '38%', left: '50%', transform: 'translate(-50%, -50%)',
+          background: 'rgba(20,20,20,0.92)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 999, padding: '10px 20px', color: '#fff', fontSize: 14, fontWeight: 700,
+          whiteSpace: 'nowrap', backdropFilter: 'blur(8px)',
+          animation: 'selfEggLabel 1.6s ease-out forwards',
+        }}>
+          {label}
+        </div>
+      )}
+
       <style>{`
         @keyframes confettiBurst {
           0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
           100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+        }
+        @keyframes selfEggLabel {
+          0%   { opacity: 0; transform: translate(-50%, -40%) scale(0.9); }
+          15%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          80%  { opacity: 1; }
+          100% { opacity: 0; transform: translate(-50%, -60%) scale(0.95); }
         }
       `}</style>
     </div>
@@ -436,10 +458,11 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [loading,  setLoading]  = useState(false)
 
   // ── Secret effects state ────────────────────────────────────────────────
-  const [emojiRain, setEmojiRain]           = useState(null)   // array of emojis, or null
-  const [confettiBurst, setConfettiBurst]   = useState(false)
+  const [emojiRain, setEmojiRain]             = useState(null)   // array of emojis, or null
+  const [confettiLabel, setConfettiLabel]     = useState(null)   // string, or null — drives ConfettiBurst
   const [pulseNewArrivals, setPulseNewArrivals] = useState(false)
   const rainTimeoutRef  = useRef(null)
+  const confettiTimeoutRef = useRef(null)
   const activeMatchRef  = useRef(null)
   const selfEggFiredRef = useRef(false)
   const newArrivalsRef  = useRef(null)
@@ -517,7 +540,8 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
     if (qParam && qParam !== query) { setQuery(qParam); setInputVal(qParam) }
   }, [qParam])
 
-  // ── Visit streak toast — fires once per milestone, tracked in localStorage ──
+  // ── Visit streak toast — this one's fine on the shared Toast, since it only
+  // fires on page load when the search overlay isn't open. ─────────────────
   useEffect(() => {
     try {
       const count = (parseInt(localStorage.getItem(VISIT_COUNT_KEY) ?? '0', 10) || 0) + 1
@@ -551,9 +575,9 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   function triggerSelfSearchEasterEgg() {
     if (selfEggFiredRef.current) return
     selfEggFiredRef.current = true
-    setConfettiBurst(true)
-    showToast("That's you! 👀", 'success')
-    setTimeout(() => setConfettiBurst(false), 1600)
+    clearTimeout(confettiTimeoutRef.current)
+    setConfettiLabel("That's you! 👀")
+    confettiTimeoutRef.current = setTimeout(() => setConfettiLabel(null), 1600)
     setTimeout(() => { selfEggFiredRef.current = false }, 4000)
   }
 
@@ -568,7 +592,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   }
 
   useEffect(() => { handleLiveQuery(query) }, [query])
-  useEffect(() => () => clearTimeout(rainTimeoutRef.current), [])
+  useEffect(() => () => { clearTimeout(rainTimeoutRef.current); clearTimeout(confettiTimeoutRef.current) }, [])
 
   const handleOverlaySearch = (q) => {
     setQuery(q); setInputVal(q)
@@ -595,7 +619,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
       )}
 
       {emojiRain && <EmojiRain emojis={emojiRain} />}
-      {confettiBurst && <ConfettiBurst />}
+      {confettiLabel && <ConfettiBurst label={confettiLabel} />}
 
       <div className="h-full overflow-hidden bg-[#050505] text-white">
         <div className="flex h-full flex-col">

@@ -115,24 +115,55 @@ class Order extends Model
             // 2. Decrement stock
             $this->load('items.product');
 
-            foreach ($this->items as $item) {
-                if (!$item->product) continue;
+            // After stock decrement, add this:
 
-                Product::where('id', $item->product_id)
-                    ->where('stock_quantity', '>=', $item->quantity)
-                    ->update([
-                        'stock_quantity' => DB::raw("GREATEST(stock_quantity - {$item->quantity}, 0)"),
-                        'orders_count'   => DB::raw('orders_count + 1'),
-                    ]);
+// 5. Create Terminal shipment and arrange courier pickup
+try {
+    $terminal = app(\App\Services\TerminalService::class);
+    $seller   = $this->seller;
+    $address  = \App\Models\UserAddress::find($this->delivery_address_id);
 
-                $item->product->refresh();
+    if ($this->terminal_rate_id && $seller->pickup_street && $address) {
+        $shipment = $terminal->createShipment(
+            order:    $this,
+            rateId:   $this->terminal_rate_id,
+            pickup:   [
+                'name'        => $seller->name,
+                'phone'       => $seller->phone,
+                'address'     => $seller->pickup_street,
+                'city'        => $seller->pickup_city,
+                'state'       => $seller->pickup_state,
+                'country'     => 'NG',
+                'postal_code' => $seller->pickup_postal_code ?? '000000',
+            ],
+            delivery: $address->toTerminalFormat(),
+            parcel:   [
+                'weight'      => 0.5,
+                'items_count' => $this->items->count(),
+                'description' => 'Flockr order ' . $this->reference,
+            ],
+        );
 
-                Log::info("Stock decremented", [
-                    'product_id' => $item->product_id,
-                    'qty_sold'   => $item->quantity,
-                    'stock_left' => $item->product->stock_quantity,
-                ]);
-            }
+        $this->update([
+            'terminal_shipment_id' => $shipment['shipment_id'],
+            'tracking_number'      => $shipment['tracking_number'],
+            'courier'              => $shipment['carrier'],
+        ]);
+
+        Log::info('Terminal shipment created', [
+            'order'       => $this->reference,
+            'shipment_id' => $shipment['shipment_id'],
+        ]);
+    }
+} catch (\Throwable $e) {
+    // Don't fail the payment if shipment creation fails
+    // Log it and notify admin — order is still paid
+    Log::error('Terminal createShipment failed after payment', [
+        'order' => $this->reference,
+        'error' => $e->getMessage(),
+    ]);
+}
+
 
             // 3. Credit seller wallet (minus platform fee)
             $sellerAmount  = $this->total - $this->platform_fee;

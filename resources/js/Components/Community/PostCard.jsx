@@ -3,22 +3,26 @@ import { Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import {
   RiHeartLine, RiHeartFill, RiChat1Line, RiMoreLine, RiDeleteBinLine,
-  RiVerifiedBadgeLine, RiShareForwardLine, RiEyeLine, RiAlertLine, RiProhibitedLine,
+  RiVerifiedBadgeLine, RiShareForwardLine, RiEyeLine, RiAlertLine,
+  RiProhibitedLine, RiInformationLine,
 } from 'react-icons/ri'
 import Av from './Av'
 import FollowButton from './FollowButton'
 import PostVideoPlayer from './PostVideoPlayer'
+import PostMediaCarousel from './PostMediaCarousel'
 import PostShareSheet from './PostShareSheet'
 import PostViewersSheet from './PostViewersSheet'
 import { timeAgo, fmtCount } from './helpers'
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
-  isFollowingAuthor, onFollowChange, onViewed, standalone = false,
+  isFollowingAuthor, onFollowChange, onViewed,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showViewers, setShowViewers] = useState(false)
+  const [showInfoTip, setShowInfoTip] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const canDelete  = auth?.user?.id === post.user_id || auth?.user?.role === 'admin'
   const notMine    = auth?.user?.id !== post.user_id
   const isOwnPost  = auth?.user?.id === post.user_id
@@ -30,7 +34,7 @@ export default function PostCard({
   // ── Record a view once this card has been visible for ~1s while scrolling,
   // same as X/Instagram — no click-through required. ──────────────────────
   useEffect(() => {
-    if (standalone || viewedRef.current || !cardRef.current) return
+    if (viewedRef.current || !cardRef.current) return
     let dwellTimer = null
     const obs = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) {
@@ -47,7 +51,7 @@ export default function PostCard({
     }, { threshold: 0.5 })
     obs.observe(cardRef.current)
     return () => { if (dwellTimer) clearTimeout(dwellTimer); obs.disconnect() }
-  }, [post.id, standalone, onViewed])
+  }, [post.id, onViewed])
 
   const handleLikeClick = (e) => { e.stopPropagation(); e.preventDefault(); onLike(post) }
   const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(o => !o) }
@@ -61,22 +65,22 @@ export default function PostCard({
     setShowViewers(true)
   }
 
-  const inner = (
-    <>
-    {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
-    {showViewers && <PostViewersSheet postId={post.id} onClose={() => setShowViewers(false)} />}
-    <div ref={cardRef} style={{ display:'flex', gap:12, padding: standalone ? '16px' : '14px 16px', borderBottom: standalone ? 'none' : '1px solid rgba(255,255,255,0.06)', cursor: standalone ? 'default' : 'pointer' }}>
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', flexShrink:0 }}>
-        <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block' }}>
-          <Av user={post.user} size={40} />
-        </Link>
-        {standalone && <div style={{ width:2, flex:1, background:'rgba(255,255,255,0.07)', marginTop:8, borderRadius:1 }} />}
-      </div>
+  const media = post.media?.length ? post.media : (post.media_url ? [{ media_url: post.media_url, media_type: post.media_type }] : [])
+
+  return (
+    <div ref={cardRef} onClick={() => router.visit(`/community/posts/${post.id}`)}
+      style={{ display:'flex', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}>
+      {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
+      {showViewers && <PostViewersSheet postId={post.id} onClose={() => setShowViewers(false)} />}
+
+      <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block', flexShrink:0 }}>
+        <Av user={post.user} size={40} />
+      </Link>
 
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:3 }}>
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
               <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ textDecoration:'none' }}>
                 <span style={{ color:'#fff', fontWeight:700, fontSize:14 }}>{post.user?.name}</span>
               </Link>
@@ -131,21 +135,30 @@ export default function PostCard({
         </div>
 
         {post.content && (
-          <p style={{ color:'rgba(255,255,255,0.92)', fontSize:15, lineHeight:1.55, margin:'6px 0 10px', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{post.content}</p>
+          <div style={{ margin:'6px 0 10px' }}>
+            <p style={{
+              color:'rgba(255,255,255,0.92)', fontSize:15, lineHeight:1.55, margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word',
+              ...(expanded ? {} : { display:'-webkit-box', WebkitLineClamp:6, WebkitBoxOrient:'vertical', overflow:'hidden' }),
+            }}>{post.content}</p>
+            {post.content.length > 300 && (
+              <button onClick={e => { e.stopPropagation(); e.preventDefault(); setExpanded(x => !x) }}
+                style={{ background:'none', border:'none', color:'#FF6B35', fontSize:13, fontWeight:700, cursor:'pointer', padding:'4px 0 0', display:'block' }}>
+                {expanded ? 'Show less' : 'See more'}
+              </button>
+            )}
+          </div>
         )}
 
-        {post.media_url && (
-          <div style={{ borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000' }}>
-            {post.media_type === 'video'
-              // Video needs its own click for play/pause, so it must swallow
-              // the click rather than letting it navigate.
-              ? <div onClick={e => e.stopPropagation()}><PostVideoPlayer src={post.media_url} poster={post.thumbnail_url} /></div>
-              // Images have no interaction of their own — let the click
-              // bubble up and navigate to the post, same as tapping anywhere
-              // else on the card. (Previously this was wrapped in a
-              // stopPropagation div, which silently ate every image click.)
-              : <img src={post.media_url} alt="" style={{ width:'100%', maxHeight:520, objectFit:'cover', display:'block' }} />
-            }
+        {media.length > 0 && (
+          <div style={{ borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000' }}
+            onClick={e => e.stopPropagation()}>
+            {media.length === 1 ? (
+              media[0].media_type === 'video'
+                ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onReport={() => onReport(post)} />
+                : <img src={media[0].media_url} alt="" style={{ width:'100%', maxHeight:520, objectFit:'cover', display:'block' }} />
+            ) : (
+              <PostMediaCarousel media={media} onReport={() => onReport(post)} />
+            )}
           </div>
         )}
 
@@ -168,28 +181,32 @@ export default function PostCard({
 
           <button
             onClick={openViewers}
-            style={{ position:'relative', display:'flex', alignItems:'center', gap:6, background:'none', border:'none', padding:'8px', borderRadius:999, color:'rgba(255,255,255,0.45)', fontSize:13, cursor: isOwnPost ? 'pointer' : 'default' }}
-            title={isOwnPost && post.views_count > 0 ? 'Click to see who viewed this' : undefined}
+            style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', padding:'8px', borderRadius:999, color:'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500, cursor: isOwnPost ? 'pointer' : 'default' }}
           >
             <RiEyeLine size={20} />
             {post.views_count > 0 && <span>{fmtCount(post.views_count)}</span>}
-            {isOwnPost && post.views_count > 0 && (
-              <span style={{ position:'absolute', top:4, right:2, width:7, height:7, borderRadius:'50%', background:'#FF6B35', boxShadow:'0 0 0 rgba(255,107,53,0.6)', animation:'viewHintPulse 2s infinite' }} />
-            )}
           </button>
+
+          {isOwnPost && (
+            <div style={{ position:'relative' }}>
+              <button onClick={e => { e.stopPropagation(); e.preventDefault(); setShowInfoTip(t => !t) }}
+                style={{ display:'flex', alignItems:'center', background:'none', border:'none', padding:'8px 4px', cursor:'pointer', color:'rgba(255,255,255,0.3)' }}>
+                <RiInformationLine size={15} />
+              </button>
+              {showInfoTip && (
+                <>
+                  <div onClick={e => { e.stopPropagation(); setShowInfoTip(false) }} style={{ position:'fixed', inset:0, zIndex:98 }} />
+                  <div style={{ position:'absolute', bottom:'100%', right:0, zIndex:99, width:220, maxWidth:'calc(100vw - 48px)', background:'#1a1a1a', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', marginBottom:6, boxShadow:'0 8px 24px rgba(0,0,0,0.6)' }}>
+                    <p style={{ margin:0, color:'rgba(255,255,255,0.75)', fontSize:11.5, lineHeight:1.5 }}>
+                      Click the eye icon to see who viewed this post. Only you can see this — other people just see the view count.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
-
-        <style>{`@keyframes viewHintPulse { 0% { box-shadow: 0 0 0 0 rgba(255,107,53,0.55); } 70% { box-shadow: 0 0 0 6px rgba(255,107,53,0); } 100% { box-shadow: 0 0 0 0 rgba(255,107,53,0); } }`}</style>
       </div>
-    </div>
-    </>
-  )
-
-  if (standalone) return <div>{inner}</div>
-
-  return (
-    <div onClick={() => router.visit(`/community/posts/${post.id}`)} style={{ background:'transparent' }}>
-      {inner}
     </div>
   )
 }

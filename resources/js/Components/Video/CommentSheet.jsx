@@ -115,7 +115,7 @@ function ReplyItem({ reply, videoOwnerId, currentUserId, isAdmin, onReply, onDel
   const longRef   = useRef(null)
   const isMobile  = () => window.innerWidth < 768
 
-  const isOP    = reply.user?.id === videoOwnerId
+  const isCreator    = reply.user?.id === videoOwnerId
   const canDel  = currentUserId && (reply.user?.id === currentUserId || isAdmin)
   const isOwner = currentUserId === videoOwnerId
 
@@ -139,7 +139,7 @@ function ReplyItem({ reply, videoOwnerId, currentUserId, isAdmin, onReply, onDel
             <Link href={`/@${reply.user?.username}`} style={{ textDecoration: 'none' }}>
               <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{reply.user?.name}</span>
             </Link>
-            {isOP && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.35)', color: '#FF6B35' }}>OP</span>}
+            {isCreator && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.35)', color: '#FF6B35' }}>Creator</span>}
             <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(reply.created_at)}</span>
           </div>
           <p style={{ color: 'rgba(255,255,255,0.88)', fontSize: 13, margin: '4px 0 6px', lineHeight: 1.45, wordBreak: 'break-word' }}>
@@ -174,7 +174,7 @@ function CommentItem({ comment, videoOwnerId, currentUserId, isAdmin, onReply, o
   const longRef  = useRef(null)
   const isMobile = () => window.innerWidth < 768
 
-  const isOP    = comment.user?.id === videoOwnerId
+  const isCreator    = comment.user?.id === videoOwnerId
   const canDel  = currentUserId && (comment.user?.id === currentUserId || isAdmin)
   const isOwner = currentUserId === videoOwnerId
   const replies = comment.replies ?? []
@@ -208,7 +208,7 @@ function CommentItem({ comment, videoOwnerId, currentUserId, isAdmin, onReply, o
             <Link href={`/@${comment.user?.username}`} style={{ textDecoration: 'none' }}>
               <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{comment.user?.name}</span>
             </Link>
-            {isOP && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.35)', color: '#FF6B35' }}>OP</span>}
+            {isCreator && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.35)', color: '#FF6B35' }}>Creator</span>}
             {pinnedLocal && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)' }}>📌 Pinned</span>}
             <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(comment.created_at)}</span>
           </div>

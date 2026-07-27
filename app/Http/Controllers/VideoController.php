@@ -134,56 +134,89 @@ class VideoController extends Controller
         return Inertia::render('Seller/Upload', ['products' => $products]);
     }
 
-    public function show(string $username, Video $video): Response
-    {
-        $video->loadMissing('user:id,name,username,avatar,is_verified,followers_count');
+ public function show(string $username, Video $video): Response
+{
+    // ── Deleted or inactive: render the frozen-loop gone page ─────────────
+    if ($video->trashed() || !in_array($video->status, ['active', 'processing', 'pending'])) {
 
-        if (!$video->user || $video->user->username !== $username) {
-            abort(404);
-        }
+        // toArray() triggers $appends so video_stream_url and thumbnail_url_full
+        // are computed by the accessors — this is why you were getting empty data
+        $arr = $video->toArray();
 
-        if (in_array($video->status, ['processing', 'pending'])) {
-            return Inertia::render('Video/Processing', ['video' => $video]);
-        }
+        $deletedVideo = [
+            'video_stream_url'   => $arr['video_stream_url']   ?? null,
+            'thumbnail_url_full' => $arr['thumbnail_url_full'] ?? null,
+            'title'              => $arr['title']              ?? null,
+        ];
 
-        abort_if($video->status !== 'active', 404);
+        $hashtags = is_array($video->hashtags)
+            ? $video->hashtags
+            : json_decode($video->hashtags ?? '[]', true);
 
-        $video->load([
-            'products' => fn($q) => $q->where('status', 'active')
-                ->with('seller:id,name,username'),
-        ]);
+        $alternatives = Video::active()
+            ->where('id', '!=', $video->id)
+            ->when(!empty($hashtags), fn($q) => $q->where(function ($inner) use ($hashtags) {
+                foreach ($hashtags as $tag) {
+                    $inner->orWhereRaw("hashtags::text ilike ?", ["%{$tag}%"]);
+                }
+            }))
+            ->with('user:id,name,username,avatar,is_verified')
+            ->withCount(['allComments'])
+            ->inRandomOrder()
+            ->limit(12)
+            ->get();
 
-        // Use allComments to count replies too
-        $video->loadCount(['allComments']);
-
-        $isLiked = Auth::check() && $video->likes()->where('user_id', Auth::id())->exists();
-        $isSaved = Auth::check() && $video->savedByUsers()->where('user_id', Auth::id())->exists();
-        $isFollowing = Auth::check() && Auth::user()->isFollowing($video->user);
-
-        // Initial batch of seller's other videos
-        $sellerVideos = Video::active()
-    ->where('user_id', $video->user_id)
-    ->where('id', '!=', $video->id)
-    ->with([
-        'user:id,name,username,avatar,is_verified,location',
-        'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
-    ])
-    ->withCount(['allComments'])
-    ->latest()
-    ->limit(10)
-    ->get();
-
-        return Inertia::render('Video/Show', [
-            'video' => array_merge($video->toArray(), [
-                // Normalise: always send comments_count = all comments including replies
-                'comments_count' => $video->all_comments_count ?? 0,
-            ]),
-            'isLiked' => $isLiked,
-            'isSaved' => $isSaved,
-            'isFollowing' => $isFollowing,
-            'initialSellerVideos' => $this->serializeVideos($sellerVideos),
+        return Inertia::render('Errors/VideoGone', [
+            'deletedVideo' => $deletedVideo,
+            'alternatives' => $this->serializeVideos($alternatives),
+            'categoryHint' => !empty($hashtags) ? '#' . ltrim($hashtags[0], '#') : null,
         ]);
     }
+
+    // ── Everything below is unchanged ────────────────────────────────────
+    $video->loadMissing('user:id,name,username,avatar,is_verified,followers_count');
+
+    if (!$video->user || $video->user->username !== $username) {
+        abort(404);
+    }
+
+    if (in_array($video->status, ['processing', 'pending'])) {
+        return Inertia::render('Video/Processing', ['video' => $video]);
+    }
+
+    $video->load([
+        'products' => fn($q) => $q->where('status', 'active')
+            ->with('seller:id,name,username'),
+    ]);
+
+    $video->loadCount(['allComments']);
+
+    $isLiked     = Auth::check() && $video->likes()->where('user_id', Auth::id())->exists();
+    $isSaved     = Auth::check() && $video->savedByUsers()->where('user_id', Auth::id())->exists();
+    $isFollowing = Auth::check() && Auth::user()->isFollowing($video->user);
+
+    $sellerVideos = Video::active()
+        ->where('user_id', $video->user_id)
+        ->where('id', '!=', $video->id)
+        ->with([
+            'user:id,name,username,avatar,is_verified,location',
+            'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+        ])
+        ->withCount(['allComments'])
+        ->latest()
+        ->limit(10)
+        ->get();
+
+    return Inertia::render('Video/Show', [
+        'video' => array_merge($video->toArray(), [
+            'comments_count' => $video->all_comments_count ?? 0,
+        ]),
+        'isLiked'             => $isLiked,
+        'isSaved'             => $isSaved,
+        'isFollowing'         => $isFollowing,
+        'initialSellerVideos' => $this->serializeVideos($sellerVideos),
+    ]);
+}
 
     // ── API ───────────────────────────────────────────────────────────────────
 

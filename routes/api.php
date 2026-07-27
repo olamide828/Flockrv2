@@ -41,6 +41,7 @@ Route::post('/products/summary', [ProductController::class, 'generateSummary']);
 // Community feed is readable by guests too (algorithmic discovery mode
 // doesn't require a session) — this is the ONLY /community/feed route.
 Route::get('/community/feed', [CommunityController::class, 'feed']);
+Route::get("/community/users/{user}/posts", [CommunityController::class, "userPosts"]);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
@@ -176,14 +177,13 @@ Route::get('/search/discover', function () {
 // Terminal location data — public endpoints
 Route::get('/locations/states', function () {
     try {
-        // Clear cache if empty to force a fresh fetch
         $cached = Cache::get('terminal_ng_states');
-        if (empty($cached)) Cache::forget('terminal_ng_states');
+        if (!empty($cached)) return response()->json(['states' => $cached]);
+        Cache::forget('terminal_ng_states');
 
         $states = app(App\Services\TerminalService::class)->getStates();
         return response()->json(['states' => $states]);
     } catch (\Throwable $e) {
-        \Log::error('getStates route failed', ['error' => $e->getMessage()]);
         return response()->json(['states' => [], 'error' => $e->getMessage()], 200);
     }
 });
@@ -211,10 +211,36 @@ Route::middleware('auth:sanctum')->post('/feed/reset', function () {
     return response()->json(['ok' => true]);
 });
 
+// Username availability check — public, used during registration
+Route::get('/auth/check-username', function (\Illuminate\Http\Request $request) {
+    $username = strtolower(trim($request->input('username', '')));
+
+    if (strlen($username) < 3) {
+        return response()->json(['available' => null, 'suggestions' => []]);
+    }
+
+    $exists = \App\Models\User::where('username', $username)->exists();
+    if (!$exists) {
+        return response()->json(['available' => true, 'suggestions' => []]);
+    }
+
+    $suggestions = [];
+    $attempts = 0;
+    while (count($suggestions) < 3 && $attempts < 20) {
+        $attempts++;
+        $candidate = $username . rand(1, 999);
+        if (!in_array($candidate, $suggestions) && !\App\Models\User::where('username', $candidate)->exists()) {
+            $suggestions[] = $candidate;
+        }
+    }
+
+    return response()->json(['available' => false, 'suggestions' => $suggestions]);
+});
+
 // ── Authenticated API ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
     // Videos
-    Route::post('/videos/upload', [VideoController::class, 'store']);
+    Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/{video}/like', [VideoController::class, 'like']);
     Route::post('/videos/{video}/save', [VideoController::class, 'save']);
     Route::post('/videos/{video:ulid}/report', [VideoController::class, 'report']);
@@ -241,6 +267,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/community/posts/{post}/like', [CommunityController::class, 'likePost']);
     Route::post('/community/posts/{post}/dismiss', [CommunityController::class, 'dismissPost']);
     Route::delete('/community/posts/{post}', [CommunityController::class, 'destroyPost']);
+    
+
 
     Route::get('/community/posts/{post}/comments', [CommunityController::class, 'postComments']);
     Route::post('/community/posts/{post}/comments', [CommunityController::class, 'storePostComment']);
@@ -289,7 +317,11 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
-    Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+    Route::middleware('verified')->group(function () {
+        Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+        Route::post('/cart/checkout', [CartController::class, 'checkout']);
+    });
+    Route::post('/orders/{order}/reschedule-pickup', [OrderController::class, 'reschedulePickup']);
     Route::get('/orders/{order}', [OrderController::class, 'apiShow']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('/orders/resume-payment', [OrderController::class, 'resumePayment']);
@@ -324,7 +356,6 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::patch('/cart/{item}', [CartController::class, 'update']);
     Route::delete('/cart/{item}', [CartController::class, 'remove']);
     Route::delete('/cart', [CartController::class, 'clear']);
-    Route::post('/cart/checkout', [CartController::class, 'checkout']);
 
     Route::get('/notifications', [NotificationController::class, 'apiIndex']);
     Route::get('/notifications/count', [NotificationController::class, 'count']);
@@ -344,6 +375,56 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     // Coupon validation
     Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
 
+    // Logged-in devices (settings page)
+Route::get('/settings/devices', function (\Illuminate\Http\Request $request) {
+    $currentSessionId = $request->session()->getId();
+
+    return \App\Models\LoginHistory::where('user_id', Auth::id())
+        ->whereNull('revoked_at')
+        ->orderByDesc('created_at')
+        ->get()
+        ->map(fn ($h) => [
+            'id'          => $h->id,
+            'device_type' => $h->device_type,
+            'browser'     => $h->browser,
+            'platform'    => $h->platform,
+            'city'        => $h->city,
+            'region'      => $h->region,
+            'country'     => $h->country,
+            'created_at'  => $h->created_at,
+            'is_current'  => $h->session_id === $currentSessionId,
+            'is_primary'  => $h->is_primary,
+        ]);
+});
+
+
+Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Request $request, \App\Models\LoginHistory $loginHistory) {
+    if ($loginHistory->user_id !== Auth::id()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    if ($loginHistory->is_primary) {
+        return response()->json(['message' => 'This is the original device used to create your account and cannot be signed out.'], 422);
+    }
+
+    if ($loginHistory->session_id === $request->session()->getId()) {
+        return response()->json(['message' => 'Use Log Out to end your current session.'], 422);
+    }
+
+    $request->validate(['password' => 'required|string']);
+
+    if (!\Illuminate\Support\Facades\Hash::check($request->password, Auth::user()->password)) {
+        return response()->json(['message' => 'Incorrect password.'], 422);
+    }
+
+    if ($loginHistory->session_id) {
+        \DB::table('sessions')->where('id', $loginHistory->session_id)->delete();
+    }
+
+    $loginHistory->update(['revoked_at' => now()]);
+
+    return response()->json(['message' => 'Device signed out.']);
+});
     // Paystack webhook (no auth — verified by signature)
     Route::post('/webhooks/paystack', [OrderController::class, 'paystackWebhook'])
         ->withoutMiddleware('auth:sanctum');
@@ -368,7 +449,7 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
         Route::get('/stats', [SellerController::class, 'stats']);
         Route::get('/payouts', [SellerController::class, 'payoutsApi']);
         Route::delete('/settings/bank', [SettingsController::class, 'removeBank']);
-        Route::post('/payouts', [SellerController::class, 'requestPayout']);
+        Route::middleware('verified')->post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
             $request->validate([
                 'pickup_street'      => 'required|string|max:200',
@@ -412,14 +493,47 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
         Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
         Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
         Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
-    });
+
+    Route::get('/users/{user}/details', function (\App\Models\User $user) {
+        return response()->json([
+        'user' => [
+            'id'                 => $user->id,
+            'name'               => $user->name,
+            'username'           => $user->username,
+            'email'              => $user->email,
+            'phone'              => $user->phone,
+            'role'               => $user->role,
+            'bio'                => $user->bio,
+            'location'           => $user->location,
+            'avatar_url'         => $user->avatar_url,
+            'is_verified'        => $user->is_verified,
+            'is_active'          => $user->is_active,
+            'email_verified_at'  => $user->email_verified_at,
+            'followers_count'    => $user->followers_count ?? 0,
+            'following_count'    => $user->following_count ?? 0,
+            'total_sales'        => $user->total_sales ?? 0,
+            'wallet_balance'     => $user->wallet_balance,
+            'bank_name'          => $user->bank_name,
+            'account_name'       => $user->account_name,
+            'account_last4'      => $user->account_last4,
+            'created_at'         => $user->created_at,
+            'last_seen_at'       => $user->last_seen_at,
+        ],
+        'login_history' => \App\Models\LoginHistory::where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->limit(20)
+            ->get(),
+    ]);
+});
+
+        });
 
     Route::get('/users/search', function (\Illuminate\Http\Request $request) {
         $q = $request->input('q', '');
         if (strlen($q) < 2)
             return response()->json([]);
 
-        return \App\Models\User::where('id', '!=', \Illuminate\Support\Facades\Auth::id())
+        return \App\Models\User::where('id', '!=', Auth::id())
             ->where(function ($query) use ($q) {
                 $query->where('name', 'ilike', "%{$q}%")
                     ->orWhere('username', 'ilike', "%{$q}%");

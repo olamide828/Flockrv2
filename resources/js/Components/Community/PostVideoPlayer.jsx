@@ -1,19 +1,19 @@
 import { useRef, useState, useEffect } from 'react'
-import { RiVolumeMuteLine, RiVolumeUpLine } from 'react-icons/ri'
+import {
+  RiVolumeMuteLine, RiVolumeUpLine, RiMoreLine, RiCloseLine,
+  RiFullscreenLine, RiFullscreenExitLine, RiFlag2Line,
+} from 'react-icons/ri'
 
-/**
- * Replaces the native <video controls> element on feed post videos.
- * - Tap to play/pause (shows a brief play/pause icon, like VideoCard)
- * - Mute/unmute button, top-right
- * - Auto-pauses when scrolled out of view (IntersectionObserver)
- * - Starts muted (autoplay-safe), unmutes only on explicit tap of the icon
- */
-export default function PostVideoPlayer({ src, poster }) {
+
+export default function PostVideoPlayer({ src, poster, onReport, fillContainer = false }) {
   const videoRef = useRef(null)
   const wrapRef  = useRef(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted]     = useState(true)
   const [showIcon, setShowIcon] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showMore, setShowMore] = useState(false)
+  const [speed, setSpeed] = useState(1)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -31,7 +31,14 @@ export default function PostVideoPlayer({ src, poster }) {
     return () => obs.disconnect()
   }, [])
 
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
   const togglePlay = () => {
+    if (showMore) return
     const video = videoRef.current
     if (!video) return
     if (video.paused) {
@@ -53,8 +60,23 @@ export default function PostVideoPlayer({ src, poster }) {
     setMuted(video.muted)
   }
 
+  const toggleFullscreen = async (e) => {
+    e.stopPropagation()
+    const wrap = wrapRef.current
+    if (!wrap) return
+    try {
+      if (!document.fullscreenElement) await wrap.requestFullscreen?.()
+      else await document.exitFullscreen?.()
+    } catch {}
+  }
+
+  const setPlaybackSpeed = (s) => {
+    if (videoRef.current) videoRef.current.playbackRate = s
+    setSpeed(s)
+  }
+
   return (
-    <div ref={wrapRef} onClick={togglePlay} style={{ position: 'relative', cursor: 'pointer', background: '#000' }}>
+    <div ref={wrapRef} onClick={togglePlay} style={{ position: 'relative', cursor: 'pointer', background: '#000', height: fillContainer ? '100%' : 'auto' }}>
       <video
         ref={videoRef}
         src={src}
@@ -62,14 +84,34 @@ export default function PostVideoPlayer({ src, poster }) {
         muted={muted}
         playsInline
         loop
-        style={{ width: '100%', maxHeight: 400, objectFit: 'contain', display: 'block' }}
+        style={{
+          width: '100%',
+          height: isFullscreen ? '100vh' : (fillContainer ? '100%' : 'auto'),
+          maxHeight: isFullscreen || fillContainer ? 'none' : 400,
+          objectFit: isFullscreen ? 'contain' : 'cover',
+          display: 'block',
+        }}
       />
 
-      <button onClick={toggleMute} style={{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
-        {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
-      </button>
+      <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 8, zIndex: 2 }}>
+        <button onClick={toggleMute} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
+        </button>
+        <button onClick={toggleFullscreen} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isFullscreen ? <RiFullscreenExitLine size={15} color="#fff" /> : <RiFullscreenLine size={15} color="#fff" />}
+        </button>
+        <button onClick={e => { e.stopPropagation(); setShowMore(true) }} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RiMoreLine size={17} color="#fff" />
+        </button>
+      </div>
 
-      {(showIcon || !playing) && (
+      {speed !== 1 && (
+        <div style={{ position: 'absolute', top: 10, left: 10, padding: '3px 8px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, fontWeight: 700, zIndex: 2 }}>
+          {speed}x
+        </div>
+      )}
+
+      {(showIcon || !playing) && !showMore && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {playing
@@ -78,6 +120,44 @@ export default function PostVideoPlayer({ src, poster }) {
             }
           </div>
         </div>
+      )}
+
+      {showMore && (
+        <>
+          <div onClick={e => { e.stopPropagation(); setShowMore(false) }} style={{ position: 'absolute', inset: 0, zIndex: 9, background: 'rgba(0,0,0,0.5)' }} />
+          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(20px)', borderRadius: '18px 18px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 2px' }}>
+              <div style={{ width: 32, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 14px 10px' }}>
+              <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>Video Options</span>
+              <button onClick={() => setShowMore(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <RiCloseLine size={15} />
+              </button>
+            </div>
+
+            <div style={{ padding: '0 14px 14px' }}>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Playback Speed</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map(s => (
+                  <button key={s} onClick={() => setPlaybackSpeed(s)}
+                    style={{ padding: '6px 13px', borderRadius: 999, border: `1px solid ${speed === s ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, background: speed === s ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.04)', color: speed === s ? '#FF6B35' : '#fff', fontSize: 12, fontWeight: speed === s ? 700 : 400, cursor: 'pointer' }}>
+                    {s === 1 ? 'Normal' : `${s}x`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {onReport && (
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <button onClick={() => { setShowMore(false); onReport() }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 13, fontWeight: 600 }}>
+                  <RiFlag2Line size={17} /> Report post
+                </button>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
