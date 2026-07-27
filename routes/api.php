@@ -240,7 +240,9 @@ Route::get('/auth/check-username', function (\Illuminate\Http\Request $request) 
 // ── Authenticated API ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
     // Videos
-    Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
+    // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
+    Route::post('/videos/upload', [VideoController::class, 'store']);
+
     Route::post('/videos/{video}/like', [VideoController::class, 'like']);
     Route::post('/videos/{video}/save', [VideoController::class, 'save']);
     Route::post('/videos/{video:ulid}/report', [VideoController::class, 'report']);
@@ -317,10 +319,12 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
 
     // Orders & checkout
-    Route::middleware('verified')->group(function () {
-        Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+    // Route::middleware('verified')->group(function () {
+    //     Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+    //     Route::post('/cart/checkout', [CartController::class, 'checkout']);
+    // });
+     Route::post('/orders/checkout', [OrderController::class, 'checkout']);
         Route::post('/cart/checkout', [CartController::class, 'checkout']);
-    });
     Route::post('/orders/{order}/reschedule-pickup', [OrderController::class, 'reschedulePickup']);
     Route::get('/orders/{order}', [OrderController::class, 'apiShow']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
@@ -449,7 +453,8 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
         Route::get('/stats', [SellerController::class, 'stats']);
         Route::get('/payouts', [SellerController::class, 'payoutsApi']);
         Route::delete('/settings/bank', [SettingsController::class, 'removeBank']);
-        Route::middleware('verified')->post('/payouts', [SellerController::class, 'requestPayout']);
+        // Route::middleware('verified')->post('/payouts', [SellerController::class, 'requestPayout']);
+        Route::post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
             $request->validate([
                 'pickup_street'      => 'required|string|max:200',
