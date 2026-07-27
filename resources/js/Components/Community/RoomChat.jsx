@@ -10,7 +10,7 @@ import Av from './Av'
 import ShareRoomSheet from './ShareRoomSheet'
 import RoomInfoModal from './RoomInfoModal'
 import RoomMediaPlayer from './RoomMediaPlayer'
-import { fmtTime } from './helpers'
+import { fmtTime } from './Helpers'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast }) {
   const [messages,  setMessages]  = useState([])

@@ -12,7 +12,7 @@ import PostVideoPlayer from './PostVideoPlayer'
 import PostMediaCarousel from './PostMediaCarousel'
 import PostShareSheet from './PostShareSheet'
 import PostViewersSheet from './PostViewersSheet'
-import { timeAgo, fmtCount } from './helpers'
+import { timeAgo, fmtCount } from './Helpers'
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
