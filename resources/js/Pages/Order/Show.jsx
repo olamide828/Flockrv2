@@ -27,7 +27,7 @@ import {
   RiBankCardLine,
   RiAlertLine,
 } from 'react-icons/ri'
-import DisputeModal from './Disputemodal'
+import DisputeModal from './DisputeModal'
 
 const STATUS_CONFIG = {
   pending:    { label: 'Pending',    bg: 'rgba(234,179,8,0.12)',    text: '#EAB308', Icon: RiTimeLine           },
