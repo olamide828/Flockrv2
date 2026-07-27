@@ -182,7 +182,7 @@ class CommunityController extends Controller
 
         $comments = $this->serialisedComments($post, $userId);
 
-        return Inertia::render('CommunityPost', [
+        return Inertia::render('Community/CommunityPost', [
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me'      => $liked,
                 'is_following_author' => $following,
