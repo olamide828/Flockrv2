@@ -11,7 +11,7 @@ import { useState } from 'react'
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest'
 axios.defaults.withCredentials = true
 axios.defaults.withXSRFToken = true
-axios.defaults.baseURL = 'http://localhost:8000'
+axios.defaults.baseURL = import.meta.env.VITE_APP_URL ?? window.location.origin
 
 window.flockrConfig = {
     r2Url: document.querySelector('meta[name="r2-url"]')?.content ?? '',
