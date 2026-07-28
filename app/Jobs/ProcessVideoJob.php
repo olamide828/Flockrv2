@@ -128,7 +128,10 @@ private function generateThumbnail(string $videoSource, string $disk): ?string
 
     exec($ffmpeg . ' -version 2>&1', $out, $code);
     if ($code !== 0) {
-        Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail');
+         Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail', [
+        'exit_code' => $code,
+        'output'    => implode("\n", $out),
+    ]);
         return null;
     }
 
