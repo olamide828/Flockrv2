@@ -260,6 +260,10 @@ export default function CommunityPost({ post: initPost, comments: initComments }
 
   const replyingToComment = replyTo ? comments.find(c => c.id === replyTo.rootId) : null
 
+  const back = () => {
+    window.history.back()
+  }
+
   return (
     <>
       <Head title={`${post.user?.name}'s post`} />
@@ -280,7 +284,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
       <div style={{ minHeight: '100%', background: '#050505', color: '#fff', fontFamily: '"DM Sans", sans-serif' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
           <div style={{ position: 'sticky', top: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px', background: 'rgba(5,5,5,0.97)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <button onClick={() => router.visit('/community')} style={{ background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+            <button onClick={back} style={{ background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
               <RiArrowLeftLine size={18} />
             </button>
             <span style={{ fontWeight: 800, fontSize: 18 }}>Post</span>
