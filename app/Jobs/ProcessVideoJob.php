@@ -86,13 +86,10 @@ class ProcessVideoJob implements ShouldQueue
 
         // R2/S3 — build the public CDN URL
         // FFmpeg reads HTTP URLs natively, no download needed
-        $baseUrl = rtrim(config("filesystems.disks.{$disk}.url", ''), '/');
-        if (!$baseUrl) {
-            // No public URL configured — fall back to downloading
+       
             return $this->downloadToTemp($disk, $key);
-        }
+        
 
-        return $baseUrl . '/' . ltrim($key, '/');
     }
 
     /**
