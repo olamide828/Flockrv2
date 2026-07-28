@@ -122,11 +122,10 @@ class ProcessVideoJob implements ShouldQueue
      * Extracts frame at 1 second. Works with both local paths and HTTP URLs.
      * Returns the storage key on success, null if FFmpeg is unavailable.
      */
-   private function generateThumbnail(string $videoSource, string $disk): ?string
+private function generateThumbnail(string $videoSource, string $disk): ?string
 {
     $ffmpeg = '/var/www/bin/ffmpeg';
 
-    // Check FFmpeg is installed
     exec($ffmpeg . ' -version 2>&1', $out, $code);
     if ($code !== 0) {
         Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail');
@@ -179,7 +178,7 @@ class ProcessVideoJob implements ShouldQueue
 
 private function getDuration(string $videoSource): ?int
 {
-    $ffmpeg = '/var/www/bin/ffmpeg';
+    $ffprobe = '/var/www/bin/ffprobe';
 
     exec($ffprobe . ' -version 2>&1', $out, $code);
     if ($code !== 0) return null;
