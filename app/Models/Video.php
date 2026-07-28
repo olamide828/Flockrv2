@@ -135,25 +135,23 @@ class Video extends Model
      *  - Using R2/S3 disk → prepend R2 CDN URL
      *  - Using local/public disk → prepend /storage/ (symlinked)
      */
-    private function buildUrl(?string $path): ?string
-    {
-        if (!$path)
-            return null;
+   private function buildUrl(?string $path): ?string
+{
+    if (!$path)
+        return null;
 
-        // Already absolute
-        if (str_starts_with($path, 'http'))
-            return $path;
+    if (str_starts_with($path, 'http'))
+        return $path;
 
-        $disk = config('filesystems.default', 'public');
+    $disk = config('filesystems.default', 'public');
 
-        if ($disk === 'r2' || $disk === 's3') {
-            $base = rtrim(config('filesystems.disks.' . $disk . '.url', ''), '/');
-            return $base . '/' . ltrim($path, '/');
-        }
-
-        // Local / public disk — files live in storage/app/public, served via /storage symlink
-        return '/storage/' . ltrim($path, '/');
+    if (!in_array($disk, ['public', 'local'])) {
+        $base = rtrim(config('filesystems.disks.' . $disk . '.url', ''), '/');
+        return $base . '/' . ltrim($path, '/');
     }
+
+    return '/storage/' . ltrim($path, '/');
+}
 
     /**
      * Full playable video URL.
