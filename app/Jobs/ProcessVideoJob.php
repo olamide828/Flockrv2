@@ -124,7 +124,7 @@ class ProcessVideoJob implements ShouldQueue
      */
    private function generateThumbnail(string $videoSource, string $disk): ?string
 {
-    $ffmpeg = getenv('HOME') . '/bin/ffmpeg';
+    $ffmpeg = '/var/www/bin/ffmpeg';
 
     // Check FFmpeg is installed
     exec($ffmpeg . ' -version 2>&1', $out, $code);
@@ -179,7 +179,7 @@ class ProcessVideoJob implements ShouldQueue
 
 private function getDuration(string $videoSource): ?int
 {
-    $ffprobe = getenv('HOME') . '/bin/ffprobe';
+    $ffmpeg = '/var/www/bin/ffmpeg';
 
     exec($ffprobe . ' -version 2>&1', $out, $code);
     if ($code !== 0) return null;
