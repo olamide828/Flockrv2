@@ -241,7 +241,7 @@ class VideoController extends Controller
 
        
 $hashtags = $request->filled('hashtags')
-    ? array_filter(array_map('trim', preg_split('/[\s,#]+/', $request->hashtags)))
+    ? array_values(array_filter(array_map('trim', preg_split('/[\s,#]+/', $request->hashtags))))
     : [];
         $file = $request->file('video');
         $path = $this->storageService->uploadVideo($file);

@@ -122,81 +122,79 @@ class ProcessVideoJob implements ShouldQueue
      * Extracts frame at 1 second. Works with both local paths and HTTP URLs.
      * Returns the storage key on success, null if FFmpeg is unavailable.
      */
-    private function generateThumbnail(string $videoSource, string $disk): ?string
-    {
-        // Check FFmpeg is installed
-        exec('ffmpeg -version 2>&1', $out, $code);
-        if ($code !== 0) {
-            Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail');
-            return null;
-        }
+   private function generateThumbnail(string $videoSource, string $disk): ?string
+{
+    $ffmpeg = getenv('HOME') . '/bin/ffmpeg';
 
-        $tmpThumb = sys_get_temp_dir() . '/' . Str::uuid() . '.jpg';
+    // Check FFmpeg is installed
+    exec($ffmpeg . ' -version 2>&1', $out, $code);
+    if ($code !== 0) {
+        Log::warning('ProcessVideoJob: ffmpeg not found — skipping thumbnail');
+        return null;
+    }
 
-        // -ss before -i = fast seek (doesn't decode entire video first)
-        // scale=720:-2 = 720px wide, height auto-calculated keeping aspect ratio
-        // -q:v 3 = good quality JPEG (1=best, 31=worst)
-        $cmd = sprintf(
-            'ffmpeg -ss 00:00:01 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+    $tmpThumb = sys_get_temp_dir() . '/' . Str::uuid() . '.jpg';
+
+    $cmd = sprintf(
+        '%s -ss 00:00:01 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+        $ffmpeg,
+        escapeshellarg($videoSource),
+        escapeshellarg($tmpThumb)
+    );
+
+    exec($cmd, $output, $returnCode);
+
+    if ($returnCode !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
+        $cmdFallback = sprintf(
+            '%s -ss 00:00:00 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+            $ffmpeg,
             escapeshellarg($videoSource),
             escapeshellarg($tmpThumb)
         );
+        exec($cmdFallback, $output2, $returnCode2);
 
-        exec($cmd, $output, $returnCode);
-
-        if ($returnCode !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
-            // Try at 0 seconds as fallback (some videos are < 1 second)
-            $cmdFallback = sprintf(
-                'ffmpeg -ss 00:00:00 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
-                escapeshellarg($videoSource),
-                escapeshellarg($tmpThumb)
-            );
-            exec($cmdFallback, $output2, $returnCode2);
-
-            if ($returnCode2 !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
-                Log::warning('ProcessVideoJob: thumbnail generation failed', [
-                    'source' => $videoSource,
-                    'output' => implode("\n", array_merge($output, $output2)),
-                ]);
-                return null;
-            }
+        if ($returnCode2 !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
+            Log::warning('ProcessVideoJob: thumbnail generation failed', [
+                'source' => $videoSource,
+                'output' => implode("\n", array_merge($output, $output2)),
+            ]);
+            return null;
         }
-
-        // Upload thumbnail to storage
-        $key = 'thumbnails/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.jpg';
-
-        Storage::disk($disk)->put(
-            $key,
-            file_get_contents($tmpThumb),
-            ['ContentType' => 'image/jpeg', 'visibility' => 'public']
-        );
-
-        @unlink($tmpThumb);
-
-        Log::info("ProcessVideoJob: thumbnail uploaded → {$key}");
-
-        return $key;
     }
 
-    /**
-     * Get video duration in seconds using ffprobe.
-     * Works with both local paths and HTTP URLs.
-     */
-    private function getDuration(string $videoSource): ?int
-    {
-        exec('ffprobe -version 2>&1', $out, $code);
-        if ($code !== 0) return null;
+    $key = 'thumbnails/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.jpg';
 
-        $cmd = sprintf(
-            'ffprobe -v quiet -show_entries format=duration -of csv=p=0 %s 2>&1',
-            escapeshellarg($videoSource)
-        );
+    Storage::disk($disk)->put(
+        $key,
+        file_get_contents($tmpThumb),
+        ['ContentType' => 'image/jpeg', 'visibility' => 'public']
+    );
 
-        exec($cmd, $output, $returnCode);
-        $duration = floatval(trim(implode('', $output)));
+    @unlink($tmpThumb);
 
-        return $duration > 0 ? (int) $duration : null;
-    }
+    Log::info("ProcessVideoJob: thumbnail uploaded → {$key}");
+
+    return $key;
+}
+
+private function getDuration(string $videoSource): ?int
+{
+    $ffprobe = getenv('HOME') . '/bin/ffprobe';
+
+    exec($ffprobe . ' -version 2>&1', $out, $code);
+    if ($code !== 0) return null;
+
+    $cmd = sprintf(
+        '%s -v quiet -show_entries format=duration -of csv=p=0 %s 2>&1',
+        $ffprobe,
+        escapeshellarg($videoSource)
+    );
+
+    exec($cmd, $output, $returnCode);
+    $duration = floatval(trim(implode('', $output)));
+
+    return $duration > 0 ? (int) $duration : null;
+}
 
     private function activateVideo(): void
     {
