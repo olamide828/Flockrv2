@@ -15,7 +15,7 @@ class AdminSeeder extends Seeder
        User::firstOrCreate(['email'=>'admin@flockr.ng'], [
             'name'        => 'Flockr Admin',
             'username'    => 'admin',
-            'password' => Hash::make(env('ADMIN_SEED_PASSWORD', 'change-me-immediately')),
+            'password' => Hash::make(env('ADMIN_SEED_PASSWORD')),
             'role'        => 'admin',
             'is_verified' => true,
             'email_verified_at' => now(),

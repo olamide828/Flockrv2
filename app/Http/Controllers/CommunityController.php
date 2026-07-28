@@ -737,6 +737,11 @@ class CommunityController extends Controller
             return response()->json(['message' => 'Already a member.'], 422);
         }
 
+        [$allowed, $message] = $this->checkCanJoin($room, $userId);
+        if (!$allowed) {
+            return response()->json(['message' => $message], 403);
+        }
+
         DB::table('room_join_requests')->updateOrInsert(
             ['room_id' => $room->id, 'user_id' => $userId],
             ['status' => 'pending', 'updated_at' => now(), 'created_at' => now()]
@@ -812,6 +817,10 @@ class CommunityController extends Controller
         if ($validated['user_id'] === Auth::id()) return response()->json(['message' => 'Cannot kick yourself.'], 422);
         DB::table('room_user')->where('room_id', $room->id)->where('user_id', $validated['user_id'])->delete();
         $room->decrement('members_count');
+        DB::table('room_exit_log')->insert([
+            'room_id' => $room->id, 'user_id' => $validated['user_id'], 'reason' => 'kicked',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
         return response()->json(['message' => 'Member removed.']);
     }
 
@@ -866,6 +875,40 @@ class CommunityController extends Controller
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Gate for (re)joining a room: kicked users can never rejoin on their
+     * own (the seller would have to explicitly re-invite/approve them
+     * through a future "unban" flow — not built yet). Users who left
+     * voluntarily can rejoin after a 7-day cooldown.
+     *
+     * @return array{0: bool, 1: ?string} [allowed, message-if-not-allowed]
+     */
+    private function checkCanJoin(Room $room, int $userId): array
+    {
+        $rejoinCooldownDays = 7;
+
+        $lastExit = DB::table('room_exit_log')
+            ->where('room_id', $room->id)
+            ->where('user_id', $userId)
+            ->latest('created_at')
+            ->first();
+
+        if (!$lastExit) {
+            return [true, null];
+        }
+
+        if ($lastExit->reason === 'kicked') {
+            return [false, 'You were removed from this room by the host and can\'t rejoin.'];
+        }
+
+        $cooldownEnds = \Carbon\Carbon::parse($lastExit->created_at)->addDays($rejoinCooldownDays);
+        if ($lastExit->reason === 'left' && now()->lt($cooldownEnds)) {
+            return [false, 'You can rejoin this room after ' . $cooldownEnds->format('M j, Y') . '.'];
+        }
+
+        return [true, null];
+    }
 
     private function assertMember(Room $room): void
     {
