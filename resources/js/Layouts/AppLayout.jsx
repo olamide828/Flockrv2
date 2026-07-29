@@ -654,16 +654,7 @@ useEffect(() => {
                 )}
 
                 {/* Page content */}
-                <div 
-    className="page-content"
-    style={{
-        flex: 1,
-        overflow: isFullScreen ? 'hidden' : 'auto',
-        minHeight: 0,
-        WebkitOverflowScrolling: 'touch',
-        overscrollBehavior: 'contain',
-    }}
->
+                <div className="page-content" style={{ flex: 1, overflow: isFullScreen ? 'hidden' : 'auto', minHeight: 0 }}>
                     {children}
                 </div>
 
@@ -764,10 +755,6 @@ useEffect(() => {
                     .mobile-bottom-nav { display: none !important; }
                 }
                 .main-paged .page-content { padding-bottom: 0; }
-                .page-content {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-}
                 input:focus { border-color: var(--flockr-orange) !important; outline: none; }
                 * { box-sizing: border-box; }
                 ::-webkit-scrollbar { display: none; }
