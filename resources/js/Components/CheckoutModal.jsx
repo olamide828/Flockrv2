@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
-import { router } from '@inertiajs/react';
 import {
     RiArrowLeftLine,
     RiArrowRightLine,
@@ -378,13 +377,6 @@ export default function CheckoutModal({
             }
             window.location.href = res.data.authorization_url;
         } catch (err) {
-            if (err.response?.status === 409) {
-                showToast?.('Please verify your email before checking out.', 'warning');
-                onClose?.();
-                router.visit('/verify-email');
-                setChecking(false);
-                return;
-            }
             const msg = err.code === 'ERR_NETWORK'
                 ? 'No internet connection. Please check your network and try again.'
                 : (err.response?.data?.message ?? 'Checkout failed. Please try again.');
@@ -547,9 +539,17 @@ export default function CheckoutModal({
                                 {!loadingRates && rates.map(rate => (
                                     <div key={rate.rate_id} onClick={() => setSelectedRate(rate)}
                                         style={{ padding: '14px 16px', borderRadius: 16, background: selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.15s' }}>
+                                        {/* Radio */}
                                         <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid ' + (selectedRate?.rate_id === rate.rate_id ? '#FF6B35' : 'rgba(255,255,255,0.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                             {selectedRate?.rate_id === rate.rate_id && <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B35' }} />}
                                         </div>
+                                        {/* Carrier logo or fallback */}
+                                        {rate.carrier_logo
+                                            ? <img src={rate.carrier_logo} alt={rate.carrier} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 4, flexShrink: 0 }} />
+                                            : <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                <span style={{ color: '#FF6B35', fontSize: 11, fontWeight: 800 }}>{rate.carrier?.slice(0,3).toUpperCase()}</span>
+                                              </div>
+                                        }
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700 }}>{rate.carrier}</p>
                                             <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{rate.service} · {rate.estimated_days}</p>
