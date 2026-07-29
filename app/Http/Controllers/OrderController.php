@@ -6,7 +6,7 @@ use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Notifications\OrderPlacedNotification;
+use App\Notifications\NewOrderNotification;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,6 +52,12 @@ class OrderController extends Controller
     public function success(Request $request): Response|\Illuminate\Http\RedirectResponse
     {
         $reference = $request->query('reference') ?? $request->query('trxref');
+
+         Log::info('Success page hit', [
+        'reference' => $reference,
+        'auth_id'   => Auth::id(),
+        'order'     => Order::where('reference', $reference)->value('buyer_id'),
+    ]);
 
         if (!$reference) {
             return redirect()->route('orders.index');
@@ -213,7 +219,7 @@ class OrderController extends Controller
             if ($data['status'] === 'success' && $order->status === 'pending') {
                 // Mark the primary order paid
                 $order->markAsPaid($reference, $data['id']);
-                $order->buyer->notify(new OrderPlacedNotification($order));
+                $order->buyer->notify(new NewOrderNotification($order));
 
                 // ── Multi-seller cart: mark sibling orders paid too ───────────
                 // When CartController creates multiple orders, it stores their IDs
@@ -232,7 +238,7 @@ class OrderController extends Controller
                         $sibling->markAsPaid($reference, $data['id']);
 
                         try {
-                            $sibling->buyer->notify(new OrderPlacedNotification($sibling));
+                            $sibling->buyer->notify(new NewOrderNotification($sibling));
                         } catch (\Throwable) {}
                     }
 
@@ -287,7 +293,7 @@ class OrderController extends Controller
                     $sibling->markAsPaid($data['reference'], $data['id']);
 
                     try {
-                        $sibling->buyer->notify(new OrderPlacedNotification($sibling));
+                        $sibling->buyer->notify(new NewOrderNotification($sibling));
                     } catch (\Throwable) {}
                 }
             }

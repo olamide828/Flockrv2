@@ -497,8 +497,9 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
     const [descExpanded,   setDescExpanded]   = useState(false);
     const [addingToCart,   setAddingToCart]   = useState(false);
     const [addedToCart,    setAddedToCart]    = useState(false);
-    const [showCheckout,   setShowCheckout]   = useState(false);
-    const [addresses,      setAddresses]      = useState([]);
+    const [showCheckout, setShowCheckout] = useState(false);
+const [addresses,    setAddresses]    = useState([]);
+const [addrLoading,  setAddrLoading]  = useState(false);
 
     const { showToast, ToastComponent } = useToast();
 
@@ -530,10 +531,14 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
             }).catch(() => {});
     }, [product.id]);
 
-    useEffect(() => {
-        if (!showCheckout || !auth?.user) return;
-        axios.get('/api/addresses').then(r => setAddresses(r.data.addresses ?? [])).catch(() => {});
-    }, [showCheckout, auth?.user]);
+   useEffect(() => {
+    if (!auth?.user) return;
+    setAddrLoading(true);
+    axios.get('/api/addresses')
+        .then(r => setAddresses(r.data.addresses ?? []))
+        .catch(() => {})
+        .finally(() => setAddrLoading(false));
+}, []); 
 
     const generateSummary = useCallback(async () => {
         if (summary) return;
@@ -560,10 +565,10 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
         if (key === 'ai_description' && !summary && !summaryLoading) generateSummary();
     };
 
-    const handleBuy = async () => {
-        if (!auth?.user) { router.visit('/login'); return; }
-        setShowCheckout(true);
-    };
+  const handleBuy = () => {
+    if (!auth?.user) { router.visit('/login'); return; }
+    setShowCheckout(true); 
+ 
 
     const handleSave = async () => {
         if (!auth?.user) { router.visit('/login'); return; }
@@ -916,15 +921,15 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
             {showCheckout && (
-                <CheckoutModal
-                    items={[{ id: null, product: { ...product, seller: product.seller }, quantity }]}
-                    addresses={addresses}
-                    subtotal={Number(product.price) * quantity}
-                    onClose={() => setShowCheckout(false)}
-                    showToast={showToast}
-                    singleProduct={{ productId: product.id, quantity }}
-                />
-            )}
+    <CheckoutModal
+        items={[{ id: null, product: { ...product, seller: product.seller }, quantity }]}
+        addresses={addresses}  
+        subtotal={Number(product.price) * quantity}
+        onClose={() => setShowCheckout(false)}
+        showToast={showToast}
+        singleProduct={{ productId: product.id, quantity }}
+    />
+)}
             {ToastComponent}
         </>
     );
