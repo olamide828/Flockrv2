@@ -26,21 +26,20 @@ class Order extends Model
     ];
 
     protected $casts = [
-        'subtotal'                 => 'decimal:2',
-        'shipping_fee'             => 'decimal:2',
-        'platform_fee'             => 'decimal:2',
-        'total'                    => 'decimal:2',
-        'shipping_address'         => 'array',
-        'paid_at'                  => 'datetime',
-        'shipped_at'               => 'datetime',
-        'delivered_at'             => 'datetime',
-        'last_rating_reminder_at'  => 'datetime',
+        'subtotal'                => 'decimal:2',
+        'shipping_fee'            => 'decimal:2',
+        'platform_fee'            => 'decimal:2',
+        'total'                   => 'decimal:2',
+        'shipping_address'        => 'array',
+        'paid_at'                 => 'datetime',
+        'shipped_at'              => 'datetime',
+        'delivered_at'            => 'datetime',
+        'last_rating_reminder_at' => 'datetime',
     ];
 
     protected static function boot(): void
     {
         parent::boot();
-
         static::creating(function (Order $order) {
             if (empty($order->reference)) {
                 $order->reference = 'FLK-' . now()->format('Ymd') . '-' . strtoupper(Str::random(6));
@@ -75,7 +74,6 @@ class Order extends Model
         return $this->hasOne(Review::class);
     }
 
-    
     public function coupon(): HasOne
     {
         return $this->hasOne(Coupon::class, 'used_on_order_id');
@@ -112,60 +110,73 @@ class Order extends Model
                 'paid_at'                 => now(),
             ]);
 
-            // 2. Decrement stock
+            // 2. Load items with products for stock decrement
             $this->load('items.product');
 
-            // After stock decrement, add this:
+            // 3. Decrement stock for each item — THIS IS THE MISSING PIECE
+            foreach ($this->items as $item) {
+                if (!$item->product) continue;
 
-// 5. Create Terminal shipment and arrange courier pickup
-try {
-    $terminal = app(\App\Services\TerminalService::class);
-    $seller   = $this->seller;
-    $address  = \App\Models\UserAddress::find($this->delivery_address_id);
+                Product::where('id', $item->product_id)
+                    ->where('stock_quantity', '>=', $item->quantity)
+                    ->update([
+                        'stock_quantity' => DB::raw("GREATEST(stock_quantity - {$item->quantity}, 0)"),
+                        'orders_count'   => DB::raw('orders_count + 1'),
+                    ]);
 
-    if ($this->terminal_rate_id && $seller->pickup_street && $address) {
-        $shipment = $terminal->createShipment(
-            order:    $this,
-            rateId:   $this->terminal_rate_id,
-            pickup:   [
-                'name'        => $seller->name,
-                'phone'       => $seller->phone,
-                'address'     => $seller->pickup_street,
-                'city'        => $seller->pickup_city,
-                'state'       => $seller->pickup_state,
-                'country'     => 'NG',
-                'postal_code' => $seller->pickup_postal_code ?? '000000',
-            ],
-            delivery: $address->toTerminalFormat(),
-            parcel:   [
-                'weight'      => 0.5,
-                'items_count' => $this->items->count(),
-                'description' => 'Flockr order ' . $this->reference,
-            ],
-        );
+                Log::info('Stock decremented', [
+                    'product_id' => $item->product_id,
+                    'qty_sold'   => $item->quantity,
+                ]);
+            }
 
-        $this->update([
-            'terminal_shipment_id' => $shipment['shipment_id'],
-            'tracking_number'      => $shipment['tracking_number'],
-            'courier'              => $shipment['carrier'],
-        ]);
+            // 4. Try to create Terminal shipment
+            try {
+                $terminal = app(\App\Services\TerminalService::class);
+                $seller   = $this->seller;
+                $address  = \App\Models\UserAddress::find($this->delivery_address_id);
 
-        Log::info('Terminal shipment created', [
-            'order'       => $this->reference,
-            'shipment_id' => $shipment['shipment_id'],
-        ]);
-    }
-} catch (\Throwable $e) {
-    // Don't fail the payment if shipment creation fails
-    // Log it and notify admin — order is still paid
-    Log::error('Terminal createShipment failed after payment', [
-        'order' => $this->reference,
-        'error' => $e->getMessage(),
-    ]);
-}
+                if ($this->terminal_rate_id && $seller->pickup_street && $address) {
+                    $shipment = $terminal->createShipment(
+                        order:    $this,
+                        rateId:   $this->terminal_rate_id,
+                        pickup:   [
+                            'name'        => $seller->name,
+                            'phone'       => $seller->phone,
+                            'address'     => $seller->pickup_street,
+                            'city'        => $seller->pickup_city,
+                            'state'       => $seller->pickup_state,
+                            'country'     => 'NG',
+                            'postal_code' => $seller->pickup_postal_code ?? '000000',
+                        ],
+                        delivery: $address->toTerminalFormat(),
+                        parcel:   [
+                            'weight'      => 0.5,
+                            'items_count' => $this->items->count(),
+                            'description' => 'Flockr order ' . $this->reference,
+                        ],
+                    );
 
+                    $this->update([
+                        'terminal_shipment_id' => $shipment['shipment_id'],
+                        'tracking_number'      => $shipment['tracking_number'],
+                        'courier'              => $shipment['carrier'],
+                    ]);
 
-            // 3. Credit seller wallet (minus platform fee)
+                    Log::info('Terminal shipment created', [
+                        'order'       => $this->reference,
+                        'shipment_id' => $shipment['shipment_id'],
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                // Don't fail the payment if shipment creation fails
+                Log::error('Terminal createShipment failed after payment', [
+                    'order' => $this->reference,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // 5. Credit seller wallet (total minus platform fee)
             $sellerAmount  = $this->total - $this->platform_fee;
             $lastTx        = WalletTransaction::where('user_id', $this->seller_id)->latest()->first();
             $balanceBefore = $lastTx?->balance_after ?? 0;
@@ -180,21 +191,23 @@ try {
                 'balance_after' => $balanceBefore + $sellerAmount,
             ]);
 
-            // 4. Update seller stats
+            // 6. Update seller stats
             $this->seller->increment('total_sales');
 
             if (in_array('revenue_total', $this->seller->getFillable())) {
                 $this->seller->increment('revenue_total', $sellerAmount);
             }
 
-            // 5. Mark coupon as used now that payment is confirmed
+            // 7. Mark coupon as used now that payment is confirmed
             Coupon::where('used_on_order_id', $this->id)
                 ->whereNull('used_at')
                 ->update(['used_at' => now()]);
         });
 
-        // Notify seller
-        $this->seller->notify(new \App\Notifications\NewOrderNotification($this));
+        // Notify seller (outside transaction — notification failure shouldn't roll back payment)
+        try {
+            $this->seller->notify(new \App\Notifications\NewOrderNotification($this));
+        } catch (\Throwable) {}
     }
 
     public function getFormattedTotalAttribute(): string
@@ -206,6 +219,4 @@ try {
     {
         return in_array($this->status, ['pending', 'paid', 'confirmed']);
     }
-
-    
 }
