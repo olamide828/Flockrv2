@@ -93,7 +93,7 @@ useEffect(() => {
     }, [auth?.user]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden', position: 'fixed', inset: 0 }}>
                  <VerifyEmailBanner />
             <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
@@ -654,7 +654,17 @@ useEffect(() => {
                 )}
 
                 {/* Page content */}
-                <div className="page-content" style={{ flex: 1, overflow: isFullScreen ? 'hidden' : 'auto', minHeight: 0 }}>
+                <div
+    className="page-content"
+    style={{
+        flex: 1,
+        overflow: isFullScreen ? 'hidden' : 'auto',
+        minHeight: 0,
+        // Smooth momentum scrolling on iOS
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain',
+    }}
+>
                     {children}
                 </div>
 
@@ -755,6 +765,16 @@ useEffect(() => {
                     .mobile-bottom-nav { display: none !important; }
                 }
                 .main-paged .page-content { padding-bottom: 0; }
+                .page-content {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+body, html {
+    overflow: hidden;
+    height: 100%;
+}
+
                 input:focus { border-color: var(--flockr-orange) !important; outline: none; }
                 * { box-sizing: border-box; }
                 ::-webkit-scrollbar { display: none; }
