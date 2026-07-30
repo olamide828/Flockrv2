@@ -567,8 +567,8 @@ const [addrLoading,  setAddrLoading]  = useState(false);
 
   const handleBuy = () => {
     if (!auth?.user) { router.visit('/login'); return; }
-    setShowCheckout(true); 
- 
+    setShowCheckout(true);
+  };
 
     const handleSave = async () => {
         if (!auth?.user) { router.visit('/login'); return; }
