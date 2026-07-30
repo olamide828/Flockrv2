@@ -17,7 +17,7 @@ class SellerController extends Controller
     public function dashboard(): Response
     {
         $seller = Auth::user();
-        $period = 30; // days
+        $period = 30; 
 
         $stats = [
             'revenue' => Order::forSeller($seller->id)->paid()
@@ -26,9 +26,8 @@ class SellerController extends Controller
             'orders_count' => Order::forSeller($seller->id)->paid()
                 ->where('created_at', '>=', now()->subDays($period))
                 ->count(),
-            'views_count' => VideoView::whereIn('video_id', $seller->videos()->pluck('id'))
-                ->where('created_at', '>=', now()->subDays($period))
-                ->count(),
+            
+'views_count' => $seller->videos()->sum('views_count'),
             'followers_count' => $seller->followers_count,
             'revenue_change' => $this->changePercent($seller->id, 'revenue', $period),
             'orders_change' => $this->changePercent($seller->id, 'orders', $period),
@@ -73,10 +72,88 @@ $savedVideos = $seller->savedVideos()
     ->with('user:id,name,username,avatar')
     ->get();
 
+// ── Gamification ─────────────────────────────────────────────────────────
+$totalVideos = $seller->videos()->count();
+$totalViewsAllTime = $seller->videos()->sum('views_count');
+$totalOrdersAllTime = Order::forSeller($seller->id)->paid()->count();
+
+$xp = (int) round(
+    ($totalVideos * 50) + ($totalViewsAllTime * 0.1) + ($totalOrdersAllTime * 100) + ($seller->followers_count * 5)
+);
+
+$levelThresholds = [0, 100, 300, 700, 1500, 3000, 6000, 12000, 25000, 50000];
+$level = 1;
+foreach ($levelThresholds as $i => $threshold) {
+    if ($xp >= $threshold) $level = $i + 1;
+}
+$currentThreshold = $levelThresholds[$level - 1] ?? 0;
+$nextThreshold = $levelThresholds[$level] ?? ($currentThreshold * 2);
+
+// Upload streak — consecutive days (from today backward) with at least one published video
+$publishDates = $seller->videos()
+    ->whereNotNull('published_at')
+    ->orderByDesc('published_at')
+    ->pluck('published_at')
+    ->map(fn ($d) => $d->format('Y-m-d'))
+    ->unique()
+    ->values();
+
+$streak = 0;
+$cursor = now()->startOfDay();
+foreach ($publishDates as $date) {
+    if ($date === $cursor->format('Y-m-d')) {
+        $streak++;
+        $cursor->subDay();
+    } else {
+        break;
+    }
+}
+
+$badges = [
+    ['key' => 'first_sale',        'label' => 'First Sale',          'earned' => $totalOrdersAllTime >= 1],
+    ['key' => 'ten_sales',         'label' => '10 Sales',            'earned' => $totalOrdersAllTime >= 10],
+    ['key' => 'viral_debut',       'label' => 'Viral Debut',         'earned' => $seller->videos()->where('views_count', '>=', 1000)->exists()],
+    ['key' => 'consistent',        'label' => 'Consistent Creator',  'earned' => $streak >= 3],
+    ['key' => 'verified',          'label' => 'Trusted Seller',      'earned' => (bool) $seller->is_verified],
+    ['key' => 'hundred_followers', 'label' => '100 Followers',       'earned' => $seller->followers_count >= 100],
+];
+
+$tips = [];
+$videosNoHashtags = $seller->videos()->where(function ($q) {
+    $q->whereNull('hashtags')->orWhereRaw("hashtags::text = '[]'");
+})->count();
+if ($videosNoHashtags > 0) {
+    $tips[] = "Add hashtags to your videos — {$videosNoHashtags} of your videos have none, and hashtags help new viewers discover you.";
+}
+if ($totalVideos > 0 && $seller->videos()->where('is_for_sale', false)->exists()) {
+    $untagged = $seller->videos()->where('is_for_sale', false)->count();
+    $tips[] = "Tag products in your videos — {$untagged} of your videos have no products tagged, so they can't drive direct sales.";
+}
+if ($streak === 0) {
+    $tips[] = "Post today to start a streak — consistent posting is one of the strongest signals for the For You feed.";
+}
+if ($totalVideos > 0 && $totalVideos < 5) {
+    $tips[] = "Keep going — creators who post 5+ videos see significantly more consistent reach.";
+}
+if (empty($tips)) {
+    $tips[] = "You're doing great! Keep posting consistently and engaging with comments to maintain momentum.";
+}
+
+$gamification = [
+    'level'         => $level,
+    'xp'            => $xp,
+    'xp_into_level' => $xp - $currentThreshold,
+    'xp_for_level'  => max(1, $nextThreshold - $currentThreshold),
+    'streak_days'   => $streak,
+    'badges'        => $badges,
+    'tips'          => array_slice($tips, 0, 3),
+    'total_videos'  => $totalVideos,
+];
+
 return Inertia::render('Seller/Dashboard', compact(
     'stats', 'recentOrders', 'topProducts', 'recentVideos',
-    'orders', 'savedProducts', 'savedVideos'
-)); 
+    'orders', 'savedProducts', 'savedVideos', 'gamification'
+));
 
 }
 

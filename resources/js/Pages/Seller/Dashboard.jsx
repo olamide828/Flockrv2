@@ -10,7 +10,8 @@ import {
     RiMoneyDollarCircleLine, RiPlayCircleLine, RiRefreshLine,
     RiSettings4Line, RiShoppingBagLine, RiStoreLine, RiTimeLine,
     RiTruckLine, RiUploadCloud2Line, RiUserFollowLine, RiVideoLine,
-    RiCheckDoubleLine,
+    RiFireLine, RiLockLine, RiTrophyLine, RiSparklingLine,
+    RiBarChartBoxLine, RiCloseLine, RiLightbulbFlashLine,
 } from 'react-icons/ri';
 import { MdOutlineStorefront } from 'react-icons/md';
 
@@ -116,13 +117,124 @@ function VideoThumb({ video }) {
     );
 }
 
+// ── Gamification sub-components ────────────────────────────────────────────
+function LevelCard({ gamification }) {
+    if (!gamification) return null;
+    const { level, xp, xp_into_level, xp_for_level, streak_days } = gamification;
+    const pct = Math.min(100, Math.round((xp_into_level / xp_for_level) * 100));
+
+    return (
+        <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 28, padding: 24, background: 'linear-gradient(135deg, #1a1a1a 0%, #111 60%)', border: '1px solid rgba(255,107,53,0.15)' }}>
+            <div style={{ position: 'absolute', top: -60, right: -60, width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,107,53,0.08)', filter: 'blur(20px)' }} />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 16, background: 'linear-gradient(135deg,#ff6b35,#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 18px rgba(255,107,53,0.35)' }}>
+                        <RiTrophyLine size={22} color="#fff" />
+                    </div>
+                    <div>
+                        <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Creator Level</p>
+                        <p style={{ margin: '2px 0 0', fontSize: 22, fontWeight: 800, color: '#fff' }}>Level {level}</p>
+                    </div>
+                </div>
+                {streak_days > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(251,146,60,0.12)', border: '1px solid rgba(251,146,60,0.25)', borderRadius: 999, padding: '7px 14px' }}>
+                        <RiFireLine size={15} color="#FB923C" />
+                        <span style={{ color: '#FB923C', fontWeight: 800, fontSize: 13 }}>{streak_days} day{streak_days !== 1 ? 's' : ''}</span>
+                    </div>
+                )}
+            </div>
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{xp_into_level.toLocaleString()} / {xp_for_level.toLocaleString()} XP</span>
+                    <span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{pct}%</span>
+                </div>
+                <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#ff6b35,#ff8c00)', borderRadius: 999, transition: 'width 0.5s ease' }} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function BadgesRow({ badges }) {
+    if (!badges?.length) return null;
+    return (
+        <div className="dashboard-card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <RiSparklingLine size={16} color="#FF6B35" />
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#fff' }}>Achievements</h3>
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {badges.map(b => (
+                    <div key={b.key} style={{
+                        display: 'flex', alignItems: 'center', gap: 7,
+                        padding: '8px 14px', borderRadius: 999,
+                        background: b.earned ? 'rgba(255,107,53,0.1)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${b.earned ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                        opacity: b.earned ? 1 : 0.4,
+                    }}>
+                        <RiTrophyLine size={13} color={b.earned ? '#FF6B35' : 'rgba(255,255,255,0.3)'} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: b.earned ? '#fff' : 'rgba(255,255,255,0.4)' }}>{b.label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function GrowthTips({ tips }) {
+    if (!tips?.length) return null;
+    return (
+        <div className="dashboard-card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <RiLightbulbFlashLine size={16} color="#FBBF24" />
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#fff' }}>Growth Tips</h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {tips.map((tip, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 10, padding: '11px 14px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.15)', borderRadius: 12 }}>
+                        <span style={{ color: '#FBBF24', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.5 }}>{tip}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function AnalyticsLockedCard({ onClick }) {
+    return (
+        <button onClick={onClick} style={{
+            display: 'flex', alignItems: 'center', gap: 14, width: '100%', textAlign: 'left',
+            padding: '20px 22px', borderRadius: 24, cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.06))',
+            border: '1px solid rgba(139,92,246,0.25)',
+        }}>
+            <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <RiBarChartBoxLine size={22} color="#A78BFA" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 14 }}>Seller Analytics</p>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 8px', background: 'rgba(139,92,246,0.2)', borderRadius: 999, color: '#A78BFA', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>
+                        <RiLockLine size={9} /> Pro
+                    </span>
+                </div>
+                <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>Deep insights on watch time, audience retention, and conversion funnels.</p>
+            </div>
+            <RiArrowRightLine size={16} color="rgba(255,255,255,0.3)" style={{ flexShrink: 0 }} />
+        </button>
+    );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function SellerDashboard({
     stats, recentOrders = [], topProducts = [], recentVideos = [],
-    orders = [], savedProducts = [], savedVideos = [],
+    orders = [], savedProducts = [], savedVideos = [], gamification = null,
 }) {
     const [period, setPeriod] = useState('30d');
     const [tab, setTab] = useState('overview');
+    const [showProModal, setShowProModal] = useState(false);
 
     const kpis = [
         { label: 'Revenue',   value: `₦${Number(stats?.revenue ?? 0).toLocaleString()}`, icon: RiMoneyDollarCircleLine, change: stats?.revenue_change, highlight: true },
@@ -148,6 +260,27 @@ export default function SellerDashboard({
     return (
         <>
             <Head title="Seller Dashboard" />
+
+            {showProModal && (
+                <>
+                    <div onClick={() => setShowProModal(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }} />
+                    <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 'min(380px,90vw)', zIndex: 201, background: '#131313', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 24, padding: 26, textAlign: 'center' }}>
+                        <button onClick={() => setShowProModal(false)} style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                            <RiCloseLine size={15} />
+                        </button>
+                        <div style={{ width: 56, height: 56, borderRadius: 18, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                            <RiBarChartBoxLine size={26} color="#A78BFA" />
+                        </div>
+                        <p style={{ color: '#fff', fontWeight: 800, fontSize: 17, margin: '0 0 8px' }}>Analytics is launching soon</p>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, lineHeight: 1.6, margin: '0 0 20px' }}>
+                            Deep video and sales analytics is coming as a Pro feature. We'll let you know the moment it's ready.
+                        </p>
+                        <button onClick={() => setShowProModal(false)} style={{ width: '100%', padding: 13, background: 'linear-gradient(135deg,#8B5CF6,#6366F1)', border: 'none', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                            Got it
+                        </button>
+                    </div>
+                </>
+            )}
 
             <div className="seller-dashboard">
                 {/* HEADER */}
@@ -213,6 +346,18 @@ export default function SellerDashboard({
                             );
                         })}
                     </section>
+
+                    {/* ── GAMIFICATION SECTION ─────────────────────────────── */}
+                    {gamification && (
+                        <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <LevelCard gamification={gamification} />
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+                                <BadgesRow badges={gamification.badges} />
+                                <GrowthTips tips={gamification.tips} />
+                            </div>
+                            <AnalyticsLockedCard onClick={() => setShowProModal(true)} />
+                        </section>
+                    )}
 
                     {/* ── TAB NAV ──────────────────────────────────────────── */}
                     <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: 24, overflowX: 'auto', scrollbarWidth: 'none' }}>
