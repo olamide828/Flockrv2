@@ -62,6 +62,8 @@ if ($authUserId && $products->isNotEmpty()) {
         return Inertia::render('User/Profile', [
             'profileUser'   => array_merge($user->toArray(), [
                 'followers_count' => $user->followers_count ?? 0,
+                'has_active_subscription' => $user->hasActiveSubscription(),
+                'badges' => $user->badges()->get(['badges.key', 'badges.label', 'badges.icon', 'badges.color']),
                 'following_count' => $user->following_count ?? 0,
                 'total_sales'     => $user->total_sales ?? 0,
             ]),

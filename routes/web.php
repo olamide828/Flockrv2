@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserDashboardController;
 use App\Http\Controllers\FollowController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\SubscriptionController;
 
 // ── Public pages ──────────────────────────────────────────────────────────────
 Route::get('/', [VideoController::class, 'index'])->name('home');
@@ -94,6 +95,11 @@ Route::post('/email/verification-notification', [AuthController::class, 'sendVer
     // Seller onboarding — no role middleware (user IS seller but not yet set up)
     Route::get('/seller/onboarding', [AuthController::class, 'sellerOnboarding'])->name('seller.onboarding');
     Route::post('/seller/onboarding', [AuthController::class, 'sellerOnboardingStore']);
+    Route::post('/become-seller', [AuthController::class, 'convertToSeller'])->name('become-seller');
+
+    Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans'])->name('subscriptions.plans');
+Route::post('/subscriptions/checkout', [SubscriptionController::class, 'checkout'])->name('subscriptions.checkout');
+Route::get('/subscriptions/callback', [SubscriptionController::class, 'callback'])->name('subscriptions.callback');
 
     Route::middleware('role:seller')->prefix('seller')->name('seller.')->group(function () {
         Route::get('/dashboard', [SellerController::class, 'dashboard'])->name('dashboard');

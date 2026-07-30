@@ -40,3 +40,5 @@ Schedule::call(function () {
 })->daily();
 
 Schedule::command('users:purge-deleted')->daily();
+
+Schedule::command('badges:check')->hourly();

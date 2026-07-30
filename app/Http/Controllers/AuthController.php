@@ -119,6 +119,7 @@ class AuthController extends Controller
         return Inertia::render('Auth/SellerOnboarding');
     }
 
+
     public function sellerOnboardingStore(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -162,6 +163,15 @@ class AuthController extends Controller
             ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }
 
+    public function convertToSeller(): RedirectResponse
+{
+    $user = Auth::user();
+    if ($user->role !== 'buyer') {
+        return redirect()->back();
+    }
+    $user->update(['role' => 'seller']);
+    return redirect()->route('seller.onboarding');
+}
     // ── Logout ────────────────────────────────────────────────────────────────
 
     public function logout(Request $request): RedirectResponse

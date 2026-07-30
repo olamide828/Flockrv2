@@ -250,4 +250,28 @@ public function loginHistory(): HasMany
     return $this->hasMany(LoginHistory::class);
 }
 
+public function subscriptions(): HasMany
+{
+    return $this->hasMany(Subscription::class);
+}
+
+public function activeSubscription(): ?Subscription
+{
+    return $this->subscriptions()
+        ->where('status', 'active')
+        ->where('expires_at', '>', now())
+        ->latest('expires_at')
+        ->first();
+}
+
+public function hasActiveSubscription(): bool
+{
+    return $this->activeSubscription() !== null;
+}
+
+public function badges(): BelongsToMany
+{
+    return $this->belongsToMany(Badge::class, 'user_badges')->withPivot('awarded_at');
+}
+
 }

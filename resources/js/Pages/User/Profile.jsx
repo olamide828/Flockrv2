@@ -2,6 +2,7 @@ import ProductCard from '@/Components/Product/ProductCard';
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
+import ProPlansSheet from '@/Components/ProPlansSheet';
 import { useState } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -22,8 +23,10 @@ import {
     RiVerifiedBadgeLine,
     RiVideoLine,
     RiNewspaperLine,
+    RiVipCrownLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
+import BadgesDisplay from '@/Components/BadgesDisplay'
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -348,6 +351,7 @@ export default function UserProfile({
     const [iBlockedThem, setIBlockedThem] = useState(initIBlocked);
     const [showMenu, setShowMenu] = useState(false);
     const [showReport, setShowReport] = useState(false);
+    const [showProSheet, setShowProSheet] = useState(false);
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -517,6 +521,8 @@ export default function UserProfile({
 
             {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
+        {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
+
             {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
             <div
                 style={{
@@ -614,6 +620,11 @@ export default function UserProfile({
                                             <p style={{ color: '#fff', fontSize: 28, fontWeight: 600, margin: '0 0 4px' }}>{profileUser.name}</p>
                                         )}
                                         {profileUser.is_verified && <RiVerifiedBadgeLine size={20} color="#FF6B35" />}
+                                        {isOwnProfile && profileUser.role === 'seller' && (
+    <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 999, color: '#FBBF24', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        <RiVipCrownLine size={13} /> {profileUser.has_active_subscription ? 'Pro' : 'Go Pro'}
+    </button>
+)}
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                         <h1
@@ -657,6 +668,11 @@ export default function UserProfile({
                                         <Link href="/settings/profile" style={outlineBtn}>
                                             Edit profile
                                         </Link>
+                                        {isOwnProfile && profileUser.role === 'buyer' && (
+    <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
+        <RiStoreLine size={14} /> Start Selling
+    </Link>
+)}
                                         {profileUser.role === 'seller' && (
                                             <Link href="/seller/upload" style={outlineBtn}>
                                                 <RiUploadCloud2Line size={14} /> Upload
@@ -754,6 +770,7 @@ export default function UserProfile({
                                     <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{profileUser.location}</span>
                                 </div>
                             )}
+                            <BadgesDisplay badges={profileUser.badges} />
                         </div>
                     </div>
                 </div>
@@ -864,6 +881,11 @@ export default function UserProfile({
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                                 <p style={{ color: '#fff', fontWeight: 700, fontSize: 15, margin: 0 }}>{profileUser.name}</p>
                                 {profileUser.is_verified && <RiVerifiedBadgeLine size={14} color="#FF6B35" />}
+                                {isOwnProfile && profileUser.role === 'seller' && (
+    <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 999, color: '#FBBF24', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        <RiVipCrownLine size={13} /> {profileUser.has_active_subscription ? 'Pro' : 'Go Pro'}
+    </button>
+)}
                             </div>
                             <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 6px', cursor: 'pointer' }}>
                                 @{profileUser.username}
@@ -877,6 +899,7 @@ export default function UserProfile({
                                     <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{profileUser.location}</span>
                                 </div>
                             )}
+                            <BadgesDisplay badges={profileUser.badges} />
                         </div>
                     )}
 
@@ -887,6 +910,11 @@ export default function UserProfile({
                                 <Link href="/settings/profile" style={{ ...outlineBtn, flex: 1, justifyContent: 'center' }}>
                                     Edit profile
                                 </Link>
+                                {isOwnProfile && profileUser.role === 'buyer' && (
+    <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
+        <RiStoreLine size={14} /> Start Selling
+    </Link>
+)}
                                 {profileUser.role === 'seller' && (
                                     <Link href="/seller/upload" style={iconBtn}>
                                         <RiUploadCloud2Line size={16} color="#fff" />

@@ -531,11 +531,11 @@ useEffect(() => {
               <h1 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.4px' }}>Messages</h1>
               {starting && <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
             </div>
-            <div style={{ position: 'relative' }}>
+            {/* <div style={{ position: 'relative' }}>
               <RiSearchLine size={14} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
               <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search people..." className="search-inp" />
               {userSearch && <button onClick={() => { setUserSearch(''); setUserResults([]) }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', display: 'flex' }}><RiCloseLine size={14} /></button>}
-            </div>
+            </div> */}
             {(userResults.length > 0 || searchingUsers) && (
               <div style={{ marginTop: 8, background: '#161616', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden' }}>
                 {searchingUsers && <div style={{ padding: '12px 16px', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Searching...</div>}

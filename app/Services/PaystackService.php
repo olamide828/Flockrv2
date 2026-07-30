@@ -212,6 +212,24 @@ class PaystackService
         return $response->json('data');
     }
 
+    public function initializeGenericTransaction(string $email, float $amountNaira, string $reference, string $callbackUrl, array $metadata = []): array
+{
+    $response = Http::withHeaders($this->headers())
+        ->post("{$this->baseUrl}/transaction/initialize", [
+            'email'        => $email,
+            'amount'       => (int) round($amountNaira * 100),
+            'reference'    => $reference,
+            'callback_url' => $callbackUrl,
+            'metadata'     => $metadata,
+        ]);
+
+    if ($response->failed()) {
+        throw new \RuntimeException($response->json('message') ?? 'Failed to initialize payment.');
+    }
+
+    return $response->json('data');
+}
+
     /**
      * Verify a transaction by reference.
      */
