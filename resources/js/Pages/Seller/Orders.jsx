@@ -1,9 +1,10 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
 import {
     RiArchiveDrawerLine,
+    RiArrowLeftLine,
     RiCheckDoubleLine,
     RiCheckLine,
     RiCloseLine,
@@ -11,14 +12,12 @@ import {
     RiGiftLine,
     RiLoader4Line,
     RiMapPinLine,
-    RiRefreshLine,
     RiSearchLine,
     RiTimeLine,
     RiTruckLine,
 } from 'react-icons/ri';
 import Toast, { useToast } from '@/Components/Toast';
 
-// ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CFG = {
     pending:         { label: 'Pending Payment',   color: '#EAB308', bg: 'rgba(234,179,8,0.12)'   },
     paid:            { label: 'Paid — Pack Item',  color: '#3B82F6', bg: 'rgba(59,130,246,0.12)'  },
@@ -49,6 +48,30 @@ function fmtDate(d) {
         day: 'numeric', month: 'short', year: 'numeric',
         hour: '2-digit', minute: '2-digit',
     });
+}
+
+function Pagination({ pagination, onNavigate }) {
+    if (!pagination?.links || pagination.last_page <= 1) return null;
+    return (
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6, padding: '8px 0 24px' }}>
+            {pagination.links.map((link, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    disabled={!link.url}
+                    onClick={() => link.url && onNavigate(link.url)}
+                    style={{
+                        minWidth: 34, height: 34, padding: '0 10px', borderRadius: 10,
+                        border: link.active ? '1px solid rgba(255,107,53,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        background: link.active ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.03)',
+                        color: link.active ? '#FF6B35' : (link.url ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)'),
+                        fontSize: 12, fontWeight: 700, cursor: link.url ? 'pointer' : 'not-allowed',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: link.label }}
+                />
+            ))}
+        </div>
+    );
 }
 
 // ── Single order row ──────────────────────────────────────────────────────────
@@ -96,7 +119,6 @@ function OrderRow({ order: initial, showToast }) {
             overflow: 'hidden',
             transition: 'border-color 0.2s',
         }}>
-            {/* Paid — pack item banner */}
             {order.status === 'paid' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(59,130,246,0.08)', borderBottom: '1px solid rgba(59,130,246,0.15)' }}>
                     <RiArchiveDrawerLine size={14} color="#3B82F6" style={{ flexShrink: 0 }} />
@@ -106,7 +128,6 @@ function OrderRow({ order: initial, showToast }) {
                 </div>
             )}
 
-            {/* Pickup failed banner */}
             {order.status === 'pickup_failed' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
                     <RiCloseLine size={14} color="#EF4444" style={{ flexShrink: 0 }} />
@@ -116,12 +137,10 @@ function OrderRow({ order: initial, showToast }) {
                 </div>
             )}
 
-            {/* Header row — always visible */}
             <div
                 onClick={() => setOpen(v => !v)}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
             >
-                {/* Buyer avatar */}
                 <img
                     src={order.buyer?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(order.buyer?.name ?? 'B')}&background=1a1a1a&size=40`}
                     alt={order.buyer?.name}
@@ -161,11 +180,9 @@ function OrderRow({ order: initial, showToast }) {
                 </div>
             </div>
 
-            {/* Expanded detail */}
             {open && (
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
 
-                    {/* Items */}
                     {order.items?.map((item, i) => (
                         <div key={item.id ?? i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                             <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}>
@@ -182,7 +199,6 @@ function OrderRow({ order: initial, showToast }) {
                         </div>
                     ))}
 
-                    {/* Delivery address */}
                     {order.shipping_address && (
                         <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
@@ -198,7 +214,6 @@ function OrderRow({ order: initial, showToast }) {
                         </div>
                     )}
 
-                    {/* Courier info */}
                     {(order.courier_name || order.tracking_number) && (
                         <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                             <RiTruckLine size={14} color="#8B5CF6" style={{ flexShrink: 0 }} />
@@ -209,7 +224,6 @@ function OrderRow({ order: initial, showToast }) {
                         </div>
                     )}
 
-                    {/* Earnings breakdown */}
                     <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Subtotal</span>
@@ -229,9 +243,7 @@ function OrderRow({ order: initial, showToast }) {
                         </p>
                     </div>
 
-                    {/* Actions */}
                     <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {/* Mark ready for pickup */}
                         {order.status === 'paid' && (
                             <button
                                 type="button"
@@ -246,7 +258,6 @@ function OrderRow({ order: initial, showToast }) {
                             </button>
                         )}
 
-                        {/* Reschedule pickup */}
                         {order.status === 'pickup_failed' && (
                             <button
                                 type="button"
@@ -261,7 +272,6 @@ function OrderRow({ order: initial, showToast }) {
                             </button>
                         )}
 
-                        {/* View full order */}
                         <a
                             href={'/orders/' + order.id}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
@@ -276,15 +286,13 @@ function OrderRow({ order: initial, showToast }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function SellerOrders({ orders: initialOrders = [], stats = {} }) {
-    const { auth } = usePage().props;
+export default function SellerOrders({ orders: initialOrders = { data: [] }, stats = {} }) {
     const { showToast, ToastComponent } = useToast();
 
-    const [orders, setOrders] = useState(
-    Array.isArray(initialOrders) ? initialOrders : (initialOrders?.data ?? [])
-    );
-    const [filterTab,   setFilterTab]   = useState('all');
-    const [search,      setSearch]      = useState('');
+    const [pagination, setPagination] = useState(initialOrders);
+    const orders = pagination.data ?? [];
+    const [filterTab, setFilterTab] = useState('all');
+    const [search,    setSearch]    = useState('');
 
     const filtered = orders.filter(o => {
         const matchesTab    = filterTab === 'all' || o.status === filterTab;
@@ -292,11 +300,17 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
         return matchesTab && matchesSearch;
     });
 
-    // Counts per tab
-    const counts = orders.reduce((acc, o) => {
-        acc[o.status] = (acc[o.status] ?? 0) + 1;
-        return acc;
-    }, {});
+    // Real, all-time counts from the backend — not just what's on this page
+    const totalAll = Object.values(stats).reduce((s, n) => s + Number(n ?? 0), 0);
+
+    const goToPage = (url) => {
+        router.get(url, {}, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['orders'],
+            onSuccess: (page) => setPagination(page.props.orders),
+        });
+    };
 
     return (
         <>
@@ -307,13 +321,23 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
                 <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(10,10,10,0.92)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px' }}>
                     <div style={{ maxWidth: 720, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                            <h1 style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>Orders</h1>
-                            {/* Quick stats */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => window.history.back()}
+                                    aria-label="Go back"
+                                    style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+                                >
+                                    <RiArrowLeftLine size={17} />
+                                </button>
+                                <h1 style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>Orders</h1>
+                            </div>
+                            {/* Quick stats — sourced from all-time backend counts, not just this page */}
                             <div style={{ display: 'flex', gap: 16 }}>
                                 {[
-                                    { label: 'To Pack',  value: counts['paid']      ?? 0, color: '#3B82F6' },
-                                    { label: 'In Transit',value: counts['shipped']  ?? 0, color: '#8B5CF6' },
-                                    { label: 'Delivered', value: counts['delivered'] ?? 0, color: '#10B981' },
+                                    { label: 'To Pack',   value: stats['paid']      ?? 0, color: '#3B82F6' },
+                                    { label: 'In Transit',value: stats['shipped']   ?? 0, color: '#8B5CF6' },
+                                    { label: 'Delivered', value: stats['delivered'] ?? 0, color: '#10B981' },
                                 ].map(s => (
                                     <div key={s.label} style={{ textAlign: 'center' }}>
                                         <p style={{ margin: 0, color: s.color, fontWeight: 800, fontSize: 18, fontFamily: 'var(--font-display)' }}>{s.value}</p>
@@ -329,7 +353,7 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
                             <input
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
-                                placeholder="Search by reference or buyer name…"
+                                placeholder="Search this page by reference or buyer name…"
                                 style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontFamily: 'inherit' }}
                             />
                         </div>
@@ -340,8 +364,8 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
                 <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', overflowX: 'auto', scrollbarWidth: 'none' }}>
                     <div style={{ display: 'flex', maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
                         {FILTER_TABS.map(tab => {
-                            const count   = tab.key === 'all' ? orders.length : (counts[tab.key] ?? 0);
-                            const active  = filterTab === tab.key;
+                            const count  = tab.key === 'all' ? totalAll : (stats[tab.key] ?? 0);
+                            const active = filterTab === tab.key;
                             return (
                                 <button
                                     key={tab.key}
@@ -370,12 +394,12 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
                 </div>
 
                 {/* Order list */}
-                <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 20px 100px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 20px 40px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {filtered.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '60px 0' }}>
                             <RiGiftLine size={40} color="rgba(255,255,255,0.1)" style={{ display: 'block', margin: '0 auto 12px' }} />
                             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0, fontWeight: 600 }}>
-                                {search ? 'No orders match your search' : 'No orders yet'}
+                                {search ? 'No orders match your search on this page' : 'No orders yet'}
                             </p>
                             {!search && <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 13, margin: '6px 0 0' }}>Orders from buyers will appear here</p>}
                         </div>
@@ -389,6 +413,12 @@ export default function SellerOrders({ orders: initialOrders = [], stats = {} })
                         ))
                     )}
                 </div>
+
+                {filterTab === 'all' && !search && (
+                    <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
+                        <Pagination pagination={pagination} onNavigate={goToPage} />
+                    </div>
+                )}
             </div>
 
             {ToastComponent}

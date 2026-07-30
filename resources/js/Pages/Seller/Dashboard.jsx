@@ -236,6 +236,24 @@ export default function SellerDashboard({
     const [tab, setTab] = useState('overview');
     const [showProModal, setShowProModal] = useState(false);
 
+   
+const SALES_PER_PAGE = 3;
+const PRODUCTS_PER_PAGE = 3;
+const [salesPage, setSalesPage] = useState(0);
+const [productsPage, setProductsPage] = useState(0);
+
+const salesPageCount = Math.max(1, Math.ceil(recentOrders.length / SALES_PER_PAGE));
+const visibleSales = recentOrders.slice(salesPage * SALES_PER_PAGE, salesPage * SALES_PER_PAGE + SALES_PER_PAGE);
+
+const productsPageCount = Math.max(1, Math.ceil(topProducts.length / PRODUCTS_PER_PAGE));
+const visibleProducts = topProducts.slice(productsPage * PRODUCTS_PER_PAGE, productsPage * PRODUCTS_PER_PAGE + PRODUCTS_PER_PAGE);
+
+const pagerBtnStyle = (disabled) => ({
+    width: 24, height: 24, borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.04)', color: disabled ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.6)',
+    cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
+});
+
     const kpis = [
         { label: 'Revenue',   value: `₦${Number(stats?.revenue ?? 0).toLocaleString()}`, icon: RiMoneyDollarCircleLine, change: stats?.revenue_change, highlight: true },
         { label: 'Orders',    value: stats?.orders_count ?? 0,                            icon: RiShoppingBagLine,       change: stats?.orders_change },
@@ -373,62 +391,81 @@ export default function SellerDashboard({
                     {tab === 'overview' && (
                         <>
                             <section className="main-grid">
+                                
                                 {/* RECENT ORDERS (seller's sales) */}
-                                <div className="dashboard-card">
-                                    <div className="card-header">
-                                        <div className="card-title"><RiShoppingBagLine /><h3>Recent Sales</h3></div>
-                                        <Link href="/seller/orders">View all <RiArrowRightLine /></Link>
-                                    </div>
-                                    {!recentOrders.length ? (
-                                        <div className="empty-state"><RiShoppingBagLine size={34} /><h4>No orders yet</h4><p>Share your videos to drive sales.</p></div>
-                                    ) : (
-                                        <div className="orders-list">
-                                            {recentOrders.map(order => (
-                                                <div className="order-row" key={order.id}>
-                                                    <div className="order-icon" style={{ background: statusColor(order.status).bg, color: statusColor(order.status).text }}>{statusIcon(order.status)}</div>
-                                                    <div className="order-meta">
-                                                        <h4>{order.reference}</h4>
-                                                        <p>{order.buyer?.name} · {order.items_count} item{order.items_count !== 1 ? 's' : ''}</p>
-                                                    </div>
-                                                    <div className="order-right">
-                                                        <strong>₦{Number(order.total).toLocaleString()}</strong>
-                                                        <span className="status-pill" style={{ background: statusColor(order.status).bg, color: statusColor(order.status).text }}>{order.status}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+<div className="dashboard-card">
+    <div className="card-header">
+        <div className="card-title"><RiShoppingBagLine /><h3>Recent Sales</h3></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {recentOrders.length > SALES_PER_PAGE && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button type="button" onClick={() => setSalesPage(p => Math.max(0, p - 1))} disabled={salesPage === 0} style={pagerBtnStyle(salesPage === 0)}>‹</button>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{salesPage + 1}/{salesPageCount}</span>
+                    <button type="button" onClick={() => setSalesPage(p => Math.min(salesPageCount - 1, p + 1))} disabled={salesPage >= salesPageCount - 1} style={pagerBtnStyle(salesPage >= salesPageCount - 1)}>›</button>
+                </div>
+            )}
+            <Link href="/seller/orders">View all <RiArrowRightLine /></Link>
+        </div>
+    </div>
+    {!recentOrders.length ? (
+        <div className="empty-state"><RiShoppingBagLine size={34} /><h4>No orders yet</h4><p>Share your videos to drive sales.</p></div>
+    ) : (
+        <div className="orders-list">
+            {visibleSales.map(order => (
+                <div className="order-row" key={order.id}>
+                    <div className="order-icon" style={{ background: statusColor(order.status).bg, color: statusColor(order.status).text }}>{statusIcon(order.status)}</div>
+                    <div className="order-meta">
+                        <h4>{order.reference}</h4>
+                        <p>{order.buyer?.name} · {order.items_count} item{order.items_count !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="order-right">
+                        <strong>₦{Number(order.total).toLocaleString()}</strong>
+                        <span className="status-pill" style={{ background: statusColor(order.status).bg, color: statusColor(order.status).text }}>{order.status}</span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    )}
+</div>
 
                                 {/* TOP PRODUCTS */}
-                                <div className="dashboard-card">
-                                    <div className="card-header">
-                                        <div className="card-title"><RiStoreLine /><h3>Top Products</h3></div>
-                                        <Link href="/seller/products">Manage <RiArrowRightLine /></Link>
-                                    </div>
-                                    {!topProducts.length ? (
-                                        <div className="empty-state">
-                                            <RiStoreLine size={34} /><h4>No products yet</h4>
-                                            <Link href="/seller/products/create" className="empty-btn"><RiAddLine /> Add Product</Link>
-                                        </div>
-                                    ) : (
-                                        <div className="products-list">
-                                            {topProducts.map((product, index) => (
-                                                <div className="product-row" key={product.id}>
-                                                    <span className="product-rank">{index + 1}</span>
-                                                    <div className="product-thumb">
-                                                        {product.primary_image ? <img src={product.primary_image} alt={product.name} /> : <RiStoreLine />}
-                                                    </div>
-                                                    <div className="product-meta">
-                                                        <h4>{product.name}</h4>
-                                                        <p>{product.orders_count} sold</p>
-                                                    </div>
-                                                    <strong className="product-price">₦{Number(product.price).toLocaleString()}</strong>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+<div className="dashboard-card">
+    <div className="card-header">
+        <div className="card-title"><RiStoreLine /><h3>Top Products</h3></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {topProducts.length > PRODUCTS_PER_PAGE && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button type="button" onClick={() => setProductsPage(p => Math.max(0, p - 1))} disabled={productsPage === 0} style={pagerBtnStyle(productsPage === 0)}>‹</button>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{productsPage + 1}/{productsPageCount}</span>
+                    <button type="button" onClick={() => setProductsPage(p => Math.min(productsPageCount - 1, p + 1))} disabled={productsPage >= productsPageCount - 1} style={pagerBtnStyle(productsPage >= productsPageCount - 1)}>›</button>
+                </div>
+            )}
+            <Link href="/seller/products">Manage <RiArrowRightLine /></Link>
+        </div>
+    </div>
+    {!topProducts.length ? (
+        <div className="empty-state">
+            <RiStoreLine size={34} /><h4>No products yet</h4>
+            <Link href="/seller/products/create" className="empty-btn"><RiAddLine /> Add Product</Link>
+        </div>
+    ) : (
+        <div className="products-list">
+            {visibleProducts.map((product, index) => (
+                <div className="product-row" key={product.id}>
+                    <span className="product-rank">{productsPage * PRODUCTS_PER_PAGE + index + 1}</span>
+                    <div className="product-thumb">
+                        {product.primary_image ? <img src={product.primary_image} alt={product.name} /> : <RiStoreLine />}
+                    </div>
+                    <div className="product-meta">
+                        <h4>{product.name}</h4>
+                        <p>{product.orders_count} sold</p>
+                    </div>
+                    <strong className="product-price">₦{Number(product.price).toLocaleString()}</strong>
+                </div>
+            ))}
+        </div>
+    )}
+</div>
                             </section>
 
                             {/* VIDEOS */}

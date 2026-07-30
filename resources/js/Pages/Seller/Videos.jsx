@@ -2,11 +2,11 @@ import AppLayout from '@/Layouts/AppLayout'
 import { Head, Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import { useState } from 'react'
+import Toast, { useToast } from '@/Components/Toast'
 import {
     RiAddLine, RiArrowLeftLine, RiDeleteBinLine, RiEditLine,
     RiEyeLine, RiHeartLine, RiChat1Line, RiLoader4Line,
     RiPlayCircleLine, RiUploadCloud2Line, RiVideoLine,
-    RiAlertLine, RiCheckLine, RiBarChartLine,
 } from 'react-icons/ri'
 
 function formatCount(n) {
@@ -33,6 +33,30 @@ const STATUS_STYLE = {
     inactive:   { bg: 'rgba(156,163,175,0.12)', text: '#9CA3AF', label: 'Inactive'    },
 }
 
+function Pagination({ pagination, onNavigate }) {
+    if (!pagination?.links || pagination.last_page <= 1) return null
+    return (
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6, padding: '24px 0 4px' }}>
+            {pagination.links.map((link, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    disabled={!link.url}
+                    onClick={() => link.url && onNavigate(link.url)}
+                    style={{
+                        minWidth: 34, height: 34, padding: '0 10px', borderRadius: 10,
+                        border: link.active ? '1px solid rgba(255,107,53,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        background: link.active ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.03)',
+                        color: link.active ? '#FF6B35' : (link.url ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)'),
+                        fontSize: 12, fontWeight: 700, cursor: link.url ? 'pointer' : 'not-allowed',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: link.label }}
+                />
+            ))}
+        </div>
+    )
+}
+
 // ── Delete Confirmation Modal ─────────────────────────────────────────────────
 function DeleteModal({ video, onConfirm, onCancel, deleting }) {
     return (
@@ -40,7 +64,6 @@ function DeleteModal({ video, onConfirm, onCancel, deleting }) {
             <div onClick={onCancel} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', animation: 'fadeIn 0.2s ease' }} />
             <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 'min(400px, 90vw)', background: '#161616', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 24, padding: 28, zIndex: 101, animation: 'slideUp 0.25s ease' }}>
 
-                {/* Icon */}
                 <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                     <RiDeleteBinLine size={24} color="#EF4444" />
                 </div>
@@ -50,7 +73,6 @@ function DeleteModal({ video, onConfirm, onCancel, deleting }) {
                     This will permanently delete <strong style={{ color: '#fff' }}>"{video.title ?? 'Untitled'}"</strong> and all its data. This cannot be undone.
                 </p>
 
-                {/* Stats preview */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
                     {[
                         { Icon: RiEyeLine,   value: formatCount(video.views_count),   label: 'Views'    },
@@ -87,7 +109,6 @@ function VideoCard({ video, onDeleteClick }) {
             onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'}
             onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
         >
-            {/* Thumbnail */}
             <div style={{ position: 'relative', aspectRatio: '9/16', maxHeight: 240, background: '#1a1a1a', overflow: 'hidden' }}>
                 {video.thumbnail_url_full
                     ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -95,7 +116,6 @@ function VideoCard({ video, onDeleteClick }) {
                 }
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%)' }} />
 
-                {/* Status badge */}
                 <div style={{ position: 'absolute', top: 10, left: 10 }}>
                     <span style={{ background: status.bg, color: status.text, borderRadius: 999, padding: '3px 8px', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {video.status === 'processing' && <RiLoader4Line size={10} style={{ animation: 'spin 1s linear infinite' }} />}
@@ -103,13 +123,11 @@ function VideoCard({ video, onDeleteClick }) {
                     </span>
                 </div>
 
-                {/* Views overlay */}
                 <div style={{ position: 'absolute', bottom: 8, left: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <RiEyeLine size={11} color="rgba(255,255,255,0.7)" />
                     <span style={{ color: '#fff', fontSize: 11, fontWeight: 600 }}>{formatCount(video.views_count)}</span>
                 </div>
 
-                {/* Play overlay */}
                 <Link href={`/@${video.user?.username}/video/${video.ulid}`} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s', background: 'rgba(0,0,0,0.3)' }}
                     onMouseEnter={e => e.currentTarget.style.opacity = 1}
                     onMouseLeave={e => e.currentTarget.style.opacity = 0}
@@ -120,13 +138,11 @@ function VideoCard({ video, onDeleteClick }) {
                 </Link>
             </div>
 
-            {/* Info */}
             <div style={{ padding: '14px 14px 12px' }}>
                 <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: '0 0 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {video.title ?? 'Untitled'}
                 </p>
 
-                {/* Stats row */}
                 <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                     {[
                         { Icon: RiHeartLine, value: formatCount(video.likes_count)    },
@@ -140,7 +156,6 @@ function VideoCard({ video, onDeleteClick }) {
                     <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, marginLeft: 'auto' }}>{timeAgo(video.published_at ?? video.created_at)}</span>
                 </div>
 
-                {/* Actions */}
                 <div style={{ display: 'flex', gap: 8 }}>
                     <Link
                         href={`/seller/videos/${video.ulid}/edit`}
@@ -161,11 +176,13 @@ function VideoCard({ video, onDeleteClick }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function SellerVideos({ videos: initialVideos = [], stats = {} }) {
-    const [videos, setVideos] = useState(initialVideos.data ?? [])
+export default function SellerVideos({ videos: initialVideos = { data: [] } }) {
+    const [pagination, setPagination] = useState(initialVideos)
+    const videos = pagination.data ?? []
     const [deleteTarget,  setDeleteTarget]  = useState(null)
     const [deleting,      setDeleting]      = useState(false)
     const [filter,        setFilter]        = useState('all')
+    const { showToast, ToastComponent } = useToast()
 
     const filteredVideos = filter === 'all'
         ? videos
@@ -176,13 +193,23 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
         setDeleting(true)
         try {
             await axios.delete(`/api/videos/${deleteTarget.ulid}`)
-            setVideos(prev => prev.filter(v => v.id !== deleteTarget.id))
+            setPagination(prev => ({ ...prev, data: (prev.data ?? []).filter(v => v.id !== deleteTarget.id) }))
+            showToast('Video deleted.', 'success')
             setDeleteTarget(null)
         } catch {
-            alert('Failed to delete video. Please try again.')
+            showToast('Failed to delete video. Please try again.', 'error')
         } finally {
             setDeleting(false)
         }
+    }
+
+    const goToPage = (url) => {
+        router.get(url, {}, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['videos'],
+            onSuccess: (page) => setPagination(page.props.videos),
+        })
     }
 
     const FILTERS = [
@@ -198,13 +225,12 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
 
             <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff' }}>
 
-                {/* Header */}
                 <header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'rgba(10,10,10,0.96)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '0 24px' }}>
                     <div style={{ maxWidth: 1100, margin: '0 auto', height: 60, display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <Link href="/seller/dashboard" style={iconBtn}><RiArrowLeftLine size={18} /></Link>
+                        <button type="button" onClick={() => window.history.back()} style={iconBtn} aria-label="Go back"><RiArrowLeftLine size={18} /></button>
                         <div style={{ flex: 1 }}>
                             <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>My Videos</h1>
-                            <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{videos.length} video{videos.length !== 1 ? 's' : ''}</p>
+                            <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{pagination.total ?? videos.length} video{(pagination.total ?? videos.length) !== 1 ? 's' : ''}</p>
                         </div>
                         <Link href="/seller/upload" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 999, background: '#FF6B35', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
                             <RiAddLine size={16} /> Upload
@@ -214,7 +240,6 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
 
                 <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 80px' }}>
 
-                    {/* Stats row */}
                     {videos.length > 0 && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
                             {[
@@ -236,7 +261,6 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
                         </div>
                     )}
 
-                    {/* Filter tabs */}
                     {videos.length > 0 && (
                         <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', scrollbarWidth: 'none' }}>
                             {FILTERS.filter(f => f.count > 0 || f.value === 'all').map(f => (
@@ -248,7 +272,6 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
                         </div>
                     )}
 
-                    {/* Empty state */}
                     {filteredVideos.length === 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 16, textAlign: 'center' }}>
                             <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -264,7 +287,6 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
                         </div>
                     )}
 
-                    {/* Video grid */}
                     {filteredVideos.length > 0 && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
                             {filteredVideos.map(video => (
@@ -276,10 +298,11 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
                             ))}
                         </div>
                     )}
+
+                    {filter === 'all' && <Pagination pagination={pagination} onNavigate={goToPage} />}
                 </main>
             </div>
 
-            {/* Delete modal */}
             {deleteTarget && (
                 <DeleteModal
                     video={deleteTarget}
@@ -288,6 +311,8 @@ export default function SellerVideos({ videos: initialVideos = [], stats = {} })
                     deleting={deleting}
                 />
             )}
+
+            {ToastComponent}
 
             <style>{`
                 @keyframes spin    { to { transform: rotate(360deg); } }

@@ -1,7 +1,9 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
+import Toast, { useToast } from '@/Components/Toast';
+import ConfirmModal from '@/Components/ConfirmModal';
 import {
     RiAddLine,
     RiArrowLeftLine,
@@ -18,14 +20,41 @@ import {
 
 const CONDITION_LABEL = { new: 'New', used: 'Used', refurbished: 'Refurb' };
 
+function Pagination({ pagination, onNavigate }) {
+    if (!pagination?.links || pagination.last_page <= 1) return null;
+    return (
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6, padding: '20px 0 4px' }}>
+            {pagination.links.map((link, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    disabled={!link.url}
+                    onClick={() => link.url && onNavigate(link.url)}
+                    style={{
+                        minWidth: 34, height: 34, padding: '0 10px', borderRadius: 10,
+                        border: link.active ? '1px solid rgba(255,107,53,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        background: link.active ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.03)',
+                        color: link.active ? '#FF6B35' : (link.url ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)'),
+                        fontSize: 12, fontWeight: 700, cursor: link.url ? 'pointer' : 'not-allowed',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: link.label }}
+                />
+            ))}
+        </div>
+    );
+}
+
 export default function SellerProducts({ products: initialProducts = { data: [] } }) {
 
     const { auth } = usePage().props;
 
-    const [products, setProducts] = useState(initialProducts.data ?? []);
+    const [pagination, setPagination] = useState(initialProducts);
+    const products = pagination.data ?? [];
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState('all');
     const [deleting, setDeleting] = useState(null);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const { showToast, ToastComponent } = useToast();
 
     const filtered = products.filter((p) => {
         const matchStatus = status === 'all' || p.status === status;
@@ -37,16 +66,18 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
     const inStock = filtered.filter((p) => p.stock_quantity > 0).length;
     const outOfStock = filtered.filter((p) => p.stock_quantity === 0).length;
 
-    const handleDelete = async (product) => {
-        if (!confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
-        setDeleting(product.id);
+    const handleDelete = async () => {
+        if (!deleteTarget) return;
+        setDeleting(deleteTarget.id);
         try {
-            await axios.delete(`/api/products/${product.id}`);
-            setProducts((prev) => prev.filter((p) => p.id !== product.id));
+            await axios.delete(`/api/products/${deleteTarget.id}`);
+            setPagination((prev) => ({ ...prev, data: (prev.data ?? []).filter((p) => p.id !== deleteTarget.id) }));
+            showToast('Product deleted.', 'success');
         } catch {
-            alert('Failed to delete product.');
+            showToast('Failed to delete product.', 'error');
         } finally {
             setDeleting(null);
+            setDeleteTarget(null);
         }
     };
 
@@ -54,10 +85,23 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
         const newStatus = product.status === 'active' ? 'archived' : 'active';
         try {
             await axios.put(`/api/products/${product.id}`, { status: newStatus });
-            setProducts((prev) => prev.map((p) => (p.id === product.id ? { ...p, status: newStatus } : p)));
+            setPagination((prev) => ({
+                ...prev,
+                data: (prev.data ?? []).map((p) => (p.id === product.id ? { ...p, status: newStatus } : p)),
+            }));
+            showToast(newStatus === 'active' ? 'Product activated.' : 'Product archived.', 'success');
         } catch {
-            alert('Failed to update product.');
+            showToast('Failed to update product.', 'error');
         }
+    };
+
+    const goToPage = (url) => {
+        router.get(url, {}, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['products'],
+            onSuccess: (page) => setPagination(page.props.products),
+        });
     };
 
     return (
@@ -68,13 +112,13 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                 <header className="page-header">
                     <div className="page-header-inner">
                         <div className="page-header-left">
-                            <Link href="/seller/dashboard" className="back-btn">
+                            <button type="button" onClick={() => window.history.back()} className="back-btn" aria-label="Go back">
                                 <RiArrowLeftLine size={18} />
-                            </Link>
+                            </button>
                             <div>
                                 <h1>Products</h1>
                                 <p>
-                                    {filtered.length} product{filtered.length !== 1 ? 's' : ''}
+                                    {pagination.total ?? filtered.length} product{(pagination.total ?? filtered.length) !== 1 ? 's' : ''}
                                 </p>
                             </div>
                         </div>
@@ -105,7 +149,7 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                             <RiArrowUpLine size={18} />
                             <div>
                                 <span>₦{totalValue.toLocaleString()}</span>
-                                <p>Stock value</p>
+                                <p>Stock value (this page)</p>
                             </div>
                         </div>
                     </div>
@@ -114,7 +158,7 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                     <div className="filters-row">
                         <div className="search-wrap">
                             <RiSearchLine size={15} />
-                            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products..." />
+                            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products on this page..." />
                         </div>
                         <div className="status-tabs">
                             {['all', 'active', 'archived', 'draft'].map((s) => (
@@ -141,7 +185,6 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                         <div className="products-grid">
                             {filtered.map((product) => (
                                 <div key={product.id} className="product-card">
-                                    {/* Image */}
                                     <div className="product-image">
                                         {product.primary_image ? (
                                             <img src={product.primary_image} alt={product.name} />
@@ -155,7 +198,6 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                                         </div>
                                     </div>
 
-                                    {/* Info */}
                                     <div className="product-info">
                                         <h4>{product.name}</h4>
                                         <div className="product-meta-row">
@@ -173,7 +215,6 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                                         </div>
                                     </div>
 
-                                    {/* Actions */}
                                     <div className="product-actions">
                                         <a href={`/@${auth.user?.username}/products/${product.slug}`} target="_blank" className="icon-btn" title="View">
                                             <RiEyeLine size={15} />
@@ -189,7 +230,7 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                                             {product.status === 'active' ? <RiCloseLine size={15} /> : <RiCheckLine size={15} />}
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(product)}
+                                            onClick={() => setDeleteTarget(product)}
                                             className="icon-btn danger"
                                             disabled={deleting === product.id}
                                             title="Delete"
@@ -201,8 +242,24 @@ export default function SellerProducts({ products: initialProducts = { data: [] 
                             ))}
                         </div>
                     )}
+
+                    {status === 'all' && !search && <Pagination pagination={pagination} onNavigate={goToPage} />}
                 </main>
             </div>
+
+            {deleteTarget && (
+                <ConfirmModal
+                    title="Delete Product?"
+                    message={`This will permanently delete "${deleteTarget.name}". This cannot be undone.`}
+                    confirmLabel="Delete"
+                    cancelLabel="Cancel"
+                    danger
+                    onConfirm={handleDelete}
+                    onClose={() => setDeleteTarget(null)}
+                />
+            )}
+
+            {ToastComponent}
 
             <style>{pageStyles}</style>
             <style>{`

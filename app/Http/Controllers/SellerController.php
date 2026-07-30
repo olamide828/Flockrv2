@@ -40,13 +40,13 @@ class SellerController extends Controller
             ->with('buyer:id,name,username,avatar')
             ->withCount('items')
             ->latest()
-            ->limit(8)
+            ->limit(12) // bumped from 8 so the dashboard can page through 4 pages of 3
             ->get();
 
         $topProducts = $seller->products()
             ->withCount('orderItems')
             ->orderByDesc('order_items_count')  // ← withCount alias is order_items_count not orders_count
-            ->limit(5)
+            ->limit(9) // bumped from 5 so the dashboard can page through 3 pages of 3
             ->get(['id', 'name', 'price', 'images', 'orders_count']);
 
         $recentVideos = $seller->videos()
@@ -181,13 +181,26 @@ return Inertia::render('Seller/Dashboard', compact(
 
     public function orders(): Response
     {
-        $orders = Order::forSeller(Auth::id())
+        $sellerId = Auth::id();
+
+        $orders = Order::forSeller($sellerId)
             ->with('buyer:id,name,username,avatar')
             ->withCount('items')
             ->latest()
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
-        return Inertia::render('Seller/Orders', ['orders' => $orders]);
+        // All-time status counts, independent of pagination, so the tab
+        // counts and quick-stats row on Seller/Orders are always accurate.
+        $statusCounts = Order::forSeller($sellerId)
+            ->select('status', DB::raw('count(*) as total'))
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        return Inertia::render('Seller/Orders', [
+            'orders' => $orders,
+            'stats' => $statusCounts,
+        ]);
     }
 
     public function payouts(): Response
@@ -247,14 +260,12 @@ return Inertia::render('Seller/Dashboard', compact(
         $balance = $seller->wallet_balance;
         $amt = (float) $validated['amount'];
 
-        // 1. Check sufficient balance
         if ($amt > $balance) {
             return response()->json([
                 'message' => "Insufficient balance. Your available balance is ₦" . number_format($balance, 2),
             ], 422);
         }
 
-        // 2. Block duplicate pending requests
         $hasPending = \App\Models\Payout::where('seller_id', $seller->id)
             ->where('status', 'pending')
             ->exists();
@@ -265,14 +276,12 @@ return Inertia::render('Seller/Dashboard', compact(
             ], 422);
         }
 
-        // 3. Check seller has a bank account connected
         if (!$seller->paystack_recipient_code) {
             return response()->json([
                 'message' => 'Please connect a bank account in Settings before requesting a payout.',
             ], 422);
         }
 
-        // 4. Debit wallet immediately so balance updates
         $lastTx = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
         $balanceBefore = $lastTx?->balance_after ?? 0;
 
@@ -285,7 +294,6 @@ return Inertia::render('Seller/Dashboard', compact(
             'balance_after' => $balanceBefore - $amt,
         ]);
 
-        // 5. Create payout record
         $payout = \App\Models\Payout::create([
             'seller_id' => $seller->id,
             'amount' => $amt,

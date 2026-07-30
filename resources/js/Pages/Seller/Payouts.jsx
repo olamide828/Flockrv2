@@ -1,11 +1,11 @@
 import { useState } from "react"
-import { Head, Link, router } from "@inertiajs/react"
+import { Head, router } from "@inertiajs/react"
 import AppLayout from "@/Layouts/AppLayout"
 import axios from "axios"
+import Toast, { useToast } from "@/Components/Toast"
 import {
   RiArrowLeftLine,
   RiBankCardLine,
-  RiMoneyDollarCircleLine,
   RiCheckboxCircleLine,
   RiTimeLine,
   RiCloseCircleLine,
@@ -37,12 +37,32 @@ const STATUS_STYLE = {
   failed:    { bg: "rgba(239,68,68,0.12)",   text: "#EF4444" },
 }
 
+function Pagination({ pagination, onNavigate }) {
+  if (!pagination?.links || pagination.last_page <= 1) return null
+  return (
+    <div className="pagination-row">
+      {pagination.links.map((link, i) => (
+        <button
+          key={i}
+          type="button"
+          disabled={!link.url}
+          onClick={() => link.url && onNavigate(link.url)}
+          className={`page-btn ${link.active ? "active" : ""}`}
+          dangerouslySetInnerHTML={{ __html: link.label }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, balance = 0 }) {
-  const [payouts,    setPayouts]    = useState(initialPayouts.data ?? [])
+  const [pagination, setPagination] = useState(initialPayouts)
+  const payouts = pagination.data ?? []
   const [requesting, setRequesting] = useState(false)
   const [amount,     setAmount]     = useState("")
   const [showForm,   setShowForm]   = useState(false)
   const [error,      setError]      = useState("")
+  const { showToast, ToastComponent } = useToast()
 
   const pendingTotal = payouts.filter(p => p.status === "pending").reduce((s, p) => s + Number(p.amount ?? 0), 0)
   const paidTotal    = payouts.filter(p => p.status === "paid").reduce((s, p) => s + Number(p.amount ?? 0), 0)
@@ -56,17 +76,29 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
     setRequesting(true)
     try {
       const { data } = await axios.post("/api/seller/payouts", { amount: amt })
-      setPayouts(prev => [data, ...prev])
+      setPagination(prev => ({ ...prev, data: [data, ...(prev.data ?? [])] }))
       setAmount("")
       setShowForm(false)
+      showToast("Payout request submitted.", "success")
     } catch (err) {
       if (err.response?.status === 409) {
         setError("Please verify your email before requesting a payout.")
         router.visit('/verify-email')
         return
       }
-      setError(err.response?.data?.message ?? "Request failed. Please try again.")
+      const msg = err.response?.data?.message ?? "Request failed. Please try again."
+      setError(msg)
+      showToast(msg, "error")
     } finally { setRequesting(false) }
+  }
+
+  const goToPage = (url) => {
+    router.get(url, {}, {
+      preserveState: true,
+      preserveScroll: true,
+      only: ['payouts'],
+      onSuccess: (page) => setPagination(page.props.payouts),
+    })
   }
 
   return (
@@ -78,9 +110,9 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
         <header className="page-header">
           <div className="page-header-inner">
             <div className="page-header-left">
-              <Link href="/seller/dashboard" className="back-btn">
+              <button type="button" onClick={() => window.history.back()} className="back-btn" aria-label="Go back">
                 <RiArrowLeftLine size={18} />
-              </Link>
+              </button>
               <div>
                 <h1>Payouts</h1>
                 <p>Withdraw your earnings</p>
@@ -158,7 +190,7 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
             </div>
             <div className="summary-card">
               <RiBankCardLine size={18} />
-              <div><span>{payouts.length}</span><p>Total Requests</p></div>
+              <div><span>{pagination.total ?? payouts.length}</span><p>Total Requests</p></div>
             </div>
           </div>
 
@@ -215,6 +247,8 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
                 ))}
               </div>
             )}
+
+            <Pagination pagination={pagination} onNavigate={goToPage} />
           </div>
 
           {/* BANK DETAILS REMINDER */}
@@ -222,12 +256,14 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
             <RiBuilding4Line size={18} />
             <div>
               <p>Payouts go to your registered bank account.</p>
-              <Link href="/settings/profile#bank">Update bank details →</Link>
+              <a href="/settings/profile#bank">Update bank details →</a>
             </div>
           </div>
 
         </main>
       </div>
+
+      {ToastComponent}
 
       <style>{pageStyles}</style>
       <style>{`
@@ -252,7 +288,7 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
         .input-wrap { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 12px 16px; }
         .input-wrap span { color: rgba(255,255,255,0.4); font-size: 16px; font-weight: 700; }
         .input-wrap input { flex: 1; background: none; border: none; outline: none; color: white; font-size: 16px; font-weight: 700; }
-        .form-error { display: flex; a lign-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: rgba(239,68,68,0.1); color: #ef4444; font-size: 13px; }
+        .form-error { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: rgba(239,68,68,0.1); color: #ef4444; font-size: 13px; }
         .form-note { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.35); }
         .form-actions { display: flex; gap: 10px; }
         .cancel-btn { flex: 1; padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.05); border: none; color: rgba(255,255,255,0.5); cursor: pointer; font-size: 14px; font-weight: 600; }
@@ -282,6 +318,10 @@ export default function SellerPayouts({ payouts: initialPayouts = { data: [] }, 
         .info-banner div p { margin: 0 0 4px; }
         .info-banner div a { color: #ff6b35; text-decoration: none; font-size: 12px; }
         .status-pill { display: inline-block; margin-top: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+        .pagination-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; padding: 18px 22px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .page-btn { min-width: 34px; height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: rgba(255,255,255,0.55); font-size: 12px; font-weight: 700; cursor: pointer; }
+        .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .page-btn.active { background: rgba(255,107,53,0.12); border-color: rgba(255,107,53,0.4); color: #ff6b35; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 640px) { .balance-hero { flex-direction: column; align-items: flex-start; } .balance-amount { font-size: 34px; } .summary-strip { flex-wrap: wrap; } }
       `}</style>
