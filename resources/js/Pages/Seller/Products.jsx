@@ -3,7 +3,7 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
 import Toast, { useToast } from '@/Components/Toast';
-import ConfirmModal from '@/Components/ConfirmModal';
+import ConfirmModal from '@/Components/Community/ConfirmModal';
 import {
     RiAddLine,
     RiArrowLeftLine,
