@@ -935,4 +935,4 @@ const [addrLoading,  setAddrLoading]  = useState(false);
     );
 }
 
-ProductShow.layout = page => <AppLayout>{page}</AppLayout>;
+ProductShow.layout = page => <AppLayout>{page}</AppLayout>
