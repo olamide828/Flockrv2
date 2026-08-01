@@ -108,6 +108,11 @@ class SubscriptionController extends Controller
             UserBadge::firstOrCreate(['user_id' => Auth::id(), 'badge_id' => $badge->id], ['awarded_at' => now()]);
         }
 
-        return redirect('/@' . Auth::user()->username)->with('success', "You're now on Flockr Pro! 🎉");
+        
+return redirect('/@' . Auth::user()->username)->with('subscription', [
+    'plan'       => $plan,
+    'expires_at' => $sub->expires_at->toIso8601String(),
+    'amount'     => $sub->amount_paid,
+]);
     }
 }

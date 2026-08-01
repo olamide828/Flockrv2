@@ -28,6 +28,7 @@ import {
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import SubscriptionSuccessSheet from '@/Components/SubscriptionSuccessSheet';
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -344,7 +345,7 @@ export default function UserProfile({
     iBlockedThem: initIBlocked = false,
     theyBlockedMe = false,
 }) {
-    const { auth } = usePage().props;
+    const { auth, flash } = usePage().props;
 
     const [following, setFollowing] = useState(initFollowing);
     const [followersCount, setFollowersCount] = useState(profileUser.followers_count ?? 0);
@@ -353,6 +354,7 @@ export default function UserProfile({
     const [showMenu, setShowMenu] = useState(false);
     const [showReport, setShowReport] = useState(false);
     const [showProSheet, setShowProSheet] = useState(false);
+    const [showSubSuccess, setShowSubSuccess] = useState(!!flash?.subscription);
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -521,6 +523,10 @@ export default function UserProfile({
             <Head title={`${profileUser.name} (@${profileUser.username})`} />
 
             {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
+
+{showSubSuccess && flash?.subscription && (
+    <SubscriptionSuccessSheet subscription={flash.subscription} onClose={() => setShowSubSuccess(false)} />
+)}
 
         {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
 
