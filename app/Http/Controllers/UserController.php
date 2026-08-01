@@ -92,7 +92,7 @@ if ($authUserId && $products->isNotEmpty()) {
             'avatar_url'      => $user->avatar_url,
             'bio'             => $user->bio,
             'is_verified'     => $user->is_verified,
-            'verification_type' => $user->verification_type(),
+            'verification_type' => $user->verification_type,
             'followers_count' => $user->followers_count ?? 0,
             'following_count' => $user->following_count ?? 0,
             'role'            => $user->role,
