@@ -212,7 +212,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
 public function isVerified(): bool
 {
-    return $this->verificationType() !== null;
+    return $this->verification_type !== null;
 }
     public function isFollowing(User $user): bool
     {
