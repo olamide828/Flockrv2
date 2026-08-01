@@ -63,7 +63,7 @@ if ($authUserId && $products->isNotEmpty()) {
             'profileUser'   => array_merge($user->toArray(), [
                 'followers_count' => $user->followers_count ?? 0,
                 'has_active_subscription' => $user->hasActiveSubscription(),
-                'verification_type'       => $user->verificationType(),
+                'verification_type'       => $user->verification_type,
                 'badges'          => $user->badges()->get(['badges.key', 'badges.label', 'badges.description', 'badges.image_path']),
                 'is_verified'     => $user->isVerified(),
                 'following_count' => $user->following_count ?? 0,
