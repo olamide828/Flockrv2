@@ -40,14 +40,15 @@ class HandleInertiaRequests extends Middleware
                     'role' => $user->role,
                     'bio' => $user->bio,
                     'location' => $user->location,
-                    'avatar_url' => $user->avatar_url,   // computed accessor
+                    'avatar_url' => $user->avatar_url, 
                     'is_verified' => $user->is_verified,
+                    'verification_type' => $user->verification_type,
                     'email_verified_at' => $user->email_verified_at,
                     'is_active' => $user->is_active,
                     'followers_count' => $user->followers_count ?? 0,
                     'following_count' => $user->following_count ?? 0,
                     'total_sales' => $user->total_sales ?? 0,
-                    'wallet_balance' => $user->wallet_balance,  // computed accessor
+                    'wallet_balance' => $user->wallet_balance, 
                     'notification_preferences' => $user->notification_preferences ?? [],
                     'unread_messages' => $user
                         ? Message::whereHas('conversation.participants', function ($q) use ($user) {

@@ -123,7 +123,10 @@ class OrderController extends Controller
         $subtotal            = $product->price * $qty;
         $courierFee          = (float) ($validated['courier_fee'] ?? 0);
         $deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
-        $platformFee         = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
+        $feePercent = $product->seller->hasActiveSubscription()
+    ? config('flockr.pro_platform_fee_percent', 3)
+    : config('flockr.platform_fee_percent', 5);
+$platformFee = round($subtotal * $feePercent / 100, 2);
         $total               = $subtotal + $courierFee + $deliveryPlatformFee;
 
         // ── Coupon auto-apply ─────────────────────────────────────────────────

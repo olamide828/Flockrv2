@@ -16,6 +16,7 @@ import {
   RiDeleteBinLine, RiArrowRightSLine, RiRocketLine, RiStarLine,
   RiShoppingBag3Line,
 } from 'react-icons/ri'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -243,7 +244,7 @@ function SearchOverlay({ initialQuery = '', onClose, onSearch, onLiveQuery }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <p style={{ color: '#fff', fontSize: 14, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</p>
-                          {s.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                          <VerifiedBadge type={s.verification_type} size={13} />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{s.username}{s.role === 'seller' && <span style={{ marginLeft: 6, color: '#FF6B35', fontWeight: 600 }}>· Seller</span>}</p>
                         {s.bio && <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, margin: '3px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.bio}</p>}
@@ -736,7 +737,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2">
                                     <p className="truncate text-sm font-semibold text-white">{s.name}</p>
-                                    {s.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                                    <VerifiedBadge type={s.verification_type} size={13} />
                                   </div>
                                   <p className="text-xs text-white/40">@{s.username}{s.role === 'seller' && <span style={{ color: '#FF6B35', fontWeight: 600, marginLeft: 6 }}>· Seller</span>}</p>
                                 </div>

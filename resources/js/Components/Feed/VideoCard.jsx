@@ -16,6 +16,7 @@ import {
 import ReportVideoModal from '../../Pages/Video/ReportVideoModal'
 import CommentSheet from '../Video/CommentSheet'
 import Toast from '@/Components/Toast'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -597,7 +598,7 @@ onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
     )}
         <Link href={`/@${video.user?.username}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', marginBottom: 5 }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{video.user?.name}</span>
-          {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#ff5c00" />}
+          <VerifiedBadge type={video.user?.verification_type} size={13} />
         </Link>
         {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: '0 0 4px', lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.8)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
         <ExpandableDescription text={video.description} />

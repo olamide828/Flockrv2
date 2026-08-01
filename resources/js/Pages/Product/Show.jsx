@@ -37,6 +37,7 @@ import {
     RiGiftLine,
     RiSecurePaymentLine,
 } from 'react-icons/ri';
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ── Star picker ───────────────────────────────────────────────────────────────
 function StarPicker({ value, onChange }) {
@@ -798,7 +799,7 @@ const [addrLoading,  setAddrLoading]  = useState(false);
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5">
                                         <p className="text-sm font-semibold text-white">{product.seller?.name}</p>
-                                        {product.seller?.is_verified && <RiVerifiedBadgeLine size={14} color="#FF6B35" />}
+                                        <VerifiedBadge type={product.seller?.verification_type} size={14} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
                                         <p className="text-flockr-muted text-xs">@{product.seller?.username}{product.seller?.total_sales > 0 && ` · ${Number(product.seller.total_sales).toLocaleString()} sales`}</p>

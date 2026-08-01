@@ -13,6 +13,7 @@ import PostMediaCarousel from './PostMediaCarousel'
 import PostShareSheet from './PostShareSheet'
 import PostViewersSheet from './PostViewersSheet'
 import { timeAgo, fmtCount } from './Helpers'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
@@ -84,7 +85,7 @@ export default function PostCard({
               <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ textDecoration:'none' }}>
                 <span style={{ color:'#fff', fontWeight:700, fontSize:14 }}>{post.user?.name}</span>
               </Link>
-              {post.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+              <VerifiedBadge type={post.user?.verification_type} size={13} />
               {isSeller && (
                 <span style={{ fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:999, background:'rgba(255,107,53,0.15)', color:'#FF6B35', border:'1px solid rgba(255,107,53,0.25)' }}>Seller</span>
               )}

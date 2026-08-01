@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { RiCloseLine, RiVerifiedBadgeLine, RiGroupLine, RiCheckLine } from 'react-icons/ri'
 import Av from './Av'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 export default function MembersDrawer({ room, auth, onClose, onKick, showToast }) {
   const [tab, setTab] = useState('members')
@@ -74,7 +75,7 @@ export default function MembersDrawer({ room, auth, onClose, onKick, showToast }
                     <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                       <p style={{ color:'#fff', fontSize:13, fontWeight:600, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</p>
                       {m.role === 'moderator' && <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:'rgba(255,107,53,0.15)', color:'#FF6B35', flexShrink:0 }}>Host</span>}
-                      {m.is_verified && <RiVerifiedBadgeLine size={11} color="#FF6B35" />}
+                      <VerifiedBadge type={m.verification_type} size={11} />
                     </div>
                     <p style={{ color:'rgba(255,255,255,0.35)', fontSize:11, margin:0 }}>@{m.username}</p>
                   </div>

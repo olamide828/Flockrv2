@@ -24,6 +24,7 @@ import {
     RiTruckLine,
     RiVerifiedBadgeLine,
 } from 'react-icons/ri';
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ── Empty cart mascot — small idle animation instead of a static icon ──────
 function EmptyCartMascot() {
@@ -151,7 +152,7 @@ export default function CartIndex({ cartItems: initialItems = [], addresses: ini
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                         <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{seller?.name}</span>
-                                        {seller?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                                        <VerifiedBadge type={seller?.verification_type} size={13} />
                                     </div>
                                     <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{seller?.username}</span>
                                 </div>

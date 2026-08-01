@@ -2,6 +2,7 @@ import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeLine } from 'react-icons/ri';
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 export default function ProductCard({ product, layout = 'grid' }) {
     // Null guard — prevents @undefined URLs when seller is deleted
@@ -158,7 +159,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
                             onError={e => { e.target.style.display = 'none'; }}
                         />
                         {sellerHandle && <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sellerHandle}</span>}
-                        {product.seller.is_verified && <RiVerifiedBadgeLine size={11} color="#FF6B35" style={{ flexShrink: 0 }} />}
+                        <VerifiedBadge type={product.seller.verification_type} size={11} />
                     </div>
                 )}
 

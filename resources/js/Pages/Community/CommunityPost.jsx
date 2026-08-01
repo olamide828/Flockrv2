@@ -16,6 +16,7 @@ import PostShareSheet from '@/Components/Community/PostShareSheet'
 import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
 import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ── Comment like button ──────────────────────────────────────────────────────
 function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 }) {
@@ -298,7 +299,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{post.user?.name}</span>
-                    {post.user?.is_verified && <RiVerifiedBadgeLine size={14} color="#FF6B35" />}
+                    <VerifiedBadge type={post.user?.verification_type} size={14} />
                     {!isOwnPost && (
                       <FollowButton userId={post.user_id} isOwner={false} isFollowing={isFollowingAuthor} onChange={handleFollowChange} auth={auth} />
                     )}

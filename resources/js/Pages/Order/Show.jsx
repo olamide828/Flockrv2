@@ -28,6 +28,7 @@ import {
   RiAlertLine,
 } from 'react-icons/ri'
 import DisputeModal from './DisputeModal'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 const STATUS_CONFIG = {
   pending:    { label: 'Pending',    bg: 'rgba(234,179,8,0.12)',    text: '#EAB308', Icon: RiTimeLine           },
@@ -293,7 +294,7 @@ export default function OrderShow({ order }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{order.seller.name}</span>
-                  {order.seller.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                  <VerifiedBadge type={order.seller.verification_type} size={13} />
                 </div>
                 <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{order.seller.username}</span>
               </div>

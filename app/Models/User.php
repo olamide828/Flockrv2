@@ -67,7 +67,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     ];
 
-    protected $appends = ['avatar_url', 'is_online'];
+    protected $appends = ['avatar_url', 'is_online', 'verification_type'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -199,7 +199,7 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->role === 'admin';
     }
 
-   public function verificationType(): ?string
+ public function getVerificationTypeAttribute(): ?string
 {
     if ($this->is_verified) {
         return 'flockr';

@@ -22,9 +22,9 @@ export default function ProPlansSheet({ onClose }) {
     }
 
     const FEATURES = {
-        free:    ['Upload & sell videos', 'Basic profile', 'Standard support'],
+        free:    ['Upload & sell videos', 'Basic profile'],
         monthly: ['Everything in Free', 'Blue verification badge', 'Seller analytics dashboard', 'Video engagement boost', 'Reduced 3% commission'],
-        yearly:  ['Everything in Monthly', '2 months free', 'Priority support'],
+        yearly:  ['Everything in Monthly', '2 months free'],
     }
 
     return (

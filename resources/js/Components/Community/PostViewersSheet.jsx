@@ -3,6 +3,7 @@ import { Link } from '@inertiajs/react'
 import axios from 'axios'
 import { RiCloseLine, RiVerifiedBadgeLine, RiEyeLine } from 'react-icons/ri'
 import Av from './Av'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 function timeAgo(d) {
   if (!d) return ''
@@ -59,7 +60,7 @@ export default function PostViewersSheet({ postId, onClose }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</p>
-                  {v.is_verified && <RiVerifiedBadgeLine size={11} color="#FF6B35" />}
+                  <VerifiedBadge type={v.verification_type} size={11} />
                 </div>
                 <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, margin: 0 }}>@{v.username}</p>
               </div>

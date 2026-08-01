@@ -38,6 +38,7 @@ import {
 import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
 import Toast from '@/Components/Toast'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -699,7 +700,7 @@ setShowPP(true);
     )}
                     <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
-                        {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                        <VerifiedBadge type={auth?.user?.verification_type} size={18} />
                     </button>
                     {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
                     {video.description && <ExpandableDescription text={video.description} />}
@@ -723,7 +724,7 @@ setShowPP(true);
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
-                            {video.user?.is_verified && <RiVerifiedBadgeLine size={13} color="#FF6B35" />}
+                            <VerifiedBadge type={auth?.user?.verification_type} size={18} />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{video.user?.username}</p>
                     </div>

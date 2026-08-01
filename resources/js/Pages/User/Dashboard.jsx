@@ -2,6 +2,7 @@ import AppLayout from '@/Layouts/AppLayout'
 import { Head, Link, usePage } from '@inertiajs/react'
 import { useState } from 'react'
 import ProductCard from '@/Components/Product/ProductCard'
+import VerifiedBadge from '@/Components/VerifiedBadge';
 import {
     RiArrowRightLine, RiBookmarkLine, RiCheckboxCircleLine,
     RiCloseCircleLine, RiGiftLine, RiGroupLine, RiHeartLine,
@@ -159,7 +160,7 @@ export default function UserDashboard({ orders = [], savedProducts = [], savedVi
                                 <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, margin: 0 }}>Welcome back</p>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                                     <h2 style={{ color: '#fff', fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: '-0.5px' }}>{auth?.user?.name}</h2>
-                                    {auth?.user?.is_verified && <RiVerifiedBadgeLine size={18} color="#FF6B35" />}
+                                    <VerifiedBadge type={auth?.user?.verification_type} size={18} />
                                 </div>
                                 <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: '2px 0 0' }}>@{auth?.user?.username}</p>
                             </div>
