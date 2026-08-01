@@ -456,22 +456,24 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
         // Route::middleware('verified')->post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
-            $request->validate([
-                'pickup_street'      => 'required|string|max:200',
-                'pickup_city'        => 'required|string|max:100',
-                'pickup_state'       => 'required|string|max:100',
-                'pickup_postal_code' => 'nullable|string|max:20',
-            ]);
+    $request->validate([
+        'pickup_street'      => 'required|string|max:200',
+        'pickup_city'        => 'required|string|max:100',
+        'pickup_state'       => 'required|string|max:100',
+        'pickup_state_code'  => 'nullable|string|max:10',
+        'pickup_postal_code' => 'nullable|string|max:20',
+    ]);
 
-            \Illuminate\Support\Facades\Auth::user()->update([
-                'pickup_street'      => $request->pickup_street,
-                'pickup_city'        => $request->pickup_city,
-                'pickup_state'       => $request->pickup_state,
-                'pickup_postal_code' => $request->pickup_postal_code,
-            ]);
+    Auth::user()->update([
+        'pickup_street'      => $request->pickup_street,
+        'pickup_city'        => $request->pickup_city,
+        'pickup_state'       => $request->pickup_state,
+        'pickup_state_code'  => $request->pickup_state_code,
+        'pickup_postal_code' => $request->pickup_postal_code,
+    ]);
 
-            return response()->json(['message' => 'Pickup address saved.']);
-        })->middleware('auth:sanctum');
+    return response()->json(['message' => 'Pickup address saved.']);
+})->middleware('auth:sanctum');
     });
 
     // Admin endpoints

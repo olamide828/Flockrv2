@@ -44,3 +44,16 @@ Schedule::command('users:purge-deleted')->daily();
 Schedule::command('badges:check')->hourly();
 
 Schedule::command('subscriptions:remind')->dailyAt('09:00');
+
+Artisan::command('terminal:register-webhook', function() {
+    $response = \Illuminate\Support\Facades\Http::withHeaders([
+        'Authorization' => 'Bearer ' . config('services.terminal.secret_key'),
+        'Content-Type'  => 'application/json',
+    ])->post('https://sandbox.terminal.africa/v1/webhooks', [
+        'url'    => url('/api/webhooks/terminal'),
+        'live'   => false,
+        'name'   => 'Flockr Shipment Updates',
+        'events' => ['shipment.created','shipment.picked_up','shipment.in_transit','shipment.out_for_delivery','shipment.delivered','shipment.pickup_failed','shipment.delivery_failed','shipment.returned'],
+    ])->json();
+    $this->info(json_encode($response, JSON_PRETTY_PRINT));
+})->purpose('Register Flockr webhook with Terminal Africa');

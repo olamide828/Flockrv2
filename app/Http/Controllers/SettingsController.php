@@ -30,14 +30,18 @@ class SettingsController extends Controller
         catch (\Throwable $e) { Log::error('Paystack listBanks failed: ' . $e->getMessage()); }
     }
 
-    return Inertia::render('Settings/Profile', [
-        'banks'     => $banks,
-        'addresses' => \App\Models\UserAddress::where('user_id', Auth::id())
-                        ->orderByDesc('is_default')
-                        ->orderByDesc('updated_at')
-                        ->get(),
-        'has_pickup_address'  => !empty(Auth::user()->pickup_street),
-    ]);
+return Inertia::render('Settings/Profile', [
+    'banks'              => $banks,
+    'addresses'          => \App\Models\UserAddress::where('user_id', Auth::id())
+                            ->orderByDesc('is_default')
+                            ->orderByDesc('updated_at')
+                            ->get(),
+    'has_pickup_address' => !empty(Auth::user()->pickup_street),
+    'auth'               => array_merge(
+        \Inertia\Inertia::getShared('auth') ?? [],
+        ['user' => Auth::user()]
+    ),
+]);
 }
 
     public function updateProfile(Request $request): RedirectResponse
