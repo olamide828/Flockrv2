@@ -891,9 +891,15 @@ export default function UserProfile({
                                 
 <VerifiedBadge type={profileUser.verification_type} size={14} />
                                 {isOwnProfile && profileUser.role === 'seller' && (
-    <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 999, color: '#FBBF24', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-        <RiVipCrownLine size={13} /> {profileUser.has_active_subscription ? 'Pro' : 'Go Pro'}
-    </button>
+    profileUser.has_active_subscription ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700 }}>
+            <RiVerifiedBadgeLine size={13} /> Verified Pro
+        </span>
+    ) : (
+        <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <RiVerifiedBadgeLine size={13} /> Get Verified
+        </button>
+    )
 )}
                             </div>
                             <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 6px', cursor: 'pointer' }}>
