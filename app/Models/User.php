@@ -199,6 +199,21 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->role === 'admin';
     }
 
+   public function verificationType(): ?string
+{
+    if ($this->is_verified) {
+        return 'flockr';
+    }
+    if ($this->hasActiveSubscription()) {
+        return 'subscription';
+    }
+    return null;
+}
+
+public function isVerified(): bool
+{
+    return $this->verificationType() !== null;
+}
     public function isFollowing(User $user): bool
     {
         return $this->following()->where('following_id', $user->id)->exists();

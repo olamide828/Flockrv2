@@ -26,7 +26,8 @@ import {
     RiVipCrownLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
-import BadgesDisplay from '@/Components/BadgesDisplay'
+import BadgesDisplay from '@/Components/BadgesDisplay';
+import VerifiedBadge from '@/Components/VerifiedBadge';
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -619,11 +620,18 @@ export default function UserProfile({
                                         {profileUser.name && (
                                             <p style={{ color: '#fff', fontSize: 28, fontWeight: 600, margin: '0 0 4px' }}>{profileUser.name}</p>
                                         )}
-                                        {profileUser.is_verified && <RiVerifiedBadgeLine size={20} color="#FF6B35" />}
+                                      
+<VerifiedBadge type={profileUser.verification_type} size={20} />
                                         {isOwnProfile && profileUser.role === 'seller' && (
-    <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 999, color: '#FBBF24', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-        <RiVipCrownLine size={13} /> {profileUser.has_active_subscription ? 'Pro' : 'Go Pro'}
-    </button>
+    profileUser.has_active_subscription ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700 }}>
+            <RiVerifiedBadgeLine size={13} /> Verified Pro
+        </span>
+    ) : (
+        <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <RiVerifiedBadgeLine size={13} /> Get Verified
+        </button>
+    )
 )}
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -880,7 +888,8 @@ export default function UserProfile({
                         <div style={{ marginBottom: 14 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                                 <p style={{ color: '#fff', fontWeight: 700, fontSize: 15, margin: 0 }}>{profileUser.name}</p>
-                                {profileUser.is_verified && <RiVerifiedBadgeLine size={14} color="#FF6B35" />}
+                                
+<VerifiedBadge type={profileUser.verification_type} size={14} />
                                 {isOwnProfile && profileUser.role === 'seller' && (
     <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 999, color: '#FBBF24', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
         <RiVipCrownLine size={13} /> {profileUser.has_active_subscription ? 'Pro' : 'Go Pro'}

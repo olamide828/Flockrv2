@@ -23,7 +23,7 @@ export default function ProPlansSheet({ onClose }) {
 
     const FEATURES = {
         free:    ['Upload & sell videos', 'Basic profile', 'Standard support'],
-        monthly: ['Everything in Free', 'Seller analytics dashboard', 'Video engagement boost', 'Reduced 3% commission', 'Watermark-free downloads'],
+        monthly: ['Everything in Free', 'Blue verification badge', 'Seller analytics dashboard', 'Video engagement boost', 'Reduced 3% commission', 'Watermark-free downloads'],
         yearly:  ['Everything in Monthly', '2 months free', 'Priority support'],
     }
 

@@ -42,3 +42,5 @@ Schedule::call(function () {
 Schedule::command('users:purge-deleted')->daily();
 
 Schedule::command('badges:check')->hourly();
+
+Schedule::command('subscriptions:remind')->dailyAt('09:00');

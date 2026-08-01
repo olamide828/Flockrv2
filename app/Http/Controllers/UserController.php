@@ -63,7 +63,9 @@ if ($authUserId && $products->isNotEmpty()) {
             'profileUser'   => array_merge($user->toArray(), [
                 'followers_count' => $user->followers_count ?? 0,
                 'has_active_subscription' => $user->hasActiveSubscription(),
-                'badges' => $user->badges()->get(['badges.key', 'badges.label', 'badges.icon', 'badges.color']),
+                'verification_type'       => $user->verificationType(),
+                'badges'          => $user->badges()->get(['badges.key', 'badges.label', 'badges.description', 'badges.image_path']),
+                'is_verified'     => $user->isVerified(),
                 'following_count' => $user->following_count ?? 0,
                 'total_sales'     => $user->total_sales ?? 0,
             ]),
@@ -90,6 +92,7 @@ if ($authUserId && $products->isNotEmpty()) {
             'avatar_url'      => $user->avatar_url,
             'bio'             => $user->bio,
             'is_verified'     => $user->is_verified,
+            'verification_type' => $user->verificationType(),
             'followers_count' => $user->followers_count ?? 0,
             'following_count' => $user->following_count ?? 0,
             'role'            => $user->role,
