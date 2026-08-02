@@ -1,5 +1,5 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import ProductCard from '@/Components/Product/ProductCard';
 
@@ -236,6 +236,7 @@ export default function SellerDashboard({
 }) {
     const [period, setPeriod] = useState('30d');
     const [tab, setTab] = useState('overview');
+    const { auth } = usePage().props;
     // const [showProModal, setShowProModal] = useState(false);
 
    
