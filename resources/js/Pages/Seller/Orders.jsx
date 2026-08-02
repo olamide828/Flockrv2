@@ -17,6 +17,7 @@ import {
     RiTruckLine,
 } from 'react-icons/ri';
 import Toast, { useToast } from '@/Components/Toast';
+import ConfirmModal from '@/Components/ConfirmModal';
 
 const STATUS_CFG = {
     pending:         { label: 'Pending Payment',   color: '#EAB308', bg: 'rgba(234,179,8,0.12)'   },
@@ -79,11 +80,12 @@ function OrderRow({ order: initial, showToast }) {
     const [order,    setOrder]    = useState(initial);
     const [open,     setOpen]     = useState(false);
     const [loading,  setLoading]  = useState(false);
+    const [showReadyConfirm, setShowReadyConfirm] = useState(false);
 
     const cfg = STATUS_CFG[order.status] ?? STATUS_CFG.pending;
 
     const markReady = async () => {
-        if (!confirm('Confirm your item is packed and ready for courier pickup?')) return;
+        setShowReadyConfirm(false);
         setLoading(true);
         try {
             await axios.patch('/api/orders/' + order.id + '/status', { status: 'processing' });
@@ -126,6 +128,12 @@ function OrderRow({ order: initial, showToast }) {
                         Pack your item and mark as ready — a courier will come to you.
                     </p>
                 </div>
+            )}
+
+               {order.status === 'paid' && (
+                <button type="button" onClick={() => setShowReadyConfirm(true)} disabled={loading} /* same style as before */>
+                    {loading ? <>…Updating…</> : <><RiCheckLine size={15} />Mark Ready for Pickup</>}
+                </button>
             )}
 
             {order.status === 'pickup_failed' && (
@@ -420,6 +428,17 @@ export default function SellerOrders({ orders: initialOrders = { data: [] }, sta
                     </div>
                 )}
             </div>
+
+            {showReadyConfirm && (
+                <ConfirmModal
+                    title="Confirm Pickup Ready"
+                    message="Confirm your item is packed and ready for courier pickup."
+                    confirmLabel="Confirm"
+                    cancelLabel="Cancel"
+                    onConfirm={markReady}
+                    onClose={() => setShowReadyConfirm(false)}
+                />
+            )}
 
             {ToastComponent}
             <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
