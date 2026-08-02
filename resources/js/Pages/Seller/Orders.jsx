@@ -17,7 +17,7 @@ import {
     RiTruckLine,
 } from 'react-icons/ri';
 import Toast, { useToast } from '@/Components/Toast';
-import ConfirmModal from '@/Components/ConfirmModal';
+import ConfirmModal from '@/Components/Community/ConfirmModal';
 
 const STATUS_CFG = {
     pending:         { label: 'Pending Payment',   color: '#EAB308', bg: 'rgba(234,179,8,0.12)'   },
