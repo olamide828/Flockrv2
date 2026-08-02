@@ -313,7 +313,8 @@ $hashtags = $request->filled('hashtags')
  
             $query = Video::active()
     ->with([
-        'user:id,name,username,avatar,is_verified,location',
+        'user' => fn($q) => $q->select('id', 'name', 'username', 'avatar', 'is_verified', 'location')
+                          ->withActiveSubscriptionFlag(),
         'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
     ])
     ->withCount(['allComments']);

@@ -802,11 +802,12 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                                 alt={seller.name}
                                 style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,107,53,0.4)' }}
                               />
-                              {seller.is_verified && (
-                                <div style={{ position: 'absolute', bottom: 0, right: 0, width: 20, height: 20, borderRadius: '50%', background: '#FF6B35', border: '2px solid #050505', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <RiVerifiedBadgeLine size={11} color="#fff" />
-                                </div>
-                              )}
+                            
+{seller.verification_type && (
+  <div style={{ position: 'absolute', bottom: 0, right: 0, width: 20, height: 20, borderRadius: '50%', background: seller.verification_type === 'subscription' ? '#3B82F6' : '#FF6B35', border: '2px solid #050505', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <RiVerifiedBadgeLine size={11} color="#fff" />
+  </div>
+)}}
                             </div>
                             <div style={{ textAlign: 'center', width: '100%' }}>
                               <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seller.name}</p>

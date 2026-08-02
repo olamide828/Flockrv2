@@ -281,7 +281,21 @@ public function activeSubscription(): ?Subscription
 
 public function hasActiveSubscription(): bool
 {
-    return $this->activeSubscription() !== null;
+    if (array_key_exists('has_active_subscription_flag', $this->attributes)) {
+        return (bool) $this->attributes['has_active_subscription_flag'];
+    }
+
+    return $this->subscriptions()
+        ->where('status', 'active')
+        ->where('expires_at', '>', now())
+        ->exists();
+}
+
+public function scopeWithActiveSubscriptionFlag($query)
+{
+    return $query->withExists(['subscriptions as has_active_subscription_flag' => function ($q) {
+        $q->where('status', 'active')->where('expires_at', '>', now());
+    }]);
 }
 
 public function badges(): BelongsToMany

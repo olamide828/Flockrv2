@@ -57,7 +57,8 @@ class ProductController extends Controller
 
     $featured = Product::active()
         ->when(!empty($blocked), fn($q) => $q->whereNotIn('seller_id', $blocked))
-        ->with('seller:id,name,username,avatar,is_verified')
+        ->with(['seller' => fn($q) => $q->select('id', 'name', 'username', 'avatar', 'is_verified')
+        ->withActiveSubscriptionFlag()])
         ->withCount('orderItems')
         ->orderByDesc('order_items_count')
         ->limit(24)
