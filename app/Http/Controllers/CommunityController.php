@@ -242,7 +242,15 @@ class CommunityController extends Controller
             ->get()
             ->map(function ($u) {
                 $user = User::find($u->id);
-                return array_merge((array) $u, ['avatar_url' => $user?->avatar_url]);
+                $arr = array_merge((array) $u, ['avatar_url' => $user?->avatar_url]);
+                // Raw DB::table() results come back as bare strings with no
+                // timezone marker (e.g. "2026-07-19 19:17:28"). JS's Date
+                // parser treats that as LOCAL time instead of UTC, which is
+                // exactly why this showed "Invalid Date" on some browsers
+                // and a timezone-offset-sized error on others. Explicit
+                // ISO 8601 with a Z suffix parses identically everywhere.
+                $arr['viewed_at'] = $u->viewed_at ? \Carbon\Carbon::parse($u->viewed_at, 'UTC')->toISOString() : null;
+                return $arr;
             });
 
         return response()->json($viewers);
