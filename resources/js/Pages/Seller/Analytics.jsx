@@ -1,6 +1,7 @@
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
+import ProPlansSheet from '@/Components/ProPlansSheet'; // 1. Import ProPlansSheet
 import {
     RiArrowLeftLine, RiMoneyDollarCircleLine, RiShoppingBagLine, RiEyeLine,
     RiTimeLine, RiUserFollowLine, RiBarChartBoxLine, RiArrowUpLine, RiArrowDownLine,
@@ -142,12 +143,8 @@ function Heatmap({ data }) {
     );
 }
 
-function LockedState() {
-    const openPlans = () => {
-        // Hook this up to whatever currently opens your subscription plan sheet
-        // (e.g. the same trigger used by the Pro badge elsewhere in the app).
-        window.dispatchEvent(new CustomEvent('open-subscription-sheet'));
-    };
+// 2. Updated LockedState to accept onOpenPlans as a prop
+function LockedState({ onOpenPlans }) {
     const features = [
         'Real revenue trend charts, day by day',
         'Follower growth tracked over time',
@@ -169,7 +166,7 @@ function LockedState() {
                     </div>
                 ))}
             </div>
-            <button onClick={openPlans} className="az-upgrade-btn">
+            <button onClick={onOpenPlans} className="az-upgrade-btn">
                 <RiFireLine size={16} /> View Plans
             </button>
         </div>
@@ -181,6 +178,9 @@ export default function SellerAnalytics({
     followerGrowth = [], retention = [], audience = {}, topVideos = [], topProducts = [], salesTiming = [],
 }) {
     const [activePeriod, setActivePeriod] = useState(period);
+    
+    // 3. Add state for controlling ProPlansSheet visibility
+    const [showProSheet, setShowProSheet] = useState(false);
 
     const changePeriod = (p) => {
         setActivePeriod(p);
@@ -198,8 +198,14 @@ export default function SellerAnalytics({
                             <h1>Analytics</h1>
                         </div>
                     </header>
-                    <main className="az-content"><LockedState /></main>
+                    <main className="az-content">
+                        <LockedState onOpenPlans={() => setShowProSheet(true)} />
+                    </main>
                 </div>
+
+                {/* 4. Render ProPlansSheet modal when unlocked via state */}
+                {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
+
                 <style>{AZ_STYLES}</style>
             </>
         );
@@ -211,6 +217,7 @@ export default function SellerAnalytics({
     return (
         <>
             <Head title="Analytics" />
+
             <div className="az-page">
                 <header className="az-header">
                     <div className="az-header-inner">
