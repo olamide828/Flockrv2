@@ -199,14 +199,23 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->role === 'admin';
     }
 
- public function getVerificationTypeAttribute(): ?string
+public function getVerificationTypeAttribute(): ?string
 {
-    if ($this->is_verified) {
+    $isVerified = false;
+    try {
+        $isVerified = (bool) $this->getAttributeFromArray('is_verified');
+    } catch (\Throwable) {
+        $isVerified = false;
+    }
+
+    if ($isVerified) {
         return 'flockr';
     }
+
     if ($this->hasActiveSubscription()) {
         return 'subscription';
     }
+
     return null;
 }
 

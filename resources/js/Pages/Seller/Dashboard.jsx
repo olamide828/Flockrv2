@@ -202,28 +202,30 @@ function GrowthTips({ tips }) {
     );
 }
 
-function AnalyticsLockedCard({ onClick }) {
+function AnalyticsCard({ isSubscriber }) {
     return (
-        <button onClick={onClick} style={{
+        <Link href="/seller/analytics" style={{
             display: 'flex', alignItems: 'center', gap: 14, width: '100%', textAlign: 'left',
-            padding: '20px 22px', borderRadius: 24, cursor: 'pointer',
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.06))',
-            border: '1px solid rgba(139,92,246,0.25)',
+            padding: '20px 22px', borderRadius: 24, textDecoration: 'none',
+            background: 'rgba(255,107,53,0.08)',
+            border: '1px solid rgba(255,107,53,0.25)',
         }}>
-            <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <RiBarChartBoxLine size={22} color="#A78BFA" />
+            <div style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(255,107,53,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <RiBarChartBoxLine size={22} color="#FF6B35" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 14 }}>Seller Analytics</p>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 8px', background: 'rgba(139,92,246,0.2)', borderRadius: 999, color: '#A78BFA', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>
-                        <RiLockLine size={9} /> Pro
-                    </span>
+                    {!isSubscriber && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 8px', background: 'rgba(255,107,53,0.2)', borderRadius: 999, color: '#FF6B35', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>
+                            <RiLockLine size={9} /> Pro
+                        </span>
+                    )}
                 </div>
-                <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>Deep insights on watch time, audience retention, and conversion funnels.</p>
+                <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>Revenue trends, retention, follower growth, and more.</p>
             </div>
             <RiArrowRightLine size={16} color="rgba(255,255,255,0.3)" style={{ flexShrink: 0 }} />
-        </button>
+        </Link>
     );
 }
 
@@ -234,7 +236,7 @@ export default function SellerDashboard({
 }) {
     const [period, setPeriod] = useState('30d');
     const [tab, setTab] = useState('overview');
-    const [showProModal, setShowProModal] = useState(false);
+    // const [showProModal, setShowProModal] = useState(false);
 
    
 const SALES_PER_PAGE = 3;
@@ -278,7 +280,7 @@ const pagerBtnStyle = (disabled) => ({
     return (
         <>
             <Head title="Seller Dashboard" />
-
+{/* 
             {showProModal && (
                 <>
                     <div onClick={() => setShowProModal(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }} />
@@ -298,7 +300,7 @@ const pagerBtnStyle = (disabled) => ({
                         </button>
                     </div>
                 </>
-            )}
+            )} */}
 
             <div className="seller-dashboard">
                 {/* HEADER */}
@@ -373,7 +375,7 @@ const pagerBtnStyle = (disabled) => ({
                                 <BadgesRow badges={gamification.badges} />
                                 <GrowthTips tips={gamification.tips} />
                             </div>
-                            <AnalyticsLockedCard onClick={() => setShowProModal(true)} />
+                            <AnalyticsCard isSubscriber={auth.user?.is_subscriber} />
                         </section>
                     )}
 

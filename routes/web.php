@@ -103,6 +103,7 @@ Route::get('/subscriptions/callback', [SubscriptionController::class, 'callback'
 
     Route::middleware('role:seller')->prefix('seller')->name('seller.')->group(function () {
         Route::get('/dashboard', [SellerController::class, 'dashboard'])->name('dashboard');
+        Route::get('/analytics', [SellerController::class, 'analytics'])->name('analytics');
         Route::get('/upload', [VideoController::class, 'create'])->name('upload');
         Route::get('/videos', [SellerController::class, 'videos'])->name('videos');
         Route::get('/products', [SellerController::class, 'products'])->name('products');
