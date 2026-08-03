@@ -80,7 +80,10 @@ function RevenueBars({ data }) {
                             className="az-bar-col"
                             onMouseEnter={() => setHovered(i)}
                             onMouseLeave={() => setHovered(null)}
-                            onClick={() => setHovered(hovered === i ? null : i)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setHovered(i);
+                            }}
                         >
                             <div className={`az-bar ${hovered === i ? 'az-bar-active' : ''}`} style={{ height: `${h}%` }} />
                         </div>
@@ -126,7 +129,10 @@ function FollowerGrowthChart({ data, totalFollowers }) {
                             className="az-bar-col"
                             onMouseEnter={() => setHovered(i)}
                             onMouseLeave={() => setHovered(null)}
-                            onClick={() => setHovered(hovered === i ? null : i)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setHovered(i);
+                            }}
                         >
                             <div className={`az-bar az-bar-blue ${hovered === i ? 'az-bar-active' : ''}`} style={{ height: `${h}%` }} />
                         </div>
@@ -159,7 +165,10 @@ function RetentionBars({ data }) {
                         className={`az-retention-row ${hovered === r.threshold ? 'az-retention-row-active' : ''}`}
                         onMouseEnter={() => setHovered(r.threshold)}
                         onMouseLeave={() => setHovered(null)}
-                        onClick={() => setHovered(hovered === r.threshold ? null : r.threshold)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setHovered(r.threshold);
+                        }}
                     >
                         <span className="az-retention-label">{r.threshold}%</span>
                         <div className="az-retention-track">
@@ -219,7 +228,10 @@ function Heatmap({ data }) {
                                         style={{ background: val > 0 ? `rgba(255,107,53,${opacity})` : 'rgba(255,255,255,0.03)' }}
                                         onMouseEnter={() => setHovered({ dow, hour: h })}
                                         onMouseLeave={() => setHovered(null)}
-                                        onClick={() => setHovered(isActive ? null : { dow, hour: h })}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setHovered({ dow, hour: h });
+                                        }}
                                     />
                                 );
                             })}
@@ -266,7 +278,10 @@ function DonutChart({ segments, size = 132, thickness = 20 }) {
                                     style={{ cursor: 'pointer', opacity: hovered === null || hovered === i ? 1 : 0.3, transition: 'opacity 0.15s' }}
                                     onMouseEnter={() => setHovered(i)}
                                     onMouseLeave={() => setHovered(null)}
-                                    onClick={() => setHovered(hovered === i ? null : i)}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setHovered(i);
+                                    }}
                                 />
                             );
                         })}
@@ -285,7 +300,10 @@ function DonutChart({ segments, size = 132, thickness = 20 }) {
                         style={{ opacity: hovered === null || hovered === i ? 1 : 0.4 }}
                         onMouseEnter={() => setHovered(i)}
                         onMouseLeave={() => setHovered(null)}
-                        onClick={() => setHovered(hovered === i ? null : i)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setHovered(i);
+                        }}
                     >
                         <i style={{ background: seg.color }} />
                         <span>{seg.label}</span>
