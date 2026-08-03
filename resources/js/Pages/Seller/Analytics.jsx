@@ -1,11 +1,11 @@
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
-import ProPlansSheet from '@/Components/ProPlansSheet'; // 1. Import ProPlansSheet
+import ProPlansSheet from '@/Components/ProPlansSheet';
 import {
     RiArrowLeftLine, RiMoneyDollarCircleLine, RiShoppingBagLine, RiEyeLine,
     RiTimeLine, RiUserFollowLine, RiBarChartBoxLine, RiArrowUpLine, RiArrowDownLine,
-    RiPlayCircleLine, RiStore3Line, RiLockLine, RiCheckboxCircleLine, RiFireLine,
+    RiPlayCircleLine, RiStore3Line, RiCheckboxCircleLine, RiFireLine,
 } from 'react-icons/ri';
 
 function fmtN(n) {
@@ -19,8 +19,12 @@ function fmtChange(v) {
     const up = v >= 0;
     return { up, label: `${up ? '+' : ''}${v}%` };
 }
+function fmtDate(d) {
+    return new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
+}
 
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DOW_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function ChangeTag({ value }) {
     const { up, label } = fmtChange(value);
@@ -44,27 +48,57 @@ function KpiCard({ label, value, change, icon: Icon, sub }) {
     );
 }
 
-// Simple bar chart — daily revenue
-function RevenueBars({ data }) {
-    if (!data?.length) return <div className="az-empty-inline">No revenue in this period yet.</div>;
-    const max = Math.max(...data.map(d => Number(d.revenue)), 1);
+// ── Info strip: shows a placeholder hint, then real data on hover/tap ────────
+function ChartInfo({ children, placeholder }) {
     return (
-        <div className="az-bars">
-            {data.map((d, i) => {
-                const h = Math.max(4, (Number(d.revenue) / max) * 100);
-                return (
-                    <div key={i} className="az-bar-col" title={`${d.date}: ₦${Number(d.revenue).toLocaleString()} · ${d.orders} order${d.orders != 1 ? 's' : ''}`}>
-                        <div className="az-bar" style={{ height: `${h}%` }} />
-                    </div>
-                );
-            })}
+        <div className="az-chart-info">
+            {children ?? <span className="az-chart-info-muted">{placeholder}</span>}
         </div>
     );
 }
 
-// Follower growth — cumulative area using new_followers per day
+// Daily revenue bar chart with hover/tap detail
+function RevenueBars({ data }) {
+    const [hovered, setHovered] = useState(null);
+    if (!data?.length) return <div className="az-empty-inline">No revenue in this period yet.</div>;
+    const max = Math.max(...data.map(d => Number(d.revenue)), 1);
+    const active = hovered !== null ? data[hovered] : null;
+
+    return (
+        <div>
+            <ChartInfo placeholder="Tap or hover a bar to see that day's revenue and order count">
+                {active && (
+                    <span><strong>{fmtNaira(active.revenue)}</strong> from <strong>{active.orders}</strong> order{active.orders != 1 ? 's' : ''} on {fmtDate(active.date)}</span>
+                )}
+            </ChartInfo>
+            <div className="az-bars">
+                {data.map((d, i) => {
+                    const h = Math.max(4, (Number(d.revenue) / max) * 100);
+                    return (
+                        <div
+                            key={i}
+                            className="az-bar-col"
+                            onMouseEnter={() => setHovered(i)}
+                            onMouseLeave={() => setHovered(null)}
+                            onClick={() => setHovered(hovered === i ? null : i)}
+                        >
+                            <div className={`az-bar ${hovered === i ? 'az-bar-active' : ''}`} style={{ height: `${h}%` }} />
+                        </div>
+                    );
+                })}
+            </div>
+            <p className="az-chart-caption">
+                Each bar is one day. <strong>X-axis</strong> = date, left (oldest) to right (today). <strong>Bar height</strong> = revenue earned that day — taller means you made more.
+            </p>
+        </div>
+    );
+}
+
+// Cumulative follower count, day by day, with hover/tap detail
 function FollowerGrowthChart({ data, totalFollowers }) {
+    const [hovered, setHovered] = useState(null);
     if (!data?.length) return <div className="az-empty-inline">No new followers in this period yet.</div>;
+
     const totalNew = data.reduce((s, d) => s + Number(d.new_followers), 0);
     let running = totalFollowers - totalNew;
     const points = data.map(d => {
@@ -74,76 +108,204 @@ function FollowerGrowthChart({ data, totalFollowers }) {
     const max = Math.max(...points, 1);
     const min = Math.min(...points, 0);
     const range = Math.max(1, max - min);
+    const active = hovered !== null ? { date: data[hovered].date, total: points[hovered], gained: data[hovered].new_followers } : null;
+
     return (
-        <div className="az-bars">
-            {points.map((v, i) => {
-                const h = Math.max(4, ((v - min) / range) * 100);
-                return (
-                    <div key={i} className="az-bar-col" title={`${data[i].date}: ${v.toLocaleString()} followers (+${data[i].new_followers})`}>
-                        <div className="az-bar az-bar-blue" style={{ height: `${h}%` }} />
-                    </div>
-                );
-            })}
+        <div>
+            <ChartInfo placeholder="Tap or hover a bar to see your follower count that day">
+                {active && (
+                    <span><strong>{active.total.toLocaleString()}</strong> total followers on {fmtDate(active.date)} <span className="az-chart-info-muted">(+{active.gained} that day)</span></span>
+                )}
+            </ChartInfo>
+            <div className="az-bars">
+                {points.map((v, i) => {
+                    const h = Math.max(4, ((v - min) / range) * 100);
+                    return (
+                        <div
+                            key={i}
+                            className="az-bar-col"
+                            onMouseEnter={() => setHovered(i)}
+                            onMouseLeave={() => setHovered(null)}
+                            onClick={() => setHovered(hovered === i ? null : i)}
+                        >
+                            <div className={`az-bar az-bar-blue ${hovered === i ? 'az-bar-active' : ''}`} style={{ height: `${h}%` }} />
+                        </div>
+                    );
+                })}
+            </div>
+            <p className="az-chart-caption">
+                Each bar is one day. <strong>X-axis</strong> = date. <strong>Bar height</strong> = your total follower count on that day (running total, not just new ones).
+            </p>
         </div>
     );
 }
 
 function RetentionBars({ data }) {
+    const [hovered, setHovered] = useState(null);
     if (!data?.length) return <div className="az-empty-inline">No watch data yet.</div>;
+    const active = hovered !== null ? data.find(r => r.threshold === hovered) : null;
+
     return (
-        <div className="az-retention">
-            {data.map(r => (
-                <div key={r.threshold} className="az-retention-row">
-                    <span className="az-retention-label">{r.threshold}%</span>
-                    <div className="az-retention-track">
-                        <div className="az-retention-fill" style={{ width: `${r.pct}%` }} />
+        <div>
+            <ChartInfo placeholder="Tap or hover a row to see the exact number of viewers">
+                {active && (
+                    <span><strong>{active.reached}</strong> of <strong>{active.total}</strong> views ({active.pct}%) watched to at least <strong>{active.threshold}%</strong></span>
+                )}
+            </ChartInfo>
+            <div className="az-retention">
+                {data.map(r => (
+                    <div
+                        key={r.threshold}
+                        className={`az-retention-row ${hovered === r.threshold ? 'az-retention-row-active' : ''}`}
+                        onMouseEnter={() => setHovered(r.threshold)}
+                        onMouseLeave={() => setHovered(null)}
+                        onClick={() => setHovered(hovered === r.threshold ? null : r.threshold)}
+                    >
+                        <span className="az-retention-label">{r.threshold}%</span>
+                        <div className="az-retention-track">
+                            <div className="az-retention-fill" style={{ width: `${r.pct}%` }} />
+                        </div>
+                        <span className="az-retention-pct">{r.pct}%</span>
                     </div>
-                    <span className="az-retention-pct">{r.pct}%</span>
-                </div>
-            ))}
+                ))}
+            </div>
+            <p className="az-chart-caption">
+                Each row is a watch-progress checkpoint. <strong>"50%"</strong> means: of everyone who watched, what share stuck around to at least the halfway point? It's normal for the percentage to drop as you go down — that's viewers leaving early.
+            </p>
         </div>
     );
 }
 
+// Day-of-week × hour revenue heatmap with hover/tap detail
 function Heatmap({ data }) {
+    const [hovered, setHovered] = useState(null); // { dow, hour }
     const grid = {};
     let max = 1;
     (data ?? []).forEach(d => {
         const key = `${d.dow}-${d.hour}`;
-        grid[key] = Number(d.revenue);
+        grid[key] = { revenue: Number(d.revenue), orders: Number(d.orders) };
         if (Number(d.revenue) > max) max = Number(d.revenue);
     });
+
+    const activeVal = hovered ? grid[`${hovered.dow}-${hovered.hour}`] : null;
+
     return (
-        <div className="az-heatmap">
-            <div className="az-heatmap-hours">
-                {Array.from({ length: 24 }, (_, h) => (
-                    <span key={h} className="az-heatmap-hourlabel">{h % 6 === 0 ? `${h}h` : ''}</span>
+        <div>
+            <ChartInfo placeholder="Tap or hover a cell to see revenue for that day and hour">
+                {hovered && (
+                    activeVal
+                        ? <span><strong>{fmtNaira(activeVal.revenue)}</strong> from <strong>{activeVal.orders}</strong> order{activeVal.orders != 1 ? 's' : ''} — {DOW_FULL[hovered.dow]}, {hovered.hour}:00–{hovered.hour}:59</span>
+                        : <span className="az-chart-info-muted">No sales — {DOW_FULL[hovered.dow]}, {hovered.hour}:00–{hovered.hour}:59</span>
+                )}
+            </ChartInfo>
+            <div className="az-heatmap">
+                <div className="az-heatmap-hours">
+                    {Array.from({ length: 24 }, (_, h) => (
+                        <span key={h} className="az-heatmap-hourlabel">{h % 6 === 0 ? `${h}h` : ''}</span>
+                    ))}
+                </div>
+                {DOW_LABELS.map((label, dow) => (
+                    <div key={dow} className="az-heatmap-row">
+                        <span className="az-heatmap-day">{label}</span>
+                        <div className="az-heatmap-cells">
+                            {Array.from({ length: 24 }, (_, h) => {
+                                const val = grid[`${dow}-${h}`]?.revenue ?? 0;
+                                const opacity = val > 0 ? 0.15 + (val / max) * 0.85 : 0;
+                                const isActive = hovered && hovered.dow === dow && hovered.hour === h;
+                                return (
+                                    <div
+                                        key={h}
+                                        className={`az-heatmap-cell ${isActive ? 'az-heatmap-cell-active' : ''}`}
+                                        style={{ background: val > 0 ? `rgba(255,107,53,${opacity})` : 'rgba(255,255,255,0.03)' }}
+                                        onMouseEnter={() => setHovered({ dow, hour: h })}
+                                        onMouseLeave={() => setHovered(null)}
+                                        onClick={() => setHovered(isActive ? null : { dow, hour: h })}
+                                    />
+                                );
+                            })}
+                        </div>
+                    </div>
                 ))}
             </div>
-            {DOW_LABELS.map((label, dow) => (
-                <div key={dow} className="az-heatmap-row">
-                    <span className="az-heatmap-day">{label}</span>
-                    <div className="az-heatmap-cells">
-                        {Array.from({ length: 24 }, (_, h) => {
-                            const val = grid[`${dow}-${h}`] ?? 0;
-                            const opacity = val > 0 ? 0.15 + (val / max) * 0.85 : 0;
-                            return (
-                                <div
-                                    key={h}
-                                    className="az-heatmap-cell"
-                                    style={{ background: val > 0 ? `rgba(255,107,53,${opacity})` : 'rgba(255,255,255,0.03)' }}
-                                    title={val > 0 ? `${label} ${h}:00 — ₦${val.toLocaleString()}` : ''}
-                                />
-                            );
-                        })}
-                    </div>
-                </div>
-            ))}
+            <p className="az-chart-caption">
+                <strong>Rows</strong> = day of the week. <strong>Columns</strong> = hour of the day (0–23). Darker orange = more revenue at that day/hour combo, based on all your orders in this period.
+            </p>
         </div>
     );
 }
 
-// 2. Updated LockedState to accept onOpenPlans as a prop
+// Reusable donut/pie chart — click or hover a segment or legend row for detail
+function DonutChart({ segments, size = 132, thickness = 20 }) {
+    const [hovered, setHovered] = useState(null);
+    const total = segments.reduce((s, x) => s + x.value, 0) || 1;
+    const r = (size - thickness) / 2;
+    const c = 2 * Math.PI * r;
+    let cumulative = 0;
+    const active = hovered !== null ? segments[hovered] : null;
+
+    return (
+        <div className="az-donut-wrap">
+            <div className="az-donut-svg-wrap" style={{ width: size, height: size }}>
+                <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                    <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+                        {segments.map((seg, i) => {
+                            const frac = seg.value / total;
+                            const len = frac * c;
+                            const dasharray = `${len} ${c - len}`;
+                            const dashoffset = -cumulative;
+                            cumulative += len;
+                            return (
+                                <circle
+                                    key={i}
+                                    cx={size / 2} cy={size / 2} r={r}
+                                    fill="none"
+                                    stroke={seg.color}
+                                    strokeWidth={thickness}
+                                    strokeDasharray={dasharray}
+                                    strokeDashoffset={dashoffset}
+                                    style={{ cursor: 'pointer', opacity: hovered === null || hovered === i ? 1 : 0.3, transition: 'opacity 0.15s' }}
+                                    onMouseEnter={() => setHovered(i)}
+                                    onMouseLeave={() => setHovered(null)}
+                                    onClick={() => setHovered(hovered === i ? null : i)}
+                                />
+                            );
+                        })}
+                    </g>
+                </svg>
+                <div className="az-donut-center">
+                    <strong>{active ? active.displayValue ?? active.value : total.toLocaleString()}</strong>
+                    <span>{active ? active.label : 'Total'}</span>
+                </div>
+            </div>
+            <div className="az-donut-legend">
+                {segments.map((seg, i) => (
+                    <div
+                        key={i}
+                        className="az-donut-legend-row"
+                        style={{ opacity: hovered === null || hovered === i ? 1 : 0.4 }}
+                        onMouseEnter={() => setHovered(i)}
+                        onMouseLeave={() => setHovered(null)}
+                        onClick={() => setHovered(hovered === i ? null : i)}
+                    >
+                        <i style={{ background: seg.color }} />
+                        <span>{seg.label}</span>
+                        <strong>{seg.displayValue ?? seg.value}</strong>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+const STATUS_ORDER = ['pending', 'paid', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded', 'disputed', 'returned'];
+const NEGATIVE_STATUSES = ['cancelled', 'refunded', 'disputed', 'returned'];
+function statusColor(status, index) {
+    if (NEGATIVE_STATUSES.includes(status)) return 'rgba(255,255,255,0.18)';
+    const shades = [0.35, 0.5, 0.65, 0.8, 1];
+    const opacity = shades[Math.min(index, shades.length - 1)];
+    return opacity === 1 ? '#FF6B35' : `rgba(255,107,53,${opacity})`;
+}
+
 function LockedState({ onOpenPlans }) {
     const features = [
         'Real revenue trend charts, day by day',
@@ -178,8 +340,6 @@ export default function SellerAnalytics({
     followerGrowth = [], retention = [], audience = {}, topVideos = [], topProducts = [], salesTiming = [],
 }) {
     const [activePeriod, setActivePeriod] = useState(period);
-    
-    // 3. Add state for controlling ProPlansSheet visibility
     const [showProSheet, setShowProSheet] = useState(false);
 
     const changePeriod = (p) => {
@@ -203,7 +363,6 @@ export default function SellerAnalytics({
                     </main>
                 </div>
 
-                {/* 4. Render ProPlansSheet modal when unlocked via state */}
                 {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
 
                 <style>{AZ_STYLES}</style>
@@ -213,6 +372,18 @@ export default function SellerAnalytics({
 
     const guestPct = audience.total_views > 0 ? Math.round((audience.guest_views / audience.total_views) * 100) : 0;
     const loggedInPct = 100 - guestPct;
+
+    const audienceSegments = [
+        { label: 'Logged-in viewers', value: audience.unique_logged_in ?? 0, displayValue: `${loggedInPct}%`, color: '#FF6B35' },
+        { label: 'Guest viewers', value: audience.guest_views ?? 0, displayValue: `${guestPct}%`, color: 'rgba(255,255,255,0.18)' },
+    ];
+
+    const statusSegments = statusBreakdown.map((s, i) => ({
+        label: s.status.charAt(0).toUpperCase() + s.status.slice(1),
+        value: Number(s.revenue),
+        displayValue: fmtNaira(s.revenue),
+        color: statusColor(s.status, STATUS_ORDER.indexOf(s.status) >= 0 ? STATUS_ORDER.indexOf(s.status) : i),
+    }));
 
     return (
         <>
@@ -240,11 +411,14 @@ export default function SellerAnalytics({
                     <section className="az-kpi-grid">
                         <KpiCard label="Revenue" value={fmtNaira(kpis.revenue)} change={kpis.revenue_change} icon={RiMoneyDollarCircleLine} />
                         <KpiCard label="Orders" value={kpis.orders} change={kpis.orders_change} icon={RiShoppingBagLine} sub={`AOV ${fmtNaira(kpis.aov)}`} />
-                        <KpiCard label="Video Views" value={fmtN(kpis.views)} change={kpis.views_change} icon={RiEyeLine} />
-                        <KpiCard label="Watch Time" value={`${kpis.watch_hours}h`} icon={RiTimeLine} />
+                        <KpiCard label="Video Views" value={fmtN(kpis.views)} change={kpis.views_change} icon={RiEyeLine} sub="unique per 30 min" />
+                        <KpiCard label="Watch Time" value={`${kpis.watch_hours}h`} icon={RiTimeLine} sub="incl. rewatches" />
                         <KpiCard label="New Followers" value={kpis.new_followers} change={kpis.new_followers_change} icon={RiUserFollowLine} sub={`${kpis.total_followers} total`} />
                         <KpiCard label="Views → Orders" value={`${kpis.views_to_orders_rate}%`} icon={RiBarChartBoxLine} />
                     </section>
+                    <p className="az-kpi-note">
+                        "Video Views" counts a viewer once per video every 30 minutes — the same rule used for your public view count on the Dashboard and profile. "Watch Time" counts every watch session, including rewatches, so it can be higher.
+                    </p>
 
                     {/* REVENUE TREND */}
                     <section className="az-card">
@@ -266,35 +440,24 @@ export default function SellerAnalytics({
                         </section>
                     </div>
 
-                    {/* AUDIENCE + STATUS BREAKDOWN */}
+                    {/* AUDIENCE + STATUS BREAKDOWN — both as donut charts */}
                     <div className="az-two-col">
                         <section className="az-card">
-                            <div className="az-card-header"><h3>Audience</h3></div>
+                            <div className="az-card-header"><h3>Audience</h3><span className="az-card-sub">Who watched your videos</span></div>
                             <div className="az-card-body">
-                                <div className="az-audience-row">
-                                    <div className="az-audience-bar">
-                                        <div className="az-audience-fill" style={{ width: `${loggedInPct}%` }} />
-                                    </div>
-                                </div>
-                                <div className="az-audience-legend">
-                                    <span><i className="az-dot-orange" /> Logged-in ({loggedInPct}%)</span>
-                                    <span><i className="az-dot-gray" /> Guest ({guestPct}%)</span>
-                                </div>
-                                <p className="az-audience-note">{audience.unique_logged_in} unique logged-in viewers across {audience.total_views} total views this period.</p>
+                                <DonutChart segments={audienceSegments} />
+                                <p className="az-chart-caption">Tap a slice or legend row to see the exact count. "Guest" viewers aren't logged in — you can't message or see them directly, but they can still buy.</p>
                             </div>
                         </section>
 
                         <section className="az-card">
-                            <div className="az-card-header"><h3>Order Status</h3></div>
-                            <div className="az-card-body az-status-list">
-                                {statusBreakdown.length === 0 && <div className="az-empty-inline">No orders in this period yet.</div>}
-                                {statusBreakdown.map(s => (
-                                    <div key={s.status} className="az-status-row">
-                                        <span className="az-status-label">{s.status}</span>
-                                        <span className="az-status-count">{s.total}</span>
-                                        <span className="az-status-revenue">{fmtNaira(s.revenue)}</span>
-                                    </div>
-                                ))}
+                            <div className="az-card-header"><h3>Order Status</h3><span className="az-card-sub">Revenue share by status</span></div>
+                            <div className="az-card-body">
+                                {statusSegments.length === 0
+                                    ? <div className="az-empty-inline">No orders in this period yet.</div>
+                                    : <DonutChart segments={statusSegments} />
+                                }
+                                <p className="az-chart-caption">Each slice is revenue from orders currently in that status — gray slices (cancelled/refunded/disputed) are money that didn't stick.</p>
                             </div>
                         </section>
                     </div>
@@ -321,7 +484,7 @@ export default function SellerAnalytics({
                                     <div className="az-list-main">
                                         <p className="az-list-title">{v.title ?? 'Untitled'}</p>
                                         <div className="az-list-stats">
-                                            <span>{fmtN(v.views_count)} views</span>
+                                            <span>{fmtN(v.views_count)} views (all-time)</span>
                                             <span>{fmtN(v.likes_count)} likes</span>
                                             <span>{v.avg_watch_percent}% avg watch</span>
                                         </div>
@@ -382,6 +545,7 @@ const AZ_STYLES = `
 .az-period-active { background: #FF6B35 !important; color: #fff !important; }
 .az-content { max-width: 1100px; margin: 0 auto; padding: 22px 24px 90px; display: flex; flex-direction: column; gap: 18px; }
 .az-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.az-kpi-note { margin: -8px 0 0; font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.5; }
 .az-kpi { background: #111; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; }
 .az-kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .az-kpi-icon { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,107,53,0.12); color: #FF6B35; display: flex; align-items: center; justify-content: center; }
@@ -398,37 +562,40 @@ const AZ_STYLES = `
 .az-card-body { padding: 20px; }
 .az-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .az-empty-inline { color: rgba(255,255,255,0.3); font-size: 12px; text-align: center; padding: 30px 0; }
+.az-chart-info { min-height: 20px; margin-bottom: 12px; font-size: 12px; color: #fff; }
+.az-chart-info-muted { color: rgba(255,255,255,0.3); }
+.az-chart-caption { margin: 12px 0 0; font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.6; }
 .az-bars { display: flex; align-items: flex-end; gap: 3px; height: 140px; }
-.az-bar-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-.az-bar { width: 100%; background: #FF6B35; border-radius: 3px 3px 0 0; min-height: 4px; transition: opacity 0.15s; }
-.az-bar:hover { opacity: 0.8; }
-.az-bar-blue { background: #3B82F6; }
-.az-retention { display: flex; flex-direction: column; gap: 12px; }
-.az-retention-row { display: flex; align-items: center; gap: 10px; }
+.az-bar-col { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: pointer; }
+.az-bar { width: 100%; background: rgba(255,107,53,0.55); border-radius: 3px 3px 0 0; min-height: 4px; transition: background 0.15s; }
+.az-bar-col:hover .az-bar, .az-bar-active { background: #FF6B35 !important; }
+.az-bar-blue { background: rgba(59,130,246,0.5); }
+.az-bar-col:hover .az-bar-blue, .az-bar-blue.az-bar-active { background: #3B82F6 !important; }
+.az-retention { display: flex; flex-direction: column; gap: 10px; }
+.az-retention-row { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; transition: background 0.15s; }
+.az-retention-row:hover, .az-retention-row-active { background: rgba(255,107,53,0.08); }
 .az-retention-label { width: 36px; font-size: 11px; color: rgba(255,255,255,0.4); flex-shrink: 0; }
 .az-retention-track { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 999px; overflow: hidden; }
 .az-retention-fill { height: 100%; background: #FF6B35; border-radius: 999px; }
 .az-retention-pct { width: 40px; text-align: right; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.az-audience-bar { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; margin-bottom: 12px; }
-.az-audience-fill { height: 100%; background: #FF6B35; }
-.az-audience-legend { display: flex; gap: 16px; font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 10px; }
-.az-audience-legend span { display: flex; align-items: center; gap: 6px; }
-.az-dot-orange, .az-dot-gray { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.az-dot-orange { background: #FF6B35; }
-.az-dot-gray { background: rgba(255,255,255,0.2); }
-.az-audience-note { font-size: 11px; color: rgba(255,255,255,0.35); margin: 0; }
-.az-status-list { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; }
-.az-status-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.az-status-label { flex: 1; color: rgba(255,255,255,0.6); text-transform: capitalize; }
-.az-status-count { color: #fff; font-weight: 700; width: 30px; text-align: right; }
-.az-status-revenue { color: #FF6B35; font-weight: 700; width: 90px; text-align: right; }
+.az-donut-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.az-donut-svg-wrap { position: relative; flex-shrink: 0; }
+.az-donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+.az-donut-center strong { font-size: 15px; font-weight: 800; color: #fff; }
+.az-donut-center span { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.az-donut-legend { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 8px; }
+.az-donut-legend-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; padding: 4px 0; }
+.az-donut-legend-row i { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.az-donut-legend-row span { flex: 1; color: rgba(255,255,255,0.6); }
+.az-donut-legend-row strong { color: #fff; font-weight: 700; }
 .az-heatmap { overflow-x: auto; }
 .az-heatmap-hours { display: flex; padding-left: 40px; margin-bottom: 4px; }
 .az-heatmap-hourlabel { flex: 1; min-width: 10px; font-size: 9px; color: rgba(255,255,255,0.3); }
 .az-heatmap-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
 .az-heatmap-day { width: 34px; font-size: 10px; color: rgba(255,255,255,0.4); flex-shrink: 0; }
 .az-heatmap-cells { display: flex; gap: 2px; flex: 1; min-width: 480px; }
-.az-heatmap-cell { flex: 1; height: 16px; border-radius: 3px; min-width: 10px; }
+.az-heatmap-cell { flex: 1; height: 16px; border-radius: 3px; min-width: 10px; cursor: pointer; border: 1px solid transparent; }
+.az-heatmap-cell-active { border-color: #FF6B35 !important; }
 .az-list { display: flex; flex-direction: column; }
 .az-list-row { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.05); }
 .az-list-row:first-child { border-top: none; }
@@ -451,5 +618,5 @@ const AZ_STYLES = `
 .az-upgrade-btn { display: flex; align-items: center; gap: 8px; padding: 0 24px; height: 44px; border-radius: 10px; background: #FF6B35; color: #fff; font-weight: 700; font-size: 14px; border: none; cursor: pointer; margin-top: 6px; }
 .az-upgrade-btn:hover { background: #ff7a4a; }
 @media (max-width: 800px) { .az-two-col { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .az-header-inner, .az-content { padding-left: 16px; padding-right: 16px; } .az-period-switch { display: none; } }
+@media (max-width: 640px) { .az-header-inner, .az-content { padding-left: 16px; padding-right: 16px; } .az-period-switch { display: none; } .az-donut-wrap { flex-direction: column; align-items: flex-start; } }
 `;

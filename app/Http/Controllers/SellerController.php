@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Carbon\Carbon;
 
 class SellerController extends Controller
@@ -187,6 +188,14 @@ return Inertia::render('Seller/Dashboard', compact(
             ->whereNotNull('paid_at')
             ->where('status', '!=', 'refunded');
 
+        // ── Views — deduplicated to match the public views_count definition ──
+        // Video::recordView() only bumps the public counter once per viewer
+        // per 30 minutes, even though it always logs a video_views row. We
+        // replay that same rule here so "Views" here means the same thing as
+        // the number shown on the Dashboard and public profile.
+        $dedupedIdsNow  = $this->dedupedViewIds($videoIds, $periodStart);
+        $dedupedIdsPrev = $period > 0 ? $this->dedupedViewIds($videoIds, $prevStart, $prevEnd) : collect();
+
         // ── KPIs ────────────────────────────────────────────────────────────
         $revenueNow  = (clone $revenueOrders())->where('created_at', '>=', $periodStart)->sum(DB::raw('total - platform_fee'));
         $revenuePrev = $period > 0 ? (clone $revenueOrders())->whereBetween('created_at', [$prevStart, $prevEnd])->sum(DB::raw('total - platform_fee')) : 0;
@@ -196,8 +205,8 @@ return Inertia::render('Seller/Dashboard', compact(
 
         $aov = $ordersNow > 0 ? $revenueNow / $ordersNow : 0;
 
-        $viewsNow  = VideoView::whereIn('video_id', $videoIds)->where('created_at', '>=', $periodStart)->count();
-        $viewsPrev = $period > 0 ? VideoView::whereIn('video_id', $videoIds)->whereBetween('created_at', [$prevStart, $prevEnd])->count() : 0;
+        $viewsNow  = $dedupedIdsNow->count();
+        $viewsPrev = $dedupedIdsPrev->count();
 
         $watchSecondsNow = VideoView::whereIn('video_id', $videoIds)->where('created_at', '>=', $periodStart)->sum('watch_seconds');
 
@@ -237,10 +246,6 @@ return Inertia::render('Seller/Dashboard', compact(
             ->get();
 
         // ── Follower growth ──────────────────────────────────────────────────
-        // Reconstructed from currently-active `follows` rows' created_at.
-        // Reflects when today's followers joined — won't capture churn from
-        // people who followed and later unfollowed, since that row no longer
-        // exists. Standard limitation, still an accurate "how you grew" view.
         $followerGrowth = DB::table('follows')
             ->where('following_id', $sellerId)
             ->where('created_at', '>=', $periodStart)
@@ -250,6 +255,9 @@ return Inertia::render('Seller/Dashboard', compact(
             ->get();
 
         // ── Retention (percent-bucket, real data from video_views.watch_percent) ─
+        // NOTE: uses ALL raw watch events (not deduped) on purpose — a rewatch
+        // is genuine re-engagement signal for retention/watch-time, distinct
+        // from the deduped "Views" headline number above.
         $retentionRow = VideoView::whereIn('video_id', $videoIds)
             ->where('created_at', '>=', $periodStart)
             ->selectRaw('
@@ -268,13 +276,14 @@ return Inertia::render('Seller/Dashboard', compact(
             $reached = (int) ($retentionRow->{'r' . $t} ?? 0);
             return [
                 'threshold' => $t,
-                'pct' => $totalViewsForRetention > 0 ? round(($reached / $totalViewsForRetention) * 100, 1) : 0,
+                'reached'   => $reached,
+                'total'     => $totalViewsForRetention,
+                'pct'       => $totalViewsForRetention > 0 ? round(($reached / $totalViewsForRetention) * 100, 1) : 0,
             ];
         })->values();
 
-        // ── Audience split ──────────────────────────────────────────────────
-        $audienceRow = VideoView::whereIn('video_id', $videoIds)
-            ->where('created_at', '>=', $periodStart)
+        // ── Audience split — uses the same deduped view set as the KPI ───────
+        $audienceRow = VideoView::whereIn('id', $dedupedIdsNow)
             ->selectRaw('
                 COUNT(*) as total_views,
                 COUNT(DISTINCT user_id) as unique_logged_in,
@@ -293,20 +302,24 @@ return Inertia::render('Seller/Dashboard', compact(
             ->where('created_at', '>=', $periodStart)
             ->select('video_id',
                 DB::raw('AVG(watch_percent) as avg_watch_percent'),
-                DB::raw('COUNT(*) as period_views'),
                 DB::raw('SUM(watch_seconds) as total_watch_seconds'))
             ->groupBy('video_id')
             ->get()
             ->keyBy('video_id');
+
+        $dedupedCountByVideo = VideoView::whereIn('id', $dedupedIdsNow)
+            ->select('video_id', DB::raw('count(*) as cnt'))
+            ->groupBy('video_id')
+            ->pluck('cnt', 'video_id');
 
         $topVideos = Video::where('user_id', $sellerId)
             ->select('id', 'ulid', 'title', 'thumbnail_url', 'views_count', 'likes_count', 'comments_count', 'shares_count', 'saves_count', 'duration_seconds', 'published_at')
             ->orderByDesc('views_count')
             ->limit(6)
             ->get()
-            ->map(function ($v) use ($watchStatsByVideo) {
+            ->map(function ($v) use ($watchStatsByVideo, $dedupedCountByVideo) {
                 $w = $watchStatsByVideo->get($v->id);
-                $v->period_views = (int) ($w->period_views ?? 0);
+                $v->period_views = (int) ($dedupedCountByVideo->get($v->id) ?? 0);
                 $v->avg_watch_percent = round((float) ($w->avg_watch_percent ?? 0), 1);
                 $v->total_watch_seconds = (int) ($w->total_watch_seconds ?? 0);
                 return $v;
@@ -443,6 +456,42 @@ return Inertia::render('Seller/Dashboard', compact(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Replays Video::recordView()'s 30-minute-per-viewer cooldown against the
+     * raw video_views log, returning the IDs of rows that "count" as a fresh
+     * view — i.e. the same rule that governs the public views_count counter.
+     * Postgres-specific (uses LAG window function).
+     */
+    private function dedupedViewIds(Collection $videoIds, Carbon $periodStart, ?Carbon $periodEnd = null): Collection
+    {
+        if ($videoIds->isEmpty()) {
+            return collect();
+        }
+
+        $ids = $videoIds->map(fn ($v) => (int) $v)->implode(',');
+        if ($ids === '') {
+            return collect();
+        }
+
+        $sql = "
+            SELECT id FROM (
+                SELECT id, created_at,
+                    LAG(created_at) OVER (
+                        PARTITION BY video_id, COALESCE(user_id::text, session_id)
+                        ORDER BY created_at
+                    ) AS prev_created_at
+                FROM video_views
+                WHERE video_id IN ($ids) AND created_at >= ?" . ($periodEnd ? ' AND created_at < ?' : '') . "
+            ) ranked
+            WHERE prev_created_at IS NULL OR created_at - prev_created_at > INTERVAL '30 minutes'
+        ";
+
+        $bindings = $periodEnd ? [$periodStart, $periodEnd] : [$periodStart];
+        $rows = DB::select($sql, $bindings);
+
+        return collect($rows)->pluck('id');
+    }
 
     private function changePercent(int $sellerId, string $metric, int $days): float
     {
