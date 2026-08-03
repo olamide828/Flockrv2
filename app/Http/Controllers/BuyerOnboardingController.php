@@ -54,6 +54,17 @@ class BuyerOnboardingController extends Controller
             'location' => $validated['location'] ?? $user->location,
         ]);
 
+        $categoryMap = \App\Models\Category::whereIn('name', $validated['interests'])->pluck('id', 'name');
+        foreach ($validated['interests'] as $interestLabel) {
+        $catId = $categoryMap[$interestLabel] ?? null;
+        if ($catId) {
+           \App\Models\UserInterest::updateOrCreate(
+               ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
+               ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
+            );
+     }
+}
+
         return redirect()->route('home')
             ->with('success', 'Your feed is ready! Welcome to Flockr 🎉');
     }

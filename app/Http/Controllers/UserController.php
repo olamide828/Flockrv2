@@ -68,6 +68,11 @@ if ($authUserId && $products->isNotEmpty()) {
                 'is_verified'     => $user->isVerified(),
                 'following_count' => $user->following_count ?? 0,
                 'total_sales'     => $user->total_sales ?? 0,
+                'gamification' => $isOwnProfile
+    ? ($user->role === 'seller'
+        ? app(\App\Services\GamificationService::class)->forSeller($user)
+        : app(\App\Services\GamificationService::class)->forBuyer($user))
+    : null,
             ]),
             'videos'        => $videos,
             'products'      => $products,

@@ -27,6 +27,7 @@ import {
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
+import LevelStreakChip from '@/Components/LevelStreakChip';
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import SubscriptionSuccessSheet from '@/Components/SubscriptionSuccessSheet';
 
@@ -785,6 +786,7 @@ export default function UserProfile({
                                 </div>
                             )}
                             <BadgesDisplay badges={profileUser.badges} />
+                            <LevelStreakChip gamification={profileUser.gamification} />
                         </div>
                     </div>
                 </div>
@@ -921,6 +923,7 @@ export default function UserProfile({
                                 </div>
                             )}
                             <BadgesDisplay badges={profileUser.badges} />
+                            <LevelStreakChip gamification={profileUser.gamification} />
                         </div>
                     )}
 

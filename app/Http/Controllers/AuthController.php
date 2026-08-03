@@ -159,6 +159,17 @@ class AuthController extends Controller
     'pickup_postal_code' => $validated['pickup_postal_code'] ?? null,
         ]);
 
+        $categoryMap = \App\Models\Category::whereIn('name', $validated['product_categories'])->pluck('id', 'name');
+foreach ($validated['product_categories'] as $catLabel) {
+    $catId = $categoryMap[$catLabel] ?? null;
+    if ($catId) {
+        \App\Models\UserInterest::updateOrCreate(
+            ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
+            ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
+        );
+    }
+}
+
         return redirect()->route('seller.dashboard')
             ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }

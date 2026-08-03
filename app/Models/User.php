@@ -46,6 +46,7 @@ class User extends Authenticatable implements MustVerifyEmail
     'pickup_street', 
     'pickup_city', 
     'pickup_state', 
+    'pickup_state_code', 
     'pickup_postal_code',
     'deletion_scheduled_at',
     'email_verified_at',
