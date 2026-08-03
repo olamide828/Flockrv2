@@ -1,9 +1,8 @@
-<?php
-
 namespace App\Http\Controllers;
 
 use App\Models\Coupon;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Review;
 use App\Notifications\CouponEarnedNotification;
 use Illuminate\Http\JsonResponse;
@@ -72,23 +71,42 @@ class ReviewController extends Controller
                 'photos'    => !empty($photoKeys) ? $photoKeys : null,
             ]);
 
+            // 1. Update the Product stats if the order is tied to a specific product
+            if ($order->product_id) {
+                DB::statement("
+                    UPDATE products SET
+                        avg_rating = (
+                            SELECT COALESCE(ROUND(AVG(rating)::numeric, 2), 0.00)
+                            FROM reviews
+                            WHERE order_id IN (SELECT id FROM orders WHERE product_id = ?)
+                        ),
+                        total_reviews = (
+                            SELECT COUNT(*)
+                            FROM reviews
+                            WHERE order_id IN (SELECT id FROM orders WHERE product_id = ?)
+                        )
+                    WHERE id = ?
+                ", [$order->product_id, $order->product_id, $order->product_id]);
+            }
+
+            // 2. Update the User (Seller) stats safely with COALESCE
             DB::statement("
-    UPDATE users SET
-        avg_rating    = (
-            SELECT ROUND(AVG(avg_rating)::numeric, 2)
-            FROM products
-            WHERE seller_id = ? AND total_reviews > 0
-        ),
-        total_reviews = (
-            SELECT COALESCE(SUM(total_reviews), 0)
-            FROM products
-            WHERE seller_id = ?
-        )
-    WHERE id = ?
-", [$order->seller_id, $order->seller_id, $order->seller_id]);
+                UPDATE users SET
+                    avg_rating = (
+                        SELECT COALESCE(ROUND(AVG(avg_rating)::numeric, 2), 0.00)
+                        FROM products
+                        WHERE seller_id = ? AND total_reviews > 0
+                    ),
+                    total_reviews = (
+                        SELECT COALESCE(SUM(total_reviews), 0)
+                        FROM products
+                        WHERE seller_id = ?
+                    )
+                WHERE id = ?
+            ", [$order->seller_id, $order->seller_id, $order->seller_id]);
 
             $coupon = Coupon::create([
-                'code' => 'FLKRATE-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)),
+                'code'       => 'FLKRATE-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)),
                 'buyer_id'   => $order->buyer_id,
                 'review_id'  => $review->id,
                 'amount'     => 200,
@@ -126,7 +144,7 @@ class ReviewController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        $review  = Review::where('order_id', $order->id)->first();
+        $review   = Review::where('order_id', $order->id)->first();
         $minHours = 24; // match store() — change both to 12 in production
 
         return response()->json([
