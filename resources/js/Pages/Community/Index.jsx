@@ -20,7 +20,7 @@ import RoomSettingsModal from '@/Components/Community/RoomSettingsModal'
 import CreateRoomModal from '@/Components/Community/CreateRoomModal'
 import RoomTrayAvatar from '@/Components/Community/RoomTrayAvatar'
 import ShareRoomSheet from '@/Components/Community/ShareRoomSheet'
-import MediaLightbox from '@/Components/Community/MediaLightbox'
+import MediaLightbox from '../../Components/Community/MediaLightBox';
 
 const FEED_CACHE_KEY = 'flockr_community_feed_cache'
 

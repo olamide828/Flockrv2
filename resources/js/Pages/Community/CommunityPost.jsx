@@ -17,7 +17,8 @@ import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
 import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge';
-import MediaLightbox from '@/Components/Community/MediaLightbox'
+import MediaLightbox from '../../Components/Community/MediaLightBox';
+
 
 // ── Comment like button ──────────────────────────────────────────────────────
 function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 }) {
