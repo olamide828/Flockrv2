@@ -22,7 +22,9 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
   const [msgAction, setMsgAction] = useState(null)
   const [pendingMedia, setPendingMedia] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null) // 0-100 while uploading, null otherwise
-  const [typing,    setTyping]    = useState(false)
+
+const [typingUsers, setTypingUsers] = useState({}) 
+const typingTimersRef = useRef({}) 
   const [headerMenu, setHeaderMenu] = useState(false)
   const [showShare,  setShowShare]  = useState(false)
   const [showInfo,   setShowInfo]   = useState(false)
@@ -52,22 +54,11 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     if (!loading) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior:'smooth' }), 60)
   }, [messages.length, loading])
 
-  useEffect(() => {
+useEffect(() => {
     if (!window.Echo) return
-    channelRef.current?.unsubscribe()
     const channel = window.Echo.private(`room.${room.id}`)
     channel.listen('.RoomMessageSent', (e) => setMessages(p => {
-      // Already have the real message (e.g. the HTTP response for our own
-      // send already landed) — nothing to do.
       if (p.some(m => m.id === e.message.id)) return p
-
-      // If this is our own message and its optimistic placeholder is still
-      // showing, swap it in-place instead of appending a second bubble.
-      // Previously this always appended, then relied on the later HTTP
-      // response to prune the optimistic copy — which worked, but left a
-      // brief window where both were visible (the "flashes then leaves"
-      // duplicate). Merging here means there's never a second bubble at all,
-      // regardless of whether the broadcast or the HTTP response wins the race.
       const optIndex = p.findIndex(m =>
         String(m.id).startsWith('opt-') &&
         m.user_id === e.message.user_id &&
@@ -88,12 +79,23 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     })
     channel.listenForWhisper('typing', (e) => {
       if (e.user_id === auth?.user?.id) return
-      setTyping(true)
-      clearTimeout(typingTimeoutRef.current)
-      typingTimeoutRef.current = setTimeout(() => setTyping(false), 2000)
+      setTypingUsers(prev => ({ ...prev, [e.user_id]: e.name || 'Someone' }))
+      clearTimeout(typingTimersRef.current[e.user_id])
+      typingTimersRef.current[e.user_id] = setTimeout(() => {
+        setTypingUsers(prev => {
+          const next = { ...prev }
+          delete next[e.user_id]
+          return next
+        })
+      }, 2000)
     })
     channelRef.current = channel
-    return () => { clearTimeout(typingTimeoutRef.current); channelRef.current?.unsubscribe() }
+    return () => {
+      Object.values(typingTimersRef.current).forEach(clearTimeout)
+      channel.stopListening('.RoomMessageSent')
+      channel.stopListening('.RoomMessageDeleted')
+      channel.stopListeningForWhisper('typing')
+    }
   }, [room.id])
 
   useEffect(() => { if (replyTo) inputRef.current?.focus() }, [replyTo])
@@ -103,7 +105,12 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
     const now = Date.now()
     if (now - lastTypingSentRef.current < 2000) return
     lastTypingSentRef.current = now
-    try { window.Echo.private(`room.${room.id}`).whisper('typing', { user_id: auth?.user?.id }) } catch {}
+    try {
+      window.Echo.private(`room.${room.id}`).whisper('typing', {
+        user_id: auth?.user?.id,
+        name: auth?.user?.name,
+      })
+    } catch {}
   }
 
   const loadMore = async () => {
@@ -395,16 +402,23 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
           </div>
         ))}
 
-        {typing && (
-          <div style={{ display:'flex', alignItems:'flex-end', gap:8, padding:'2px 12px', marginTop:4 }}>
-            <div style={{ width:32, flexShrink:0 }} />
-            <div style={{ padding:'10px 14px', background:'rgba(255,255,255,0.09)', borderRadius:'5px 18px 18px 18px', display:'flex', alignItems:'center', gap:4 }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,0.5)', animation:'typingDot 1.2s ease-in-out infinite' }} />
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,0.5)', animation:'typingDot 1.2s ease-in-out infinite', animationDelay:'0.2s' }} />
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,0.5)', animation:'typingDot 1.2s ease-in-out infinite', animationDelay:'0.4s' }} />
+        {(() => {
+          const names = Object.values(typingUsers)
+          if (names.length === 0) return null
+          const text = names.length === 1
+            ? `${names[0]} is typing`
+            : `${names[0]} and ${names.length - 1} other${names.length - 1 > 1 ? 's' : ''} typing`
+          return (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'2px 16px', marginTop:4 }}>
+              <span style={{ color:'rgba(255,255,255,0.4)', fontSize:12, fontStyle:'italic' }}>{text}</span>
+              <span style={{ display:'flex', gap:4 }}>
+                <span style={{ width:5, height:5, borderRadius:'50%', background:'rgba(255,255,255,0.4)', animation:'typingDot 1.2s ease-in-out infinite' }} />
+                <span style={{ width:5, height:5, borderRadius:'50%', background:'rgba(255,255,255,0.4)', animation:'typingDot 1.2s ease-in-out infinite', animationDelay:'0.2s' }} />
+                <span style={{ width:5, height:5, borderRadius:'50%', background:'rgba(255,255,255,0.4)', animation:'typingDot 1.2s ease-in-out infinite', animationDelay:'0.4s' }} />
+              </span>
             </div>
-          </div>
-        )}
+          )
+        })()}
         <div ref={bottomRef} style={{ height:8 }} />
       </div>
 

@@ -763,6 +763,27 @@ useEffect(() => {
                     70%  { transform: scale(1.2); }
                     100% { transform: scale(1); }
                 }
+
+                @media (min-width: 768px) {
+                    .md-sidebar { display: flex !important; }
+                    .mobile-topbar { display: none !important; }
+                    .mobile-bottom-nav { display: none !important; }
+                }
+                .main-paged .page-content { padding-bottom: 0; }
+                input:focus { border-color: var(--flockr-orange) !important; outline: none; }
+                * { box-sizing: border-box; }
+                ::-webkit-scrollbar { display: none; }
+                @keyframes badgePop {
+                    0%   { transform: scale(0); }
+                    70%  { transform: scale(1.2); }
+                    100% { transform: scale(1); }
+                }
+                @media (max-width: 767px) {
+                    body.chat-open .mobile-topbar     { display: none !important; }
+                    body.chat-open .mobile-bottom-nav { display: none !important; }
+                    body.chat-open .page-content       { overflow: hidden !important; }
+                }
+
             `}</style>
         </div>
     );

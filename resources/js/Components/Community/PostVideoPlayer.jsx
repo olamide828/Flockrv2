@@ -76,7 +76,7 @@ export default function PostVideoPlayer({ src, poster, onReport, fillContainer =
   }
 
   return (
-    <div ref={wrapRef} onClick={togglePlay} style={{ position: 'relative', cursor: 'pointer', background: '#000', height: fillContainer ? '100%' : 'auto' }}>
+    <div ref={wrapRef} onClick={togglePlay} style={{ position: 'relative', cursor: 'pointer', background: '#000', height: '100%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <video
         ref={videoRef}
         src={src}
@@ -85,10 +85,11 @@ export default function PostVideoPlayer({ src, poster, onReport, fillContainer =
         playsInline
         loop
         style={{
-          width: '100%',
-          height: isFullscreen ? '100vh' : (fillContainer ? '100%' : 'auto'),
-          maxHeight: isFullscreen || fillContainer ? 'none' : 400,
-          objectFit: isFullscreen ? 'contain' : 'cover',
+          maxWidth: '100%',
+          maxHeight: '100%',
+          width: isFullscreen ? 'auto' : '100%',
+          height: isFullscreen ? '100vh' : '100%',
+          objectFit: 'contain',
           display: 'block',
         }}
       />
@@ -97,9 +98,12 @@ export default function PostVideoPlayer({ src, poster, onReport, fillContainer =
         <button onClick={toggleMute} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
         </button>
-        <button onClick={toggleFullscreen} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {isFullscreen ? <RiFullscreenExitLine size={15} color="#fff" /> : <RiFullscreenLine size={15} color="#fff" />}
-        </button>
+         <button
+    onClick={onExpand ? (e) => { e.stopPropagation(); onExpand() } : toggleFullscreen}
+    style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+  >
+    {isFullscreen ? <RiFullscreenExitLine size={15} color="#fff" /> : <RiFullscreenLine size={15} color="#fff" />}
+  </button>
         <button onClick={e => { e.stopPropagation(); setShowMore(true) }} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <RiMoreLine size={17} color="#fff" />
         </button>

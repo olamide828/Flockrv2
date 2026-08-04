@@ -20,6 +20,7 @@ import RoomSettingsModal from '@/Components/Community/RoomSettingsModal'
 import CreateRoomModal from '@/Components/Community/CreateRoomModal'
 import RoomTrayAvatar from '@/Components/Community/RoomTrayAvatar'
 import ShareRoomSheet from '@/Components/Community/ShareRoomSheet'
+import MediaLightbox from '@/Components/Community/MediaLightbox'
 
 const FEED_CACHE_KEY = 'flockr_community_feed_cache'
 
@@ -74,6 +75,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   if (cachedFeedRef.current === undefined) cachedFeedRef.current = readFeedCache()
   const cachedFeed = cachedFeedRef.current
 
+  const [lightboxState, setLightboxState] = useState(null) // { postIndex, mediaIndex } | null
   const [posts,   setPosts]   = useState(() => cachedFeed?.posts ?? [])
   const [loading, setLoading] = useState(() => !cachedFeed)
   const [page,    setPage]    = useState(() => cachedFeed?.page ?? 1)
@@ -96,6 +98,12 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   const activeRoom = activeRoomId ? joinedRooms.find(r => r.id === activeRoomId) : null
 
   useEffect(() => { activeRoomIdRef.current = activeRoomId }, [activeRoomId])
+
+  useEffect(() => {
+    if (activeRoom) document.body.classList.add('chat-open')
+    else             document.body.classList.remove('chat-open')
+    return () => document.body.classList.remove('chat-open')
+  }, [activeRoom])
 
   // ── Auto-open Discover with a prefilled invite code from /community?invite=CODE ──
   useEffect(() => {
@@ -366,6 +374,20 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
       {shareRoom       && <ShareRoomSheet room={shareRoom} onClose={() => setShareRoom(null)} />}
       {joinTarget      && <RoomJoinModal room={joinTarget} onClose={() => setJoinTarget(null)} onConfirm={doJoin} />}
       {reportPost      && <PostReportModal post={reportPost} onClose={() => setReportPost(null)} onSubmit={submitPostReport} />}
+        {lightboxState && (
+  <MediaLightbox
+    posts={posts}
+    startPostIndex={lightboxState.postIndex}
+    startMediaIndex={lightboxState.mediaIndex}
+    onClose={() => setLightboxState(null)}
+    auth={auth}
+    onLike={handleLike}
+    followingMap={followingMap}
+    onFollowChange={handleFollowChange}
+    onLoadMore={() => loadFeed()}
+    hasMore={hasMore}
+  />
+)}
 
       <div
         ref={scrollElRef}
@@ -513,16 +535,17 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
                 </div>
               )}
 
-              {posts.map(post => (
-                <PostCard key={post.id} post={post} auth={auth} showToast={showToast}
-                  onDelete={handleDelete} onLike={handleLike}
-                  onDismiss={handleDismiss} onBlockAuthor={handleBlockAuthor}
-                  onReport={setReportPost}
-                  isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
-                  onFollowChange={handleFollowChange}
-                  onViewed={handleViewed}
-                />
-              ))}
+              {posts.map((post, i) => (
+  <PostCard key={post.id} post={post} auth={auth} showToast={showToast}
+    onDelete={handleDelete} onLike={handleLike}
+    onDismiss={handleDismiss} onBlockAuthor={handleBlockAuthor}
+    onReport={setReportPost}
+    isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
+    onFollowChange={handleFollowChange}
+    onViewed={handleViewed}
+    onOpenLightbox={(mediaIndex) => setLightboxState({ postIndex: i, mediaIndex })}
+  />
+))}
 
               {hasMore && <div ref={loaderRef} style={{ height:1 }} />}
               {loading && posts.length > 0 && (

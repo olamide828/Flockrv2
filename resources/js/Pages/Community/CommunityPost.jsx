@@ -6,7 +6,7 @@ import { useToast } from '@/Components/Toast'
 import {
   RiArrowLeftLine, RiHeartLine, RiHeartFill, RiChat1Line,
   RiEyeLine, RiSendPlaneFill, RiVerifiedBadgeLine, RiShareForwardLine,
-  RiMoreLine, RiCloseLine, RiInformationLine,
+  RiMoreLine, RiCloseLine, RiInformationLine, RiFullscreenLine,
 } from 'react-icons/ri'
 import Av from '@/Components/Community/Av'
 import FollowButton from '@/Components/Community/FollowButton'
@@ -17,6 +17,7 @@ import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
 import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import MediaLightbox from '@/Components/Community/MediaLightbox'
 
 // ── Comment like button ──────────────────────────────────────────────────────
 function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 }) {
@@ -156,6 +157,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const [showShare, setShowShare] = useState(false)
   const [showViewers, setShowViewers] = useState(false)
   const [showInfoTip, setShowInfoTip] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(null)
   const [showReportModal, setShowReportModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const inputRef = useRef(null)
@@ -357,19 +359,41 @@ export default function CommunityPost({ post: initPost, comments: initComments }
 
             {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}>{post.content}</p>}
 
-            {(post.media?.length > 0 || post.media_url) && (
-              <div style={{ borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000' }}>
-                {(() => {
-                  const media = post.media?.length ? post.media : [{ media_url: post.media_url, media_type: post.media_type, thumbnail_url: post.thumbnail_url }]
-                  if (media.length === 1) {
-                    return media[0].media_type === 'video'
-                      ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onReport={() => setShowReportModal(true)} />
-                      : <img src={media[0].media_url} alt="" style={{ width: '100%', maxHeight: 560, objectFit: 'cover', display: 'block' }} />
-                  }
-                  return <PostMediaCarousel media={media} onReport={() => setShowReportModal(true)} />
-                })()}
-              </div>
-            )}
+   {(post.media?.length > 0 || post.media_url) && (
+  <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>
+    {(() => {
+      const media = post.media?.length ? post.media : [{ media_url: post.media_url, media_type: post.media_type, thumbnail_url: post.thumbnail_url }]
+      if (media.length === 1) {
+        return media[0].media_type === 'video'
+          ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onReport={() => setShowReportModal(true)} onExpand={() => setLightboxIndex(0)} />
+          : (
+            <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img src={media[0].media_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
+              <button onPointerDown={(e) => { e.stopPropagation(); setLightboxIndex(0) }} style={{ position: 'absolute', top: 10, left: 10, width: 32, height: 32, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                <RiFullscreenLine size={15} />
+              </button>
+            </div>
+          )
+      }
+      return <PostMediaCarousel media={media} onReport={() => setShowReportModal(true)} height={560} onExpand={setLightboxIndex} />
+    })()}
+  </div>
+)}
+
+{lightboxIndex !== null && (
+  <MediaLightbox
+    posts={[post]}
+    startPostIndex={0}
+    startMediaIndex={lightboxIndex}
+    onClose={() => setLightboxIndex(null)}
+    auth={auth}
+    onLike={handleLike}
+    followingMap={{ [post.user_id]: isFollowingAuthor }}
+    onFollowChange={handleFollowChange}
+    onLoadMore={() => {}}
+    hasMore={false}
+  />
+)}
 
             <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: '0 0 14px' }}>{timeAgo(post.created_at)}</p>
 
