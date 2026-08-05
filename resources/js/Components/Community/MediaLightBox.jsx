@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from '@inertiajs/react'
 import {
   RiCloseLine, RiHeartLine, RiHeartFill, RiChat1Line, RiShareForwardLine, RiEyeLine,
+  RiMoreLine, RiVolumeMuteLine, RiVolumeUpLine, RiPlayFill, RiScanLine,
+  RiAlertLine, RiProhibitedLine,
 } from 'react-icons/ri'
 import Av from './Av'
 import FollowButton from './FollowButton'
@@ -15,34 +17,127 @@ function mediaFor(post) {
   return post.media?.length ? post.media : (post.media_url ? [{ media_url: post.media_url, media_type: post.media_type }] : [])
 }
 
+function MoreSheet({ onClose, autoAdvance, onToggleAutoAdvance, speed, onSetSpeed, hasVideo, onReport, onBlock }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1009, background: 'rgba(0,0,0,0.55)' }} />
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1010, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 14px' }}>
+          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Options</span>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <RiCloseLine size={18} />
+          </button>
+        </div>
+
+        {hasVideo && (
+          <>
+            <button onPointerDown={onToggleAutoAdvance} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                <RiScanLine size={18} color="#FF6B35" /> Auto-scroll to next
+              </span>
+              <span style={{ padding: '4px 10px', borderRadius: 999, background: autoAdvance ? 'rgba(255,107,53,0.2)' : 'rgba(255,255,255,0.08)', color: autoAdvance ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700 }}>
+                {autoAdvance ? 'On' : 'Off'}
+              </span>
+            </button>
+
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Playback Speed</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map(s => (
+                  <button key={s} onPointerDown={() => onSetSpeed(s)}
+                    style={{ padding: '6px 13px', borderRadius: 999, border: `1px solid ${speed === s ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, background: speed === s ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.04)', color: speed === s ? '#FF6B35' : '#fff', fontSize: 12, fontWeight: speed === s ? 700 : 400, cursor: 'pointer' }}>
+                    {s === 1 ? 'Normal' : `${s}x`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <button onPointerDown={onReport} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <RiAlertLine size={18} color="rgba(255,255,255,0.5)" /> Report post
+        </button>
+        {onBlock && (
+          <button onPointerDown={onBlock} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 700 }}>
+            <RiProhibitedLine size={18} /> Block author
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function MediaLightbox({
   posts, startPostIndex, startMediaIndex = 0, onClose,
   auth, onLike, followingMap, onFollowChange, onLoadMore, hasMore,
+  onReport, onBlockAuthor,
 }) {
   const [postIndex, setPostIndex] = useState(startPostIndex)
   const [mediaIndexByPost, setMediaIndexByPost] = useState(() => ({ [posts[startPostIndex]?.id]: startMediaIndex }))
   const [autoAdvance, setAutoAdvance] = useState(() => {
     try { return localStorage.getItem(AUTO_ADVANCE_KEY) !== 'off' } catch { return true }
   })
+  const [muted, setMuted] = useState(true)
+  const [speed, setSpeed] = useState(1)
+  const [progress, setProgress] = useState(0)
+  const [duration, setDuration] = useState(0)
   const [shareTarget, setShareTarget] = useState(null)
+  const [showMore, setShowMore] = useState(false)
 
   const outerRef = useRef(null)
-  const innerRefs = useRef({})   // postId -> horizontal track element
-  const videoRefs = useRef({})   // `${postId}-${mediaIdx}` -> video element
+  const slideRefs = useRef(new Map())     // postId -> outer slide element
+  const innerRefs = useRef({})            // postId -> horizontal track element
+  const videoRefs = useRef({})            // `${postId}-${mediaIdx}` -> video element
+  const seekBarRef = useRef(null)
   const loadingMoreRef = useRef(false)
 
   const activePost = posts[postIndex]
   const activeMedia = activePost ? mediaFor(activePost) : []
   const activeMediaIndex = activePost ? (mediaIndexByPost[activePost.id] ?? 0) : 0
   const hasVideoInActivePost = activeMedia.some(m => m.media_type === 'video')
+  const activeVideoKey = activePost ? `${activePost.id}-${activeMediaIndex}` : null
+  const activeVideoEl = activeVideoKey ? videoRefs.current[activeVideoKey] : null
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
 
+  // If the active post gets removed from `posts` (e.g. blocked/deleted), close gracefully.
   useEffect(() => {
-    outerRef.current?.children[startPostIndex]?.scrollIntoView({ behavior: 'auto', block: 'start' })
+    if (!posts[postIndex]) onClose()
+  }, [posts, postIndex, onClose])
+
+  // ── IntersectionObserver-driven "which post is active" — robust against
+  // layout timing, unlike scroll-position math which can divide by a
+  // transient zero height and silently go stale. ──────────────────────────
+  useEffect(() => {
+    const root = outerRef.current
+    if (!root) return
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+          const idx = Number(entry.target.dataset.index)
+          setPostIndex(prev => (prev !== idx ? idx : prev))
+          if (hasMore && !loadingMoreRef.current && posts.length - idx <= 3) {
+            loadingMoreRef.current = true
+            Promise.resolve(onLoadMore?.()).finally(() => { loadingMoreRef.current = false })
+          }
+        }
+      })
+    }, { root, threshold: [0.6] })
+
+    slideRefs.current.forEach(el => el && observer.observe(el))
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posts.length])
+
+  useEffect(() => {
+    const el = slideRefs.current.get(posts[startPostIndex]?.id)
+    el?.scrollIntoView({ behavior: 'auto', block: 'start' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -50,27 +145,38 @@ export default function MediaLightbox({
   useEffect(() => {
     Object.entries(videoRefs.current).forEach(([key, el]) => {
       if (!el) return
-      const isActive = key === `${activePost?.id}-${activeMediaIndex}`
-      if (isActive) el.play().catch(() => {})
+      if (key === activeVideoKey) { el.muted = muted; el.playbackRate = speed; el.play().catch(() => {}) }
       else el.pause()
     })
-  }, [postIndex, activeMediaIndex, activePost?.id])
+  }, [postIndex, activeMediaIndex, activePost?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onOuterScroll = useCallback(() => {
-    const el = outerRef.current
-    if (!el) return
-    const i = Math.round(el.scrollTop / el.clientHeight)
-    if (i !== postIndex && posts[i]) setPostIndex(i)
+  useEffect(() => {
+    if (activeVideoEl) activeVideoEl.muted = muted
+  }, [muted, activeVideoEl])
 
-    if (hasMore && !loadingMoreRef.current && posts.length - i <= 3) {
-      loadingMoreRef.current = true
-      Promise.resolve(onLoadMore?.()).finally(() => { loadingMoreRef.current = false })
+  useEffect(() => {
+    if (activeVideoEl) activeVideoEl.playbackRate = speed
+  }, [speed, activeVideoEl])
+
+  // Seek-bar progress for the active video only.
+  useEffect(() => {
+    const el = activeVideoEl
+    if (!el) { setProgress(0); setDuration(0); return }
+    const onTime = () => { if (el.duration) setProgress((el.currentTime / el.duration) * 100) }
+    const onMeta = () => setDuration(el.duration || 0)
+    el.addEventListener('timeupdate', onTime)
+    el.addEventListener('loadedmetadata', onMeta)
+    if (el.duration) setDuration(el.duration)
+    return () => {
+      el.removeEventListener('timeupdate', onTime)
+      el.removeEventListener('loadedmetadata', onMeta)
     }
-  }, [postIndex, posts, hasMore, onLoadMore])
+  }, [activeVideoEl])
 
   const scrollToPost = (i) => {
     if (i < 0 || i >= posts.length) return
-    outerRef.current?.children[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const el = slideRefs.current.get(posts[i]?.id)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const scrollToMediaWithin = (post, i) => {
@@ -79,13 +185,14 @@ export default function MediaLightbox({
 
   const onInnerScroll = (post) => () => {
     const track = innerRefs.current[post.id]
-    if (!track) return
+    if (!track || !track.clientWidth) return
     const i = Math.round(track.scrollLeft / track.clientWidth)
     setMediaIndexByPost(prev => prev[post.id] === i ? prev : { ...prev, [post.id]: i })
   }
 
   const handleVideoEnded = (post, mediaIdx) => {
-    if (!autoAdvance || post.id !== activePost?.id || mediaIdx !== activeMediaIndex) return
+    if (post.id !== activePost?.id || mediaIdx !== activeMediaIndex) return
+    if (!autoAdvance) return
     const items = mediaFor(post)
     if (mediaIdx < items.length - 1) scrollToMediaWithin(post, mediaIdx + 1)
     else scrollToPost(postIndex + 1)
@@ -99,24 +206,45 @@ export default function MediaLightbox({
     })
   }
 
+  const onSeek = useCallback((e) => {
+    const el = activeVideoEl
+    if (!el?.duration || !seekBarRef.current) return
+    const rect = seekBarRef.current.getBoundingClientRect()
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    el.currentTime = pct * el.duration
+    setProgress(pct * 100)
+  }, [activeVideoEl])
+
   if (!activePost) return null
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#000', touchAction: 'manipulation' }}>
       {shareTarget && <PostShareSheet post={shareTarget} onClose={() => setShareTarget(null)} />}
+      {showMore && (
+        <MoreSheet
+          onClose={() => setShowMore(false)}
+          autoAdvance={autoAdvance}
+          onToggleAutoAdvance={toggleAutoAdvance}
+          speed={speed}
+          onSetSpeed={setSpeed}
+          hasVideo={hasVideoInActivePost}
+          onReport={() => { setShowMore(false); onReport?.(activePost) }}
+          onBlock={onBlockAuthor && auth?.user?.id !== activePost.user_id
+            ? () => { setShowMore(false); onBlockAuthor(activePost) }
+            : null}
+        />
+      )}
 
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0))' }}>
         <button onPointerDown={onClose} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <RiCloseLine size={20} />
         </button>
-        {hasVideoInActivePost ? (
-          <button onPointerDown={toggleAutoAdvance} style={{ padding: '6px 12px', borderRadius: 999, background: autoAdvance ? 'rgba(255,107,53,0.2)' : 'rgba(255,255,255,0.12)', border: `1px solid ${autoAdvance ? 'rgba(255,107,53,0.4)' : 'rgba(255,255,255,0.18)'}`, color: autoAdvance ? '#FF6B35' : 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-            Auto-scroll {autoAdvance ? 'On' : 'Off'}
-          </button>
-        ) : <div style={{ width: 38 }} />}
+        <button onPointerDown={() => setShowMore(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+          <RiMoreLine size={20} />
+        </button>
       </div>
 
-      <div ref={outerRef} onScroll={onOuterScroll}
+      <div ref={outerRef}
         style={{ height: '100%', overflowY: 'auto', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
         {posts.map((post, pIdx) => {
           const media = mediaFor(post)
@@ -124,7 +252,9 @@ export default function MediaLightbox({
           const isActiveSlide = pIdx === postIndex
 
           return (
-            <div key={post.id} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+            <div key={post.id} data-index={pIdx}
+              ref={el => { if (el) slideRefs.current.set(post.id, el); else slideRefs.current.delete(post.id) }}
+              style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', display: 'flex', flexDirection: 'column' }}>
               <div ref={el => { innerRefs.current[post.id] = el }} onScroll={onInnerScroll(post)}
                 style={{ flex: 1, display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
                 {media.map((item, mi) => (
@@ -135,6 +265,7 @@ export default function MediaLightbox({
                         src={item.media_url}
                         poster={item.thumbnail_url}
                         playsInline
+                        muted={muted}
                         autoPlay={isActiveSlide && mi === mIdx}
                         onEnded={() => handleVideoEnded(post, mi)}
                         onClick={(e) => { const v = e.currentTarget; v.paused ? v.play().catch(() => {}) : v.pause() }}
@@ -151,6 +282,20 @@ export default function MediaLightbox({
                 <div style={{ position: 'absolute', top: 60, right: 14, padding: '3px 9px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, fontWeight: 700 }}>
                   {mIdx + 1}/{media.length}
                 </div>
+              )}
+
+              {isActiveSlide && media[mIdx]?.media_type === 'video' && (
+                <>
+                  <button onPointerDown={() => setMuted(m => !m)} style={{ position: 'absolute', bottom: 96, right: 14, width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', zIndex: 4 }}>
+                    {muted ? <RiVolumeMuteLine size={16} /> : <RiVolumeUpLine size={16} />}
+                  </button>
+                  <div ref={seekBarRef} onClick={onSeek}
+                    style={{ position: 'absolute', bottom: 78, left: 16, right: 16, height: 16, display: 'flex', alignItems: 'center', cursor: 'pointer', zIndex: 4 }}>
+                    <div style={{ width: '100%', height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.25)' }}>
+                      <div style={{ height: '100%', borderRadius: 999, background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
+                    </div>
+                  </div>
+                </>
               )}
 
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.85), rgba(0,0,0,0))' }}>

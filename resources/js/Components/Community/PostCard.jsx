@@ -3,8 +3,8 @@ import { Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import {
   RiHeartLine, RiHeartFill, RiChat1Line, RiMoreLine, RiDeleteBinLine,
-  RiVerifiedBadgeLine, RiShareForwardLine, RiEyeLine, RiAlertLine,
-  RiProhibitedLine, RiInformationLine,
+  RiShareForwardLine, RiEyeLine, RiAlertLine,
+  RiProhibitedLine, RiInformationLine, RiFullscreenLine,
 } from 'react-icons/ri'
 import Av from './Av'
 import FollowButton from './FollowButton'
@@ -17,7 +17,7 @@ import VerifiedBadge from '@/Components/VerifiedBadge';
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
-  isFollowingAuthor, onFollowChange, onViewed,
+  isFollowingAuthor, onFollowChange, onViewed, onOpenLightbox,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showShare, setShowShare] = useState(false)
@@ -32,8 +32,6 @@ export default function PostCard({
   const cardRef = useRef(null)
   const viewedRef = useRef(false)
 
-  // ── Record a view once this card has been visible for ~1s while scrolling,
-  // same as X/Instagram — no click-through required. ──────────────────────
   useEffect(() => {
     if (viewedRef.current || !cardRef.current) return
     let dwellTimer = null
@@ -151,14 +149,23 @@ export default function PostCard({
         )}
 
         {media.length > 0 && (
-          <div style={{ borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000' }}
-            onClick={e => e.stopPropagation()}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ position:'relative', borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000', height:460 }}>
             {media.length === 1 ? (
               media[0].media_type === 'video'
-                ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onReport={() => onReport(post)} />
-                : <img src={media[0].media_url} alt="" style={{ width:'100%', maxHeight:520, objectFit:'cover', display:'block' }} />
+                ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onExpand={onOpenLightbox ? () => onOpenLightbox(0) : undefined} />
+                : (
+                  <div style={{ position:'relative', width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <img src={media[0].media_url} alt="" style={{ maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto', objectFit:'contain', display:'block' }} />
+                    {onOpenLightbox && (
+                      <button onPointerDown={(e) => { e.stopPropagation(); onOpenLightbox(0) }} style={{ position:'absolute', top:10, left:10, width:32, height:32, borderRadius:'50%', background:'rgba(0,0,0,0.5)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff' }}>
+                        <RiFullscreenLine size={15} />
+                      </button>
+                    )}
+                  </div>
+                )
             ) : (
-              <PostMediaCarousel media={media} onReport={() => onReport(post)} />
+              <PostMediaCarousel media={media} height={460} onExpand={onOpenLightbox} />
             )}
           </div>
         )}

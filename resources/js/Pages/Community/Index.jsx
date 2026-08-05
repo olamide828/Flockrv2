@@ -183,6 +183,10 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   // ── Realtime unread tracking for the ROOM LIST (separate from RoomChat's
   // own subscription, which only exists while a chat is open). Without
   // this, has_unread only ever updates on a hard page refresh. ──────────
+  // ── Realtime unread + typing tracking for the ROOM LIST ──────────────────
+  const [typingByRoom, setTypingByRoom] = useState({}) // { [roomId]: { [userId]: name } }
+  const typingTimersRef = useRef({}) // { [`${roomId}-${userId}`]: timeoutId }
+
   useEffect(() => {
     if (!window.Echo) return
     const roomIds = joinedRooms.map(r => r.id)
@@ -191,7 +195,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     const channels = roomIds.map(id => {
       const channel = window.Echo.private(`room.${id}`)
       channel.listen('.RoomMessageSent', (e) => {
-        if (e.message?.user_id === auth?.user?.id) return // don't flag our own messages as unread
+        if (e.message?.user_id === auth?.user?.id) return
         const isCurrentlyOpen = activeRoomIdRef.current === id
         setJoinedRooms(prev => {
           const updated = prev.map(r => r.id === id ? { ...r, has_unread: !isCurrentlyOpen } : r)
@@ -199,12 +203,32 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
           return found ? [found, ...updated.filter(r => r.id !== id)] : updated
         })
       })
+      channel.listenForWhisper('typing', (e) => {
+        if (e.user_id === auth?.user?.id) return
+        if (activeRoomIdRef.current === id) return // RoomChat's own indicator handles this case
+        setTypingByRoom(prev => ({ ...prev, [id]: { ...prev[id], [e.user_id]: e.name || 'Someone' } }))
+        const key = `${id}-${e.user_id}`
+        clearTimeout(typingTimersRef.current[key])
+        typingTimersRef.current[key] = setTimeout(() => {
+          setTypingByRoom(prev => {
+            const next = { ...(prev[id] || {}) }
+            delete next[e.user_id]
+            return { ...prev, [id]: next }
+          })
+        }, 2500)
+      })
       return channel
     })
 
-    return () => channels.forEach(ch => ch.stopListening('.RoomMessageSent'))
+    return () => {
+      Object.values(typingTimersRef.current).forEach(clearTimeout)
+      channels.forEach(ch => {
+        ch.stopListening('.RoomMessageSent')
+        ch.stopListeningForWhisper('typing')
+      })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joinedRooms.map(r => r.id).sort((a, b) => a - b).join(',')])
+  }, [joinedRooms.map(r => r.id).sort((a, b) => a - b).join(',')]);
 
   // ── Post actions ─────────────────────────────────────────────────────────
   const handleLike = async (post) => {
@@ -249,12 +273,15 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     setPosts(p => p.map(q => q.id === postId ? { ...q, views_count: viewsCount } : q))
   }
 
-  const submitPostReport = async (reason) => {
+  const submitPostReport = async (reason, description) => {
     if (!reportPost) return
     try {
-      await axios.post(`/api/users/${reportPost.user_id}/report`, { reason, post_id: reportPost.id })
+      await axios.post(`/api/users/${reportPost.user_id}/report`, { reason, description, post_id: reportPost.id })
       showToast('Report submitted')
-    } catch { showToast('Failed to submit report', 'error') }
+    } catch (e) {
+      showToast('Failed to submit report', 'error')
+      throw e
+    }
   }
 
   // ── Room join flow — RoomJoinModal is now the single entry point ────────
@@ -386,6 +413,8 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     onFollowChange={handleFollowChange}
     onLoadMore={() => loadFeed()}
     hasMore={hasMore}
+    onReport={setReportPost}
+    onBlockAuthor={handleBlockAuthor}
   />
 )}
 
@@ -495,9 +524,22 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
                             <p style={{ color:'#fff', fontWeight: room.has_unread ? 700 : 600, fontSize:14, margin:0 }}>{room.name}</p>
                             {room.pivot_role === 'moderator' && <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:'rgba(255,107,53,0.15)', color:'#FF6B35' }}>Host</span>}
                           </div>
-                          <p style={{ color: room.has_unread ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', fontSize:12, margin:0, fontWeight: room.has_unread ? 500 : 400 }}>
-                            {room.has_unread ? 'New messages' : 'Tap to open chat'}
-                          </p>
+                          {(() => {
+  const names = Object.values(typingByRoom[room.id] || {})
+  if (names.length > 0) {
+    const text = names.length === 1
+      ? `${names[0]} is typing`
+      : `${names[0]} & ${names.length - 1} other${names.length - 1 > 1 ? 's' : ''} typing`
+    return (
+      <p style={{ color: '#FF6B35', fontSize: 12, margin: 0, fontStyle: 'italic', fontWeight: 500 }}>{text}</p>
+    )
+  }
+  return (
+    <p style={{ color: room.has_unread ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', fontSize: 12, margin: 0, fontWeight: room.has_unread ? 500 : 400 }}>
+      {room.has_unread ? 'New messages' : 'Tap to open chat'}
+    </p>
+  )
+})()}
                         </div>
                         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                           {room.has_unread && <div style={{ width:10, height:10, borderRadius:'50%', background:'#FF6B35' }} />}

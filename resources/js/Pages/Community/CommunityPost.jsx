@@ -393,6 +393,11 @@ export default function CommunityPost({ post: initPost, comments: initComments }
     onFollowChange={handleFollowChange}
     onLoadMore={() => {}}
     hasMore={false}
+    onReport={() => setShowReportModal(true)}
+    onBlockAuthor={async () => {
+      try { await axios.post(`/api/users/${post.user_id}/block`); showToast(`Blocked @${post.user?.username}`); router.visit('/community') }
+      catch { showToast('Failed to block', 'error') }
+    }}
   />
 )}
 

@@ -339,8 +339,9 @@ useEffect(() => {
 
               const mine     = isMine(msg)
               const prevMsg  = group.msgs[i - 1]
-              const showAv   = !mine && (!prevMsg || prevMsg.user_id !== msg.user_id || prevMsg.is_system)
-              const showName = showAv
+              const nextMsg  = group.msgs[i + 1]
+const showName = !mine && (!prevMsg || prevMsg.user_id !== msg.user_id || prevMsg.is_system)
+const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMsg.is_system)
 
               return (
                 <div key={msg.id}
