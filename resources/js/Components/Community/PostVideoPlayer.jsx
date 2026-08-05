@@ -5,7 +5,7 @@ import {
 } from 'react-icons/ri'
 
 
-export default function PostVideoPlayer({ src, poster, onReport, fillContainer = false }) {
+export default function PostVideoPlayer({ src, poster, onReport, onExpand }) {
   const videoRef = useRef(null)
   const wrapRef  = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -70,6 +70,12 @@ export default function PostVideoPlayer({ src, poster, onReport, fillContainer =
     } catch {}
   }
 
+  const handleExpandClick = (e) => {
+    e.stopPropagation()
+    if (onExpand) onExpand()
+    else toggleFullscreen(e)
+  }
+
   const setPlaybackSpeed = (s) => {
     if (videoRef.current) videoRef.current.playbackRate = s
     setSpeed(s)
@@ -98,12 +104,9 @@ export default function PostVideoPlayer({ src, poster, onReport, fillContainer =
         <button onClick={toggleMute} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {muted ? <RiVolumeMuteLine size={16} color="#fff" /> : <RiVolumeUpLine size={16} color="#fff" />}
         </button>
-         <button
-    onClick={onExpand ? (e) => { e.stopPropagation(); onExpand() } : toggleFullscreen}
-    style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-  >
-    {isFullscreen ? <RiFullscreenExitLine size={15} color="#fff" /> : <RiFullscreenLine size={15} color="#fff" />}
-  </button>
+        <button onClick={handleExpandClick} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isFullscreen ? <RiFullscreenExitLine size={15} color="#fff" /> : <RiFullscreenLine size={15} color="#fff" />}
+        </button>
         <button onClick={e => { e.stopPropagation(); setShowMore(true) }} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <RiMoreLine size={17} color="#fff" />
         </button>
