@@ -34,7 +34,7 @@ export default function PostReportModal({ post, onClose, onSubmit }) {
   const media = post.media?.length ? post.media[0] : (post.media_url ? { media_url: post.media_url } : null)
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:900, background:'#0a0a0a', display:'flex', flexDirection:'column', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position:'fixed', inset:0, zIndex:1200, background:'#0a0a0a', display:'flex', flexDirection:'column', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0, background:'rgba(10,10,10,0.95)', backdropFilter:'blur(12px)', position:'sticky', top:0, zIndex:10 }}>
         <button onClick={onClose} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff', flexShrink:0 }}>
           <RiArrowLeftLine size={18} />

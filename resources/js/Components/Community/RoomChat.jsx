@@ -219,7 +219,7 @@ useEffect(() => {
     if (!rect) return
     pressTimer.current = setTimeout(() => {
       setMsgAction({ msg, y: rect.top })
-    }, 500)
+    }, 900)
   }
   const onPressEnd = () => clearTimeout(pressTimer.current)
 

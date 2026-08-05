@@ -403,7 +403,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
       {reportPost      && <PostReportModal post={reportPost} onClose={() => setReportPost(null)} onSubmit={submitPostReport} />}
         {lightboxState && (
   <MediaLightbox
-    posts={posts}
+    posts={posts.filter(p => (p.media?.length ? p.media : (p.media_url ? [1] : [])).length > 0)}
     startPostIndex={lightboxState.postIndex}
     startMediaIndex={lightboxState.mediaIndex}
     onClose={() => setLightboxState(null)}
@@ -585,7 +585,11 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
     onFollowChange={handleFollowChange}
     onViewed={handleViewed}
-    onOpenLightbox={(mediaIndex) => setLightboxState({ postIndex: i, mediaIndex })}
+    onOpenLightbox={(mediaIndex) => {
+      const mediaPosts = posts.filter(p => (p.media?.length ? p.media : (p.media_url ? [1] : [])).length > 0)
+      const realIndex = mediaPosts.findIndex(p => p.id === post.id)
+      if (realIndex !== -1) setLightboxState({ postIndex: realIndex, mediaIndex })
+    }}
   />
 ))}
 

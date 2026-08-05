@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Link } from '@inertiajs/react'
 import {
   RiCloseLine, RiHeartLine, RiHeartFill, RiChat1Line, RiShareForwardLine, RiEyeLine,
-  RiMoreLine, RiVolumeMuteLine, RiVolumeUpLine, RiPlayFill, RiScanLine,
+  RiMoreLine, RiVolumeMuteLine, RiVolumeUpLine, RiScanLine,
   RiAlertLine, RiProhibitedLine,
 } from 'react-icons/ri'
 import Av from './Av'
@@ -34,7 +34,7 @@ function MoreSheet({ onClose, autoAdvance, onToggleAutoAdvance, speed, onSetSpee
 
         {hasVideo && (
           <>
-            <button onPointerDown={onToggleAutoAdvance} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <button onClick={onToggleAutoAdvance} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff', fontSize: 14, fontWeight: 600 }}>
                 <RiScanLine size={18} color="#FF6B35" /> Auto-scroll to next
               </span>
@@ -47,7 +47,7 @@ function MoreSheet({ onClose, autoAdvance, onToggleAutoAdvance, speed, onSetSpee
               <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Playback Speed</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {[0.5, 0.75, 1, 1.25, 1.5, 2].map(s => (
-                  <button key={s} onPointerDown={() => onSetSpeed(s)}
+                  <button key={s} onClick={() => onSetSpeed(s)}
                     style={{ padding: '6px 13px', borderRadius: 999, border: `1px solid ${speed === s ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, background: speed === s ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.04)', color: speed === s ? '#FF6B35' : '#fff', fontSize: 12, fontWeight: speed === s ? 700 : 400, cursor: 'pointer' }}>
                     {s === 1 ? 'Normal' : `${s}x`}
                   </button>
@@ -57,11 +57,11 @@ function MoreSheet({ onClose, autoAdvance, onToggleAutoAdvance, speed, onSetSpee
           </>
         )}
 
-        <button onPointerDown={onReport} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <button onClick={onReport} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600, borderBottom: onBlock ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
           <RiAlertLine size={18} color="rgba(255,255,255,0.5)" /> Report post
         </button>
         {onBlock && (
-          <button onPointerDown={onBlock} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 700 }}>
+          <button onClick={onBlock} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 700 }}>
             <RiProhibitedLine size={18} /> Block author
           </button>
         )}
@@ -71,11 +71,16 @@ function MoreSheet({ onClose, autoAdvance, onToggleAutoAdvance, speed, onSetSpee
 }
 
 export default function MediaLightbox({
-  posts, startPostIndex, startMediaIndex = 0, onClose,
+  posts: rawPosts, startPostIndex, startMediaIndex = 0, onClose,
   auth, onLike, followingMap, onFollowChange, onLoadMore, hasMore,
   onReport, onBlockAuthor,
 }) {
-  const [postIndex, setPostIndex] = useState(startPostIndex)
+  // Only posts with actual media belong in the lightbox — filtering here too
+  // (in addition to wherever the caller opens it from) makes this component
+  // safe regardless of what array a caller passes in.
+  const posts = useMemo(() => rawPosts.filter(p => mediaFor(p).length > 0), [rawPosts])
+
+  const [postIndex, setPostIndex] = useState(Math.min(startPostIndex, Math.max(posts.length - 1, 0)))
   const [mediaIndexByPost, setMediaIndexByPost] = useState(() => ({ [posts[startPostIndex]?.id]: startMediaIndex }))
   const [autoAdvance, setAutoAdvance] = useState(() => {
     try { return localStorage.getItem(AUTO_ADVANCE_KEY) !== 'off' } catch { return true }
@@ -83,15 +88,15 @@ export default function MediaLightbox({
   const [muted, setMuted] = useState(true)
   const [speed, setSpeed] = useState(1)
   const [progress, setProgress] = useState(0)
-  const [duration, setDuration] = useState(0)
   const [shareTarget, setShareTarget] = useState(null)
   const [showMore, setShowMore] = useState(false)
 
   const outerRef = useRef(null)
-  const slideRefs = useRef(new Map())     // postId -> outer slide element
-  const innerRefs = useRef({})            // postId -> horizontal track element
-  const videoRefs = useRef({})            // `${postId}-${mediaIdx}` -> video element
+  const slideRefs = useRef(new Map())
+  const innerRefs = useRef({})
+  const videoRefs = useRef({})
   const seekBarRef = useRef(null)
+  const seekingRef = useRef(false)
   const loadingMoreRef = useRef(false)
 
   const activePost = posts[postIndex]
@@ -106,14 +111,10 @@ export default function MediaLightbox({
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  // If the active post gets removed from `posts` (e.g. blocked/deleted), close gracefully.
   useEffect(() => {
     if (!posts[postIndex]) onClose()
   }, [posts, postIndex, onClose])
 
-  // ── IntersectionObserver-driven "which post is active" — robust against
-  // layout timing, unlike scroll-position math which can divide by a
-  // transient zero height and silently go stale. ──────────────────────────
   useEffect(() => {
     const root = outerRef.current
     if (!root) return
@@ -129,7 +130,6 @@ export default function MediaLightbox({
         }
       })
     }, { root, threshold: [0.6] })
-
     slideRefs.current.forEach(el => el && observer.observe(el))
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,7 +141,6 @@ export default function MediaLightbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Play only the active post's active media item; pause everything else.
   useEffect(() => {
     Object.entries(videoRefs.current).forEach(([key, el]) => {
       if (!el) return
@@ -150,33 +149,26 @@ export default function MediaLightbox({
     })
   }, [postIndex, activeMediaIndex, activePost?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (activeVideoEl) activeVideoEl.muted = muted
-  }, [muted, activeVideoEl])
+  useEffect(() => { if (activeVideoEl) activeVideoEl.muted = muted }, [muted, activeVideoEl])
+  useEffect(() => { if (activeVideoEl) activeVideoEl.playbackRate = speed }, [speed, activeVideoEl])
 
-  useEffect(() => {
-    if (activeVideoEl) activeVideoEl.playbackRate = speed
-  }, [speed, activeVideoEl])
-
-  // Seek-bar progress for the active video only.
+  // Smooth progress via rAF instead of `timeupdate` (which only fires a
+  // few times a second and made the bar visibly step rather than glide).
   useEffect(() => {
     const el = activeVideoEl
-    if (!el) { setProgress(0); setDuration(0); return }
-    const onTime = () => { if (el.duration) setProgress((el.currentTime / el.duration) * 100) }
-    const onMeta = () => setDuration(el.duration || 0)
-    el.addEventListener('timeupdate', onTime)
-    el.addEventListener('loadedmetadata', onMeta)
-    if (el.duration) setDuration(el.duration)
-    return () => {
-      el.removeEventListener('timeupdate', onTime)
-      el.removeEventListener('loadedmetadata', onMeta)
+    if (!el) { setProgress(0); return }
+    let raf
+    const tick = () => {
+      if (el.duration && !seekingRef.current) setProgress((el.currentTime / el.duration) * 100)
+      raf = requestAnimationFrame(tick)
     }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
   }, [activeVideoEl])
 
   const scrollToPost = (i) => {
     if (i < 0 || i >= posts.length) return
-    const el = slideRefs.current.get(posts[i]?.id)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    slideRefs.current.get(posts[i]?.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const scrollToMediaWithin = (post, i) => {
@@ -191,8 +183,7 @@ export default function MediaLightbox({
   }
 
   const handleVideoEnded = (post, mediaIdx) => {
-    if (post.id !== activePost?.id || mediaIdx !== activeMediaIndex) return
-    if (!autoAdvance) return
+    if (post.id !== activePost?.id || mediaIdx !== activeMediaIndex || !autoAdvance) return
     const items = mediaFor(post)
     if (mediaIdx < items.length - 1) scrollToMediaWithin(post, mediaIdx + 1)
     else scrollToPost(postIndex + 1)
@@ -206,14 +197,18 @@ export default function MediaLightbox({
     })
   }
 
-  const onSeek = useCallback((e) => {
+  const seekToClientX = useCallback((clientX) => {
     const el = activeVideoEl
     if (!el?.duration || !seekBarRef.current) return
     const rect = seekBarRef.current.getBoundingClientRect()
-    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-    el.currentTime = pct * el.duration
+    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     setProgress(pct * 100)
+    el.currentTime = pct * el.duration
   }, [activeVideoEl])
+
+  const handleSeekDown = (e) => { seekingRef.current = true; seekToClientX(e.clientX) }
+  const handleSeekMove = (e) => { if (seekingRef.current) seekToClientX(e.clientX) }
+  const handleSeekUp = () => { seekingRef.current = false }
 
   if (!activePost) return null
 
@@ -236,7 +231,10 @@ export default function MediaLightbox({
       )}
 
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0))' }}>
-        <button onPointerDown={onClose} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+        {/* onClick, not onPointerDown — this button unmounts the whole overlay,
+            and pointerdown-triggered removal can leave a "ghost click" that
+            lands on whatever's now underneath (fixed here). */}
+        <button onClick={onClose} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <RiCloseLine size={20} />
         </button>
         <button onPointerDown={() => setShowMore(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
@@ -250,6 +248,7 @@ export default function MediaLightbox({
           const media = mediaFor(post)
           const mIdx = mediaIndexByPost[post.id] ?? 0
           const isActiveSlide = pIdx === postIndex
+          const activeItemIsVideo = isActiveSlide && media[mIdx]?.media_type === 'video'
 
           return (
             <div key={post.id} data-index={pIdx}
@@ -284,22 +283,28 @@ export default function MediaLightbox({
                 </div>
               )}
 
-              {isActiveSlide && media[mIdx]?.media_type === 'video' && (
-                <>
-                  <button onPointerDown={() => setMuted(m => !m)} style={{ position: 'absolute', bottom: 96, right: 14, width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', zIndex: 4 }}>
-                    {muted ? <RiVolumeMuteLine size={16} /> : <RiVolumeUpLine size={16} />}
-                  </button>
-                  <div ref={seekBarRef} onClick={onSeek}
-                    style={{ position: 'absolute', bottom: 78, left: 16, right: 16, height: 16, display: 'flex', alignItems: 'center', cursor: 'pointer', zIndex: 4 }}>
-                    <div style={{ width: '100%', height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.25)' }}>
-                      <div style={{ height: '100%', borderRadius: 999, background: '#FF6B35', width: `${progress}%`, transition: 'width 0.1s linear' }} />
+              {/* Single stacked flex column for the whole bottom overlay — this
+                  is the fix for the overlap: seek bar, user row, caption and
+                  actions now all share one natural flow instead of some being
+                  absolutely positioned at fixed offsets that a long caption
+                  could collide with. */}
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.88), rgba(0,0,0,0.35) 65%, transparent)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {activeItemIsVideo && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <button onPointerDown={() => setMuted(m => !m)} style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.14)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                      {muted ? <RiVolumeMuteLine size={14} /> : <RiVolumeUpLine size={14} />}
+                    </button>
+                    <div ref={seekBarRef}
+                      onPointerDown={handleSeekDown} onPointerMove={handleSeekMove} onPointerUp={handleSeekUp} onPointerLeave={handleSeekUp}
+                      style={{ flex: 1, height: 18, display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <div style={{ width: '100%', height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.25)' }}>
+                        <div style={{ height: '100%', borderRadius: 999, background: '#FF6B35', width: `${progress}%`, transition: seekingRef.current ? 'none' : 'width 0.08s linear' }} />
+                      </div>
                     </div>
                   </div>
-                </>
-              )}
+                )}
 
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.85), rgba(0,0,0,0))' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: post.content ? 8 : 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Link href={`/@${post.user?.username}`}><Av user={post.user} size={34} /></Link>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -314,7 +319,7 @@ export default function MediaLightbox({
                 </div>
 
                 {post.content && (
-                  <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 1.5, margin: '0 0 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{post.content}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 66, overflow: 'hidden' }}>{post.content}</p>
                 )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: -8 }}>
