@@ -2,21 +2,19 @@ import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { ShoppingBagIcon } from 'lucide-react';
 import VerifyEmailBanner from '@/Components/verifyEmailBanner';
-import { useEffect, useState } from 'react';
+import ProfileSheet from '@/Components/ProfileSheet';
+import ConfirmModal from '@/Components/Community/ConfirmModal';
+import { useEffect, useState, useCallback } from 'react';
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
-    RiBarChart2Line,
     RiHome5Line,
-    RiLogoutBoxLine,
     RiSearchLine,
-    RiSettings4Line,
-    RiShoppingBag2Fill,
     RiShoppingBag2Line,
     RiShoppingBasketLine,
     RiShoppingCart2Line,
     RiUploadCloud2Line,
     RiUserLine,
-    RiTeamLine,
+    RiAddLine,
 } from 'react-icons/ri';
 
 import { TiGroupOutline } from "react-icons/ti";
@@ -34,14 +32,15 @@ export default function AppLayout({ children }) {
     const currentUrl = usePage().url;
     const [search, setSearch] = useState('');
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [cartCount, setCartCount] = useState(0);
 
     const isFeed = currentUrl === '/';
-    const isVideoPage = currentUrl.startsWith('/video/');
+    // Matches /@{username}/video/{ulid} — the actual route pattern.
+    const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
     const isFullScreen = isFeed || isVideoPage;
 
     // ── Unread message count from shared props ────────────────────────────────
-    // Make sure HandleInertiaRequests shares this — see note at bottom of file
     const [unreadMessages, setUnreadMessages] = useState(auth?.user?.unread_messages ?? 0);
 
     useEffect(() => {
@@ -50,15 +49,48 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('flockr:unread', handler);
     }, []);
 
+    // Keep local unread count in sync when the shared auth prop changes
+    // (e.g. after the focus-triggered partial reload below) — previously
+    // this only updated via the custom event and could go stale.
+    useEffect(() => {
+        if (typeof auth?.user?.unread_messages === 'number') {
+            setUnreadMessages(auth.user.unread_messages);
+        }
+    }, [auth?.user?.unread_messages]);
 
-useEffect(() => {
-    // Refresh auth prop whenever the tab regains focus — catches email
-    // verification completed in another tab, which Inertia's client-side
-    // prop cache won't otherwise pick up until the next navigation.
-    const onFocus = () => router.reload({ only: ['auth'] });
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-}, []);
+    useEffect(() => {
+        const onFocus = () => router.reload({ only: ['auth'] });
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
+    }, []);
+
+    // ── Instant-feeling navigation ─────────────────────────────────────────────
+    // 1. Optimistic active-tab highlighting — updates the moment a link is
+    //    tapped, not after the server responds.
+    // 2. Prefetching on hover (desktop) / touchstart (mobile, fires before the
+    //    tap completes) so the page is often already cached by the time the
+    //    click registers.
+    // 3. A slim top progress bar tied to real navigation lifecycle instead of
+    //    Inertia's default progress indicator (disable that globally by
+    //    passing `progress: false` to createInertiaApp in your app entry file).
+    const [optimisticHref, setOptimisticHref] = useState(null);
+    const [isNavigating, setIsNavigating] = useState(false);
+
+    useEffect(() => {
+        const stopStart = router.on('start', () => setIsNavigating(true));
+        const stopFinish = router.on('finish', () => { setIsNavigating(false); setOptimisticHref(null); });
+        return () => { stopStart(); stopFinish(); };
+    }, []);
+
+    const handlePrefetch = useCallback((href) => {
+        try {
+            if (typeof router.prefetch === 'function') {
+                router.prefetch(href, { method: 'get' }, { cacheFor: 30000 });
+            }
+        } catch {}
+    }, []);
+
+    const handleNavClick = useCallback((href) => setOptimisticHref(href), []);
 
     const handleLogout = () => router.post('/logout');
     const handleSearch = (e) => {
@@ -67,34 +99,29 @@ useEffect(() => {
     };
 
     const profileHref = auth?.user ? `/@${auth.user.username}` : '/login';
-    const profileActive = auth?.user ? currentUrl.startsWith(`/@${auth.user.username}`) : currentUrl === '/login';
-
-    const isActive = (href) => currentUrl === href || (href !== '/' && currentUrl.startsWith(href));
+    const effectiveUrl = optimisticHref ?? currentUrl;
+    const profileActive = auth?.user ? effectiveUrl.startsWith(`/@${auth.user.username}`) : effectiveUrl === '/login';
+    const isActive = (href) => effectiveUrl === href || (href !== '/' && effectiveUrl.startsWith(href));
 
     useEffect(() => {
-        // Load initial count
         if (auth?.user) {
-            axios
-                .get('/api/cart/count')
-                .then((r) => setCartCount(r.data.count))
-                .catch(() => {});
+            axios.get('/api/cart/count').then((r) => setCartCount(r.data.count)).catch(() => {});
         }
-        // Listen for cart updates
         const handler = () => {
             if (auth?.user) {
-                axios
-                    .get('/api/cart/count')
-                    .then((r) => setCartCount(r.data.count))
-                    .catch(() => {});
+                axios.get('/api/cart/count').then((r) => setCartCount(r.data.count)).catch(() => {});
             }
         };
         window.addEventListener('flockr:cart', handler);
         return () => window.removeEventListener('flockr:cart', handler);
     }, [auth?.user]);
 
+    const isSeller = auth?.user?.role === 'seller';
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
-                 <VerifyEmailBanner />
+            {isNavigating && <div className="flockr-topbar-progress" />}
+            <VerifyEmailBanner />
             <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
             <aside
@@ -158,6 +185,33 @@ useEffect(() => {
                     </form>
                 </div>
 
+                {/* Upload — moved up front so sellers see it immediately, no scrolling past 8 nav items */}
+                {isSeller && (
+                    <div style={{ padding: '0 12px 12px' }}>
+                        <Link
+                            href="/seller/upload"
+                            onMouseEnter={() => handlePrefetch('/seller/upload')}
+                            onClick={() => handleNavClick('/seller/upload')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                                padding: '11px',
+                                background: 'var(--flockr-orange)',
+                                borderRadius: 12,
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                fontFamily: 'var(--font-display)',
+                                textDecoration: 'none',
+                            }}
+                        >
+                            <RiUploadCloud2Line size={16} /> Upload Video
+                        </Link>
+                    </div>
+                )}
+
                 {/* Nav */}
                 <nav style={{ flex: 1, padding: '0 8px' }}>
                     {NAV_ITEMS.map(({ href, Icon, label }) => {
@@ -167,6 +221,8 @@ useEffect(() => {
                             <Link
                                 key={href}
                                 href={href}
+                                onMouseEnter={() => handlePrefetch(href)}
+                                onClick={() => handleNavClick(href)}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -182,7 +238,6 @@ useEffect(() => {
                                     transition: 'all 0.15s',
                                 }}
                             >
-                                {/* Icon with unread badge */}
                                 <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
                                     <Icon size={20} />
                                     {isInbox && unreadMessages > 0 && (
@@ -211,40 +266,14 @@ useEffect(() => {
                                     )}
                                 </div>
                                 {label}
-                                {/* Right-side dot for unread — desktop only */}
-                                {/* {isInbox && unreadMessages > 0 && (
-                                    <span style={{ marginLeft: 'auto', background: '#ff5c00', color: '#fff', borderRadius: 999, fontSize: 10, fontWeight: 800, padding: '1px 7px', lineHeight: '16px' }}>
-                                        {unreadMessages > 99 ? '99+' : unreadMessages}
-                                    </span>
-                                )} */}
                             </Link>
                         );
                     })}
 
-                    {/* Profile */}
-                    <Link
-                        href={profileHref}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '10px 12px',
-                            borderRadius: 10,
-                            marginBottom: 2,
-                            textDecoration: 'none',
-                            fontSize: 14,
-                            fontWeight: profileActive ? 600 : 400,
-                            color: profileActive ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
-                            background: profileActive ? 'rgba(255,92,0,0.08)' : 'transparent',
-                            transition: 'all 0.15s',
-                        }}
-                    >
-                        <RiUserLine size={20} />
-                        Profile
-                    </Link>
-
                     <Link
                         href="/cart"
+                        onMouseEnter={() => handlePrefetch('/cart')}
+                        onClick={() => handleNavClick('/cart')}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -289,10 +318,11 @@ useEffect(() => {
                         </div>
                         Cart
                     </Link>
-                        
 
                     <Link
                         href='/orders'
+                        onMouseEnter={() => handlePrefetch('/orders')}
+                        onClick={() => handleNavClick('/orders')}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -311,134 +341,68 @@ useEffect(() => {
                         <RiShoppingBasketLine size={20} />
                         Orders
                     </Link>
-                    
 
-                    {/* Seller upload */}
-                    {auth?.user?.role === 'seller' && (
-                        <Link
-                            href="/seller/upload"
+                    {/* Profile — kept in nav list too for quick single-click access */}
+                    <Link
+                        href={profileHref}
+                        onMouseEnter={() => handlePrefetch(profileHref)}
+                        onClick={() => handleNavClick(profileHref)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            marginBottom: 2,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: profileActive ? 600 : 400,
+                            color: profileActive ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                            background: profileActive ? 'rgba(255,92,0,0.08)' : 'transparent',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <RiUserLine size={20} />
+                        Profile
+                    </Link>
+                </nav>
+
+                {/* User section — opens the ProfileSheet instead of the old dropdown */}
+                <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    {auth?.user ? (
+                        <button
+                            onClick={() => setShowUserMenu(true)}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 8,
-                                margin: '8px 0',
-                                padding: '11px',
-                                background: 'var(--flockr-orange)',
-                                borderRadius: 999,
-                                color: '#fff',
-                                fontWeight: 700,
-                                fontSize: 13,
-                                fontFamily: 'var(--font-display)',
-                                textDecoration: 'none',
+                                gap: 10,
+                                width: '100%',
+                                padding: 8,
+                                borderRadius: 10,
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                textAlign: 'left',
                             }}
                         >
-                            <RiUploadCloud2Line size={16} /> Upload Video
-                        </Link>
-                    )}
-                </nav>
-
-                {/* User section */}
-                <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', position: 'relative' }}>
-                    {auth?.user ? (
-                        <>
-                            <button
-                                onClick={() => setShowUserMenu((m) => !m)}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 10,
-                                    width: '100%',
-                                    padding: 8,
-                                    borderRadius: 10,
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
-                            >
-                                <AvatarImage user={auth.user} size={36} />
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p
-                                        style={{
-                                            color: '#fff',
-                                            fontSize: 13,
-                                            fontWeight: 600,
-                                            margin: 0,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                        }}
-                                    >
-                                        {auth.user.name}
-                                    </p>
-                                    <p style={{ color: 'var(--flockr-muted)', fontSize: 11, margin: 0 }}>@{auth.user.username}</p>
-                                </div>
-                            </button>
-                            {showUserMenu && (
-                                <div
+                            <AvatarImage user={auth.user} size={36} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p
                                     style={{
-                                        position: 'absolute',
-                                        bottom: '110%',
-                                        left: 8,
-                                        right: 8,
-                                        background: 'var(--flockr-card)',
-                                        border: '1px solid rgba(255,255,255,0.1)',
-                                        borderRadius: 12,
+                                        color: '#fff',
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        margin: 0,
                                         overflow: 'hidden',
-                                        zIndex: 100,
-                                        boxShadow: '0 16px 40px rgba(0,0,0,0.5)',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
                                     }}
                                 >
-                                    <MenuItem
-                                        Icon={RiUserLine}
-                                        label="View Profile"
-                                        onClick={() => {
-                                            router.visit(`/@${auth.user.username}`);
-                                            setShowUserMenu(false);
-                                        }}
-                                    />
-                                    <MenuItem
-                                        Icon={RiSettings4Line}
-                                        label="Settings"
-                                        onClick={() => {
-                                            router.visit('/settings/profile');
-                                            setShowUserMenu(false);
-                                        }}
-                                    />
-                                    {auth.user.role === "buyer" && (<MenuItem
-                                        Icon={RiBarChart2Line}
-                                        label="Dashboard"
-                                        onClick={() => {
-                                            router.visit('/dashboard');
-                                            setShowUserMenu(false);
-                                        }}
-                                    />)}
-                                    {auth.user.role === 'seller' && (
-                                        <MenuItem
-                                            Icon={RiBarChart2Line}
-                                            label="Seller Dashboard"
-                                            onClick={() => {
-                                                router.visit('/seller/dashboard');
-                                                setShowUserMenu(false);
-                                            }}
-                                        />
-                                    )}
-                                    {auth.user.role === 'admin' && (
-                                        <MenuItem
-                                            Icon={RiBarChart2Line}
-                                            label="Admin Dashboard"
-                                            onClick={() => {
-                                                router.visit('/admin/dashboard');
-                                                setShowUserMenu(false);
-                                            }}
-                                        />
-                                    )}
-                                    <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
-                                    <MenuItem Icon={RiLogoutBoxLine} label="Log Out" onClick={handleLogout} danger />
-                                </div>
-                            )}
-                        </>
+                                    {auth.user.name}
+                                </p>
+                                <p style={{ color: 'var(--flockr-muted)', fontSize: 11, margin: 0 }}>@{auth.user.username}</p>
+                            </div>
+                        </button>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <Link
@@ -507,13 +471,28 @@ useEffect(() => {
     />
 </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Link href="/explore" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+                            <Link
+                                href="/explore"
+                                onTouchStart={() => handlePrefetch('/explore')}
+                                onClick={() => handleNavClick('/explore')}
+                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
+                            >
         <RiSearchLine size={20} />
     </Link>
-                            <Link href="/orders" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+                            <Link
+                                href="/orders"
+                                onTouchStart={() => handlePrefetch('/orders')}
+                                onClick={() => handleNavClick('/orders')}
+                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
+                            >
                                 <RiShoppingBasketLine size={20} />
                             </Link>
-                            <Link href="/cart" style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}>
+                            <Link
+                                href="/cart"
+                                onTouchStart={() => handlePrefetch('/cart')}
+                                onClick={() => handleNavClick('/cart')}
+                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}
+                            >
                                 <RiShoppingCart2Line size={20} />
                                 {cartCount > 0 && (
                                     <span
@@ -541,98 +520,13 @@ useEffect(() => {
                                     </span>
                                 )}
                             </Link>
-                            {auth?.user?.role === 'seller' && (
-                                <Link
-                                    href="/seller/upload"
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 5,
-                                        padding: '7px 14px',
-                                        background: '#ff5c00',
-                                        borderRadius: 999,
-                                        color: '#fff',
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        textDecoration: 'none',
-                                    }}
-                                >
-                                    <RiUploadCloud2Line size={14} /> Upload
-                                </Link>
-                            )}
                             {auth?.user ? (
-                                <div style={{ position: 'relative' }}>
-                                    <button
-                                        onClick={() => setShowUserMenu((m) => !m)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}
-                                    >
-                                        <AvatarImage user={auth.user} size={30} />
-                                    </button>
-                                    {!showUserMenu && <span className='h-[8px] w-[8px] block rounded-full absolute top-0 right-0' style={{ backgroundColor: "var(--flockr-orange)" }}></span>}
-                                    {showUserMenu && (
-                                        <div
-                                            style={{
-                                                position: 'absolute',
-                                                top: 'calc(100% + 8px)',
-                                                right: 0,
-                                                width: 210,
-                                                background: '#1a1a1a',
-                                                border: '1px solid rgba(255,255,255,0.1)',
-                                                borderRadius: 14,
-                                                overflow: 'hidden',
-                                                zIndex: 999,
-                                                boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
-                                            }}
-                                        >
-                                            <MenuItem
-                                                Icon={RiUserLine}
-                                                label="View Profile"
-                                                onClick={() => {
-                                                    router.visit(`/@${auth.user.username}`);
-                                                    setShowUserMenu(false);
-                                                }}
-                                            />
-                                            <MenuItem
-                                                Icon={RiSettings4Line}
-                                                label="Settings"
-                                                onClick={() => {
-                                                    router.visit('/settings/profile');
-                                                    setShowUserMenu(false);
-                                                }}
-                                            />
-                                            {auth.user.role === "buyer" && (<MenuItem
-                                        Icon={RiBarChart2Line}
-                                        label="Dashboard"
-                                        onClick={() => {
-                                            router.visit('/dashboard');
-                                            setShowUserMenu(false);
-                                        }}
-                                    />)}
-                                    {auth.user.role === 'seller' && (
-                                        <MenuItem
-                                            Icon={RiBarChart2Line}
-                                            label="Seller Dashboard"
-                                            onClick={() => {
-                                                router.visit('/seller/dashboard');
-                                                setShowUserMenu(false);
-                                            }}
-                                        />
-                                    )}
-                                    {auth.user.role === 'admin' && (
-                                        <MenuItem
-                                            Icon={RiBarChart2Line}
-                                            label="Admin Dashboard"
-                                            onClick={() => {
-                                                router.visit('/admin/dashboard');
-                                                setShowUserMenu(false);
-                                            }}
-                                        />
-                                    )}
-                                            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
-                                            <MenuItem Icon={RiLogoutBoxLine} label="Log Out" onClick={handleLogout} danger />
-                                        </div>
-                                    )}
-                                </div>
+                                <button
+                                    onClick={() => setShowUserMenu(true)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', position: 'relative' }}
+                                >
+                                    <AvatarImage user={auth.user} size={30} />
+                                </button>
                             ) : (
                                 <Link
                                     href="/login"
@@ -671,15 +565,18 @@ useEffect(() => {
                             borderTop: '1px solid rgba(255,255,255,0.07)',
                             zIndex: 50,
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                            position: 'relative',
                         }}
                     >
-                        {NAV_ITEMS.filter(item => item.href !== '/explore').map(({ href, label, Icon }) => {
+                        {NAV_ITEMS.filter(item => item.href !== '/explore').slice(0, 2).map(({ href, label, Icon }) => {
                             const active = isActive(href);
                             const isInbox = href === '/inbox';
                             return (
                                 <Link
                                     key={href}
                                     href={href}
+                                    onTouchStart={() => handlePrefetch(href)}
+                                    onClick={() => handleNavClick(href)}
                                     style={{
                                         flex: 1,
                                         display: 'flex',
@@ -695,7 +592,6 @@ useEffect(() => {
                                 >
                                     <div style={{ position: 'relative' }}>
                                         <Icon size={23} />
-                                        {/* ── Unread badge on inbox icon ── */}
                                         {isInbox && unreadMessages > 0 && (
                                             <span
                                                 style={{
@@ -726,8 +622,78 @@ useEffect(() => {
                                 </Link>
                             );
                         })}
-                        <Link
-                            href={profileHref}
+
+                        {/* Raised center upload FAB — sellers only, TikTok-style placement */}
+                        {isSeller && (
+                            <Link
+                                href="/seller/upload"
+                                onTouchStart={() => handlePrefetch('/seller/upload')}
+                                onClick={() => handleNavClick('/seller/upload')}
+                                style={{ flex: 1, display: 'flex', justifyContent: 'center', textDecoration: 'none' }}
+                            >
+                                <div className="upload-fab">
+                                    <RiAddLine size={24} color="#fff" />
+                                </div>
+                            </Link>
+                        )}
+
+                        {NAV_ITEMS.filter(item => item.href !== '/explore').slice(2).map(({ href, label, Icon }) => {
+                            const active = isActive(href);
+                            const isInbox = href === '/inbox';
+                            return (
+                                <Link
+                                    key={href}
+                                    href={href}
+                                    onTouchStart={() => handlePrefetch(href)}
+                                    onClick={() => handleNavClick(href)}
+                                    style={{
+                                        flex: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        padding: '8px 4px 6px',
+                                        textDecoration: 'none',
+                                        color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
+                                        transition: 'color 0.15s',
+                                        position: 'relative',
+                                    }}
+                                >
+                                    <div style={{ position: 'relative' }}>
+                                        <Icon size={23} />
+                                        {isInbox && unreadMessages > 0 && (
+                                            <span
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: -4,
+                                                    right: -6,
+                                                    minWidth: 16,
+                                                    height: 16,
+                                                    borderRadius: 999,
+                                                    background: '#ff5c00',
+                                                    border: '2px solid rgba(8,8,8,0.96)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: 9,
+                                                    fontWeight: 800,
+                                                    color: '#fff',
+                                                    padding: '0 3px',
+                                                    lineHeight: 1,
+                                                    animation: 'badgePop 0.3s ease',
+                                                }}
+                                            >
+                                                {unreadMessages > 99 ? '99+' : unreadMessages}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, letterSpacing: '0.02em' }}>{label}</span>
+                                </Link>
+                            );
+                        })}
+
+                        <button
+                            onClick={() => setShowUserMenu(true)}
                             style={{
                                 flex: 1,
                                 display: 'flex',
@@ -735,35 +701,43 @@ useEffect(() => {
                                 alignItems: 'center',
                                 gap: 3,
                                 padding: '8px 4px 6px',
-                                textDecoration: 'none',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
                                 color: profileActive ? '#ff5c00' : 'rgba(255,255,255,0.4)',
                                 transition: 'color 0.15s',
                             }}
                         >
                             <RiUserLine size={23} />
                             <span style={{ fontSize: 10, fontWeight: profileActive ? 700 : 400 }}>Profile</span>
-                        </Link>
+                        </button>
                     </nav>
                 )}
             </main>
              </div>
 
-            <style>{`
-                @media (min-width: 768px) {
-                    .md-sidebar { display: flex !important; }
-                    .mobile-topbar { display: none !important; }
-                    .mobile-bottom-nav { display: none !important; }
-                }
-                .main-paged .page-content { padding-bottom: 0; }
-                input:focus { border-color: var(--flockr-orange) !important; outline: none; }
-                * { box-sizing: border-box; }
-                ::-webkit-scrollbar { display: none; }
-                @keyframes badgePop {
-                    0%   { transform: scale(0); }
-                    70%  { transform: scale(1.2); }
-                    100% { transform: scale(1); }
-                }
+            {showUserMenu && auth?.user && (
+                <ProfileSheet
+                    user={auth.user}
+                    onClose={() => setShowUserMenu(false)}
+                    onNavigate={(path) => router.visit(path)}
+                    onLogoutClick={() => setShowLogoutConfirm(true)}
+                />
+            )}
 
+            {showLogoutConfirm && (
+                <ConfirmModal
+                    title="Log out?"
+                    message="You'll need to sign in again to access your account."
+                    confirmLabel="Log Out"
+                    cancelLabel="Cancel"
+                    danger
+                    onConfirm={handleLogout}
+                    onClose={() => setShowLogoutConfirm(false)}
+                />
+            )}
+
+            <style>{`
                 @media (min-width: 768px) {
                     .md-sidebar { display: flex !important; }
                     .mobile-topbar { display: none !important; }
@@ -783,7 +757,25 @@ useEffect(() => {
                     body.chat-open .mobile-bottom-nav { display: none !important; }
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
-
+                .upload-fab {
+                    width: 46px; height: 46px; border-radius: 16px;
+                    background: var(--flockr-orange);
+                    display: flex; align-items: center; justify-content: center;
+                    transform: translateY(-14px);
+                    box-shadow: 0 8px 20px rgba(255,92,0,0.45);
+                    border: 3px solid rgba(8,8,8,0.96);
+                }
+                .flockr-topbar-progress {
+                    position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 9999;
+                    background: var(--flockr-orange);
+                    animation: flockrProgress 1s ease-in-out infinite;
+                    transform-origin: left;
+                }
+                @keyframes flockrProgress {
+                    0%   { transform: scaleX(0); opacity: 1; }
+                    50%  { transform: scaleX(0.6); }
+                    100% { transform: scaleX(0.9); opacity: 0.6; }
+                }
             `}</style>
         </div>
     );
@@ -829,30 +821,5 @@ export function AvatarImage({ user, size = 36 }) {
         >
             {(user?.name ?? user?.username ?? 'U')[0].toUpperCase()}
         </div>
-    );
-}
-
-function MenuItem({ Icon, label, onClick, danger }) {
-    return (
-        <button
-            onClick={onClick}
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '11px 16px',
-                color: danger ? 'var(--flockr-red, #ef4444)' : '#fff',
-                fontSize: 13,
-                fontWeight: 500,
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                width: '100%',
-                textAlign: 'left',
-            }}
-        >
-            <Icon size={15} />
-            {label}
-        </button>
     );
 }
