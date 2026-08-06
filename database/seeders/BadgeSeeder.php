@@ -10,7 +10,7 @@ class BadgeSeeder extends Seeder
     public function run(): void
     {
         $badges = [
-            ['key' => 'founding_member', 'label' => 'Founding Member', 'description' => 'One of the first to test Flockr', 'image_path' => '/images/badges/flockr_logo_orange.png'],
+            ['key' => 'founding_member', 'label' => 'Founding Member', 'description' => 'One of the first to test Flockr', 'image_path' => '/images/badges/founding-member.png'],
             ['key' => 'first_sale', 'label' => 'First Sale', 'description' => 'Made their first sale', 'image_path' => '/images/badges/first-sale.png'],
             ['key' => 'ten_sales', 'label' => '10 Sales', 'description' => 'Sold 10 items', 'image_path' => '/images/badges/ten-sales.png'],
             ['key' => 'viral_debut', 'label' => 'Viral Debut', 'description' => 'A video crossed 1,000 views', 'image_path' => '/images/badges/viral-debut.png'],
