@@ -273,7 +273,7 @@ function OrderRow({ order: initial, showToast }) {
                             </button>
                         )}
 
-                        
+                        <a
                             href={'/orders/' + order.id}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
                         >
