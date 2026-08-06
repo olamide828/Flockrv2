@@ -50,7 +50,7 @@ Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class,
 Route::get('/videos/download/status', [VideoDownloadController::class, 'status']);
 Route::delete('/videos/download/cleanup', [VideoDownloadController::class, 'cleanup']);
 
-Route::get('/products/{product}/reviews', function (Product $product, \Illuminate\Http\Request $request) {
+Route::get('/products/{product:slug}/reviews', function (Product $product, \Illuminate\Http\Request $request) {
     $page    = max(1, (int) $request->input('page', 1));
     $perPage = min((int) $request->input('per_page', 10), 50);
 

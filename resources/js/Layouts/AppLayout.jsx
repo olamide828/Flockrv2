@@ -19,11 +19,11 @@ import {
 import { TiGroupOutline } from "react-icons/ti";
 
 const NAV_ITEMS = [
-    { href: '/',        Icon: RiHome5Line,              label: 'For You'   },
-{ href: '/explore', Icon: RiSearchLine,              label: 'Explore'   },
-{ href: '/community', Icon: TiGroupOutline,          label: 'Community' },
-{ href: '/shop',    Icon: RiShoppingBag2Line,        label: 'Shop'      },
-{ href: '/inbox',   Icon: IoChatboxEllipsesOutline,  label: 'Inbox'     },
+    { href: '/',          Icon: RiHome5Line,              label: 'For You'   },
+    { href: '/explore',   Icon: RiSearchLine,              label: 'Explore'   },
+    { href: '/community', Icon: TiGroupOutline,          label: 'Community' },
+    { href: '/shop',      Icon: RiShoppingBag2Line,        label: 'Shop'      },
+    { href: '/inbox',     Icon: IoChatboxEllipsesOutline,  label: 'Inbox'     },
 ];
 
 export default function AppLayout({ children }) {
@@ -35,11 +35,10 @@ export default function AppLayout({ children }) {
     const [cartCount, setCartCount] = useState(0);
 
     const isFeed = currentUrl === '/';
-    // Matches /@{username}/video/{ulid} — the actual route pattern.
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
     const isFullScreen = isFeed || isVideoPage;
 
-    // ── Unread message count from shared props ────────────────────────────────
+    // ── Unread message count ────────────────────────────────────────────────
     const [unreadMessages, setUnreadMessages] = useState(auth?.user?.unread_messages ?? 0);
 
     useEffect(() => {
@@ -60,17 +59,7 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('focus', onFocus);
     }, []);
 
-    // ── Instant-feeling navigation ─────────────────────────────────────────────
-    // Optimistic active-tab highlighting (updates on click, not on server
-    // response) + prefetching on hover/touchstart so pages are often already
-    // cached by the time a click completes.
-    //
-    // NOTE on loading indicator: don't add a second progress bar here — Inertia
-    // already renders one. Configure ITS color/behavior instead, in your app
-    // entry file (resources/js/app.jsx), inside createInertiaApp({ ... }):
-    //   progress: { color: '#FF6B35', showSpinner: false, delay: 100 }
-    // Adding a custom bar in this component on top of that is what caused the
-    // "showing twice" duplicate you saw.
+    // ── Navigation handling ─────────────────────────────────────────────────
     const [optimisticHref, setOptimisticHref] = useState(null);
 
     useEffect(() => {
@@ -113,12 +102,21 @@ export default function AppLayout({ children }) {
     }, [auth?.user]);
 
     const isSeller = auth?.user?.role === 'seller';
-    const mobileNavItems = NAV_ITEMS.filter(item => item.href !== '/explore');
+
+    // Perfectly structured 5 items for mobile bottom bar
+    const mobileNavItems = [
+        { href: '/',          Icon: RiHome5Line,              label: 'For You' },
+        { href: '/explore',   Icon: RiSearchLine,              label: 'Explore' },
+        { href: '/community', Icon: TiGroupOutline,          label: 'Community' },
+        { href: '/shop',      Icon: RiShoppingBag2Line,        label: 'Shop' },
+        { href: '/inbox',     Icon: IoChatboxEllipsesOutline,  label: 'Inbox' },
+    ];
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
             <VerifyEmailBanner />
             <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
             <aside
                 className="md-sidebar"
@@ -135,12 +133,12 @@ export default function AppLayout({ children }) {
                 {/* Logo */}
                 <div style={{ padding: '24px 20px 16px' }}>
                     <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }} className="gap-2">
-    <img
-        src="/images/flockr_logo_orange.png"
-        alt="Flockr"
-        style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
-    />
-    <h1 style={{
+                        <img
+                            src="/images/flockr_logo_orange.png"
+                            alt="Flockr"
+                            style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
+                        />
+                        <h1 style={{
                                 textDecoration: 'none',
                                 fontFamily: 'var(--font-display)',
                                 fontWeight: 800,
@@ -150,8 +148,8 @@ export default function AppLayout({ children }) {
                             }}
                         >
                             flockr<span style={{ color: '#ff5c00' }}>.</span>
-        </h1>
-</Link>
+                        </h1>
+                    </Link>
                 </div>
 
                 {/* Search */}
@@ -181,7 +179,7 @@ export default function AppLayout({ children }) {
                     </form>
                 </div>
 
-                {/* Upload — front and center so sellers see it without scrolling */}
+                {/* Upload Button for Desktop */}
                 {isSeller && (
                     <div style={{ padding: '0 12px 12px' }}>
                         <Link
@@ -208,7 +206,7 @@ export default function AppLayout({ children }) {
                     </div>
                 )}
 
-                {/* Nav */}
+                {/* Navigation Items */}
                 <nav style={{ flex: 1, padding: '0 8px' }}>
                     {NAV_ITEMS.map(({ href, Icon, label }) => {
                         const active = isActive(href);
@@ -328,7 +326,7 @@ export default function AppLayout({ children }) {
                             marginBottom: 2,
                             textDecoration: 'none',
                             fontSize: 14,
-                           fontWeight: isActive('/orders') ? 600 : 400,
+                            fontWeight: isActive('/orders') ? 600 : 400,
                             color: isActive('/orders') ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
                             background: isActive('/orders') ? 'rgba(255,92,0,0.08)' : 'transparent',
                             transition: 'all 0.15s',
@@ -459,21 +457,13 @@ export default function AppLayout({ children }) {
                         }}
                     >
                         <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-    <img
-        src="/images/flockr_logo_orange.png"
-        alt="Flockr"
-        style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
-    />
-</Link>
+                            <img
+                                src="/images/flockr_logo_orange.png"
+                                alt="Flockr"
+                                style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }}
+                            />
+                        </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Link
-                                href="/explore"
-                                onTouchStart={() => handlePrefetch('/explore')}
-                                onClick={() => handleNavClick('/explore')}
-                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
-                            >
-        <RiSearchLine size={20} />
-    </Link>
                             <Link
                                 href="/orders"
                                 onTouchStart={() => handlePrefetch('/orders')}
@@ -547,9 +537,7 @@ export default function AppLayout({ children }) {
                     {children}
                 </div>
 
-                {/* Mobile bottom nav — 5 evenly-spaced items (4 nav + Profile).
-                    The upload FAB is NOT a flex child; it floats absolutely
-                    above the bar so it never disrupts the other icons' spacing. */}
+                {/* Mobile bottom nav — 5 items: For You | Explore | Upload (or Community) | Shop | Inbox */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
@@ -565,9 +553,29 @@ export default function AppLayout({ children }) {
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                         }}
                     >
-                        {mobileNavItems.map(({ href, label, Icon }) => {
+                        {mobileNavItems.map(({ href, label, Icon }, index) => {
                             const active = isActive(href);
                             const isInbox = href === '/inbox';
+                            
+                            // If index === 2 (middle slot) and user is a seller, substitute slot for the Floating Upload FAB
+                            if (index === 2 && isSeller) {
+                                return (
+                                    <div key="upload-fab" style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                        <Link
+                                            href="/seller/upload"
+                                            onTouchStart={() => handlePrefetch('/seller/upload')}
+                                            onClick={() => handleNavClick('/seller/upload')}
+                                            className="upload-fab-wrap"
+                                            aria-label="Upload video"
+                                        >
+                                            <div className="upload-fab">
+                                                <RiAddLine size={24} color="#fff" />
+                                            </div>
+                                        </Link>
+                                    </div>
+                                );
+                            }
+
                             return (
                                 <Link
                                     key={href}
@@ -619,46 +627,10 @@ export default function AppLayout({ children }) {
                                 </Link>
                             );
                         })}
-
-                        <button
-                            onClick={() => setShowUserMenu(true)}
-                            style={{
-                                flex: 1,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 3,
-                                padding: '8px 4px 6px',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: profileActive ? '#ff5c00' : 'rgba(255,255,255,0.4)',
-                                transition: 'color 0.15s',
-                            }}
-                        >
-                            <RiUserLine size={23} />
-                            <span style={{ fontSize: 10, fontWeight: profileActive ? 700 : 400 }}>Profile</span>
-                        </button>
-
-                        {/* Floating upload FAB — absolutely positioned, overlaps the
-                            top edge of the bar only, doesn't affect the 5 flex items above */}
-                        {isSeller && (
-                            <Link
-                                href="/seller/upload"
-                                onTouchStart={() => handlePrefetch('/seller/upload')}
-                                onClick={() => handleNavClick('/seller/upload')}
-                                className="upload-fab-wrap"
-                                aria-label="Upload video"
-                            >
-                                <div className="upload-fab">
-                                    <RiAddLine size={22} color="#fff" />
-                                </div>
-                            </Link>
-                        )}
                     </nav>
                 )}
             </main>
-             </div>
+            </div>
 
             {showUserMenu && auth?.user && (
                 <ProfileSheet
@@ -702,19 +674,20 @@ export default function AppLayout({ children }) {
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
                 .upload-fab-wrap {
-                    position: absolute;
-                    left: 50%;
-                    top: -16px;
-                    transform: translateX(-50%);
                     text-decoration: none;
-                    z-index: 5;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
                 .upload-fab {
-                    width: 48px; height: 48px; border-radius: 16px;
+                    width: 44px; 
+                    height: 44px; 
+                    border-radius: 14px;
                     background: var(--flockr-orange);
-                    display: flex; align-items: center; justify-content: center;
-                    box-shadow: 0 8px 20px rgba(255,92,0,0.45);
-                    border: 3px solid rgba(8,8,8,0.96);
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center;
+                    box-shadow: 0 4px 14px rgba(255,92,0,0.4);
                 }
             `}</style>
         </div>

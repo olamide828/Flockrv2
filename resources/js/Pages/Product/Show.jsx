@@ -4,6 +4,7 @@ import CheckoutModal from '@/Components/CheckoutModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
+import CouponModal from '@/Components/CouponModal';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     RiAddLine,
@@ -333,6 +334,7 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
     const [reviewList,      setReviewList]      = useState(initialReviews ?? []);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [earnedCoupon,    setEarnedCoupon]    = useState(null);
+    const [showModal,       setShowModal]       = useState(false);
     const [filterStar,      setFilterStar]      = useState(null);
     const [filterPhoto,     setFilterPhoto]     = useState(false);
     const [page,            setPage]            = useState(1);
@@ -356,9 +358,12 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
         return true;
     });
 
-    const handleReviewSubmitted = (data) => {
+  const handleReviewSubmitted = (data) => {
         setReviewSubmitted(true);
-        if (data.coupon) setEarnedCoupon(data.coupon);
+        if (data.coupon) {
+            setEarnedCoupon(data.coupon);
+            setShowModal(true); // <--- Open modal when coupon is received
+        }
         axios.get(`/api/products/${product.slug}/reviews`, { params: { page: 1, per_page: 10 } })
             .then(r => {
                 setReviewList(r.data.reviews ?? []);
@@ -387,6 +392,13 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
         <>
             {reviewLightbox && (
                 <ReviewLightbox photos={reviewLightbox.photos} startIdx={reviewLightbox.idx} onClose={() => setReviewLightbox(null)} />
+            )}
+
+            {showModal && earnedCoupon && (
+                <CouponModal
+                    coupon={earnedCoupon}
+                    onClose={() => setShowModal(false)}
+                />
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>

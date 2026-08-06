@@ -1,3 +1,5 @@
+<?php
+
 namespace App\Http\Controllers;
 
 use App\Models\Coupon;
@@ -27,9 +29,9 @@ class ReviewController extends Controller
             return response()->json(['message' => 'You can only review a delivered order.'], 422);
         }
 
-        // Change to 12 for production, 1 for testing
-        $minHours = 24;
-        if (!$order->delivered_at || $order->delivered_at->diffInHours(now()) < $minHours) {
+        // Set to 0 for testing, 24 for production
+        $minHours = 0;
+        if ($minHours > 0 && (!$order->delivered_at || $order->delivered_at->diffInHours(now()) < $minHours)) {
             return response()->json([
                 'message' => "Reviews can be submitted {$minHours} hour(s) after delivery.",
             ], 422);
@@ -71,40 +73,44 @@ class ReviewController extends Controller
                 'photos'    => !empty($photoKeys) ? $photoKeys : null,
             ]);
 
-            // 1. Update the Product stats if the order is tied to a specific product
+            // 1. Update Product stats — read from reviews joined to orders
             if ($order->product_id) {
                 DB::statement("
                     UPDATE products SET
                         avg_rating = (
-                            SELECT COALESCE(ROUND(AVG(rating)::numeric, 2), 0.00)
-                            FROM reviews
-                            WHERE order_id IN (SELECT id FROM orders WHERE product_id = ?)
+                            SELECT COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0.00)
+                            FROM reviews r
+                            INNER JOIN orders o ON o.id = r.order_id
+                            WHERE o.product_id = ?
                         ),
                         total_reviews = (
                             SELECT COUNT(*)
-                            FROM reviews
-                            WHERE order_id IN (SELECT id FROM orders WHERE product_id = ?)
+                            FROM reviews r
+                            INNER JOIN orders o ON o.id = r.order_id
+                            WHERE o.product_id = ?
                         )
                     WHERE id = ?
                 ", [$order->product_id, $order->product_id, $order->product_id]);
             }
 
-            // 2. Update the User (Seller) stats safely with COALESCE
+            // 2. Update Seller stats — read DIRECTLY from reviews table
+            // NEVER read from products.avg_rating (can be null → NOT NULL violation)
             DB::statement("
                 UPDATE users SET
                     avg_rating = (
-                        SELECT COALESCE(ROUND(AVG(avg_rating)::numeric, 2), 0.00)
-                        FROM products
-                        WHERE seller_id = ? AND total_reviews > 0
+                        SELECT COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0.00)
+                        FROM reviews r
+                        WHERE r.seller_id = ?
                     ),
                     total_reviews = (
-                        SELECT COALESCE(SUM(total_reviews), 0)
-                        FROM products
-                        WHERE seller_id = ?
+                        SELECT COUNT(*)
+                        FROM reviews r
+                        WHERE r.seller_id = ?
                     )
                 WHERE id = ?
             ", [$order->seller_id, $order->seller_id, $order->seller_id]);
 
+            // 3. Generate coupon reward
             $coupon = Coupon::create([
                 'code'       => 'FLKRATE-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)),
                 'buyer_id'   => $order->buyer_id,
@@ -145,14 +151,16 @@ class ReviewController extends Controller
         }
 
         $review   = Review::where('order_id', $order->id)->first();
-        $minHours = 24; // match store() — change both to 12 in production
+        $minHours = 0; // Match store() — set both to 24 in production
 
         return response()->json([
             'reviewed'   => (bool) $review,
             'review'     => $review,
             'can_review' => $order->status === 'delivered'
-                            && $order->delivered_at
-                            && $order->delivered_at->diffInHours(now()) >= $minHours
+                            && ($minHours === 0 || (
+                                $order->delivered_at
+                                && $order->delivered_at->diffInHours(now()) >= $minHours
+                            ))
                             && !$review,
         ]);
     }
