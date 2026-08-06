@@ -170,6 +170,14 @@ foreach ($validated['product_categories'] as $catLabel) {
     }
 }
 
+$categoryIds = app(\App\Services\CategoryMatcher::class)->match($validated['product_categories']);
+foreach ($categoryIds as $catId) {
+    \App\Models\UserInterest::updateOrCreate(
+        ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
+        ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
+    );
+}
+
         return redirect()->route('seller.dashboard')
             ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }

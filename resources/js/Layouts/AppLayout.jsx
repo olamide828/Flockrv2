@@ -14,6 +14,7 @@ import {
     RiUploadCloud2Line,
     RiUserLine,
     RiAddLine,
+    RiArrowDownSLine,
 } from 'react-icons/ri';
 
 import { TiGroupOutline } from "react-icons/ti";
@@ -103,20 +104,77 @@ export default function AppLayout({ children }) {
 
     const isSeller = auth?.user?.role === 'seller';
 
-    // 5 primary navigation destinations for mobile
-    const mobileNavItems = [
-        { href: '/',          Icon: RiHome5Line,              label: 'For You' },
-        { href: '/explore',   Icon: RiSearchLine,              label: 'Explore' },
-        { href: '/community', Icon: TiGroupOutline,          label: 'Community' },
-        { href: '/shop',      Icon: RiShoppingBag2Line,        label: 'Shop' },
-        { href: '/inbox',     Icon: IoChatboxEllipsesOutline,  label: 'Inbox' },
+    // Bottom nav, left-of-FAB and right-of-FAB groups — Explore lives in the
+    // mobile top bar instead, so it doesn't compete for bottom-nav space.
+    const leftNavItems  = [
+        { href: '/',          Icon: RiHome5Line,     label: 'For You'   },
+        { href: '/community', Icon: TiGroupOutline, label: 'Community' },
     ];
+    const rightNavItems = [
+        { href: '/shop',  Icon: RiShoppingBag2Line,       label: 'Shop'  },
+        { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
+    ];
+
+    const renderNavLink = ({ href, label, Icon }) => {
+        const active = isActive(href);
+        const isInbox = href === '/inbox';
+        return (
+            <Link
+                key={href}
+                href={href}
+                onTouchStart={() => handlePrefetch(href)}
+                onClick={() => handleNavClick(href)}
+                style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '8px 4px 6px',
+                    textDecoration: 'none',
+                    color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
+                    transition: 'color 0.15s',
+                    position: 'relative',
+                }}
+            >
+                <div style={{ position: 'relative' }}>
+                    <Icon size={23} />
+                    {isInbox && unreadMessages > 0 && (
+                        <span
+                            style={{
+                                position: 'absolute',
+                                top: -4,
+                                right: -6,
+                                minWidth: 16,
+                                height: 16,
+                                borderRadius: 999,
+                                background: '#ff5c00',
+                                border: '2px solid rgba(8,8,8,0.96)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 9,
+                                fontWeight: 800,
+                                color: '#fff',
+                                padding: '0 3px',
+                                lineHeight: 1,
+                                animation: 'badgePop 0.3s ease',
+                            }}
+                        >
+                            {unreadMessages > 99 ? '99+' : unreadMessages}
+                        </span>
+                    )}
+                </div>
+                <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, letterSpacing: '0.02em' }}>{label}</span>
+            </Link>
+        );
+    };
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
             <VerifyEmailBanner />
             <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            
+
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
             <aside
                 className="md-sidebar"
@@ -440,7 +498,7 @@ export default function AppLayout({ children }) {
                 className={isFullScreen ? 'main-full' : 'main-paged'}
                 style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
             >
-                {/* Mobile top bar */}
+                {/* Mobile top bar — Explore lives here now, alongside Orders/Cart/Avatar */}
                 {!isFullScreen && (
                     <div
                         className="mobile-topbar"
@@ -465,10 +523,18 @@ export default function AppLayout({ children }) {
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <Link
+                                href="/explore"
+                                onTouchStart={() => handlePrefetch('/explore')}
+                                onClick={() => handleNavClick('/explore')}
+                                style={{ color: isActive('/explore') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
+                            >
+                                <RiSearchLine size={20} />
+                            </Link>
+                            <Link
                                 href="/orders"
                                 onTouchStart={() => handlePrefetch('/orders')}
                                 onClick={() => handleNavClick('/orders')}
-                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
+                                style={{ color: isActive('/orders') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
                             >
                                 <RiShoppingBasketLine size={20} />
                             </Link>
@@ -476,7 +542,7 @@ export default function AppLayout({ children }) {
                                 href="/cart"
                                 onTouchStart={() => handlePrefetch('/cart')}
                                 onClick={() => handleNavClick('/cart')}
-                                style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}
+                                style={{ color: isActive('/cart') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4, position: 'relative' }}
                             >
                                 <RiShoppingCart2Line size={20} />
                                 {cartCount > 0 && (
@@ -506,11 +572,16 @@ export default function AppLayout({ children }) {
                                 )}
                             </Link>
                             {auth?.user ? (
+                                // Avatar with a persistent chevron badge — signals it opens
+                                // a menu, since mobile has no hover state to hint at that.
                                 <button
                                     onClick={() => setShowUserMenu(true)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', position: 'relative' }}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', position: 'relative', padding: 2 }}
                                 >
                                     <AvatarImage user={auth.user} size={30} />
+                                    <span className="avatar-chevron-badge">
+                                        <RiArrowDownSLine size={11} color="#fff" />
+                                    </span>
                                 </button>
                             ) : (
                                 <Link
@@ -537,7 +608,9 @@ export default function AppLayout({ children }) {
                     {children}
                 </div>
 
-                {/* Mobile bottom nav — 5 items: For You | Explore | Community | Shop | Inbox */}
+                {/* Mobile bottom nav — Home · Community · [Upload] · Shop · Inbox.
+                    The FAB is a real flex sibling sitting between the two groups,
+                    so it can never overlap another icon regardless of item count. */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
@@ -551,78 +624,26 @@ export default function AppLayout({ children }) {
                             borderTop: '1px solid rgba(255,255,255,0.07)',
                             zIndex: 50,
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                            overflow: 'visible',
                         }}
                     >
-                        {mobileNavItems.map(({ href, label, Icon }) => {
-                            const active = isActive(href);
-                            const isInbox = href === '/inbox';
+                        {leftNavItems.map(renderNavLink)}
 
-                            return (
-                                <Link
-                                    key={href}
-                                    href={href}
-                                    onTouchStart={() => handlePrefetch(href)}
-                                    onClick={() => handleNavClick(href)}
-                                    style={{
-                                        flex: 1,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        padding: '8px 4px 6px',
-                                        textDecoration: 'none',
-                                        color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
-                                        transition: 'color 0.15s',
-                                        position: 'relative',
-                                    }}
-                                >
-                                    <div style={{ position: 'relative' }}>
-                                        <Icon size={23} />
-                                        {isInbox && unreadMessages > 0 && (
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    top: -4,
-                                                    right: -6,
-                                                    minWidth: 16,
-                                                    height: 16,
-                                                    borderRadius: 999,
-                                                    background: '#ff5c00',
-                                                    border: '2px solid rgba(8,8,8,0.96)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: 9,
-                                                    fontWeight: 800,
-                                                    color: '#fff',
-                                                    padding: '0 3px',
-                                                    lineHeight: 1,
-                                                    animation: 'badgePop 0.3s ease',
-                                                }}
-                                            >
-                                                {unreadMessages > 99 ? '99+' : unreadMessages}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, letterSpacing: '0.02em' }}>{label}</span>
-                                </Link>
-                            );
-                        })}
-
-                        {/* Floating Upload FAB for Sellers — floats over top of bottom bar */}
                         {isSeller && (
                             <Link
                                 href="/seller/upload"
                                 onTouchStart={() => handlePrefetch('/seller/upload')}
                                 onClick={() => handleNavClick('/seller/upload')}
-                                className="upload-fab-wrap"
                                 aria-label="Upload video"
+                                style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', textDecoration: 'none' }}
                             >
                                 <div className="upload-fab">
                                     <RiAddLine size={22} color="#fff" />
                                 </div>
                             </Link>
                         )}
+
+                        {rightNavItems.map(renderNavLink)}
                     </nav>
                 )}
             </main>
@@ -669,14 +690,6 @@ export default function AppLayout({ children }) {
                     body.chat-open .mobile-bottom-nav { display: none !important; }
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
-                .upload-fab-wrap {
-                    position: absolute;
-                    left: 50%;
-                    top: -18px;
-                    transform: translateX(-50%);
-                    text-decoration: none;
-                    z-index: 55;
-                }
                 .upload-fab {
                     width: 44px;
                     height: 44px;
@@ -687,6 +700,20 @@ export default function AppLayout({ children }) {
                     justify-content: center;
                     box-shadow: 0 8px 20px rgba(255,92,0,0.45);
                     border: 3px solid rgba(8,8,8,0.96);
+                    transform: translateY(-14px);
+                }
+                .avatar-chevron-badge {
+                    position: absolute;
+                    bottom: -2px;
+                    right: -2px;
+                    width: 15px;
+                    height: 15px;
+                    border-radius: 50%;
+                    background: var(--flockr-orange);
+                    border: 2px solid rgba(10,10,10,0.94);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
             `}</style>
         </div>

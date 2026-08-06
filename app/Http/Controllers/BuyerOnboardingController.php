@@ -63,7 +63,16 @@ class BuyerOnboardingController extends Controller
                ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
             );
      }
-}
+
+        $categoryIds = app(\App\Services\CategoryMatcher::class)->match($validated['interests']);  
+        foreach ($categoryIds as $catId) {
+      \App\Models\UserInterest::updateOrCreate(
+        ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
+        ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
+     );
+    }
+
+     }
 
         return redirect()->route('home')
             ->with('success', 'Your feed is ready! Welcome to Flockr 🎉');
