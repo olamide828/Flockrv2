@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
     RiCloseLine, RiUserLine, RiSettings4Line, RiBarChart2Line,
-    RiShoppingBasketLine, RiBankCardLine, RiShareForwardLine, RiLogoutBoxLine,
+    RiShoppingBasketLine, RiShareForwardLine, RiLogoutBoxLine,
     RiArrowRightSLine, RiWallet3Line,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
@@ -11,7 +11,7 @@ function Row({ Icon, label, onClick, danger }) {
     return (
         <button onClick={onClick} className={`pf-row ${danger ? 'pf-row-danger' : ''}`}>
             <div className={`pf-row-icon ${danger ? 'pf-row-icon-danger' : ''}`}>
-                <Icon size={19} />
+                <Icon size={18} />
             </div>
             <span className="pf-row-label">{label}</span>
             {!danger && <RiArrowRightSLine size={18} className="pf-row-chevron" />}
@@ -61,12 +61,14 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
         <>
             <div className={`pf-screen ${closing ? 'pf-screen-out' : ''}`}>
                 <div className="pf-hero">
-                    <div className="pf-hero-glow" />
                     <button onClick={handleClose} className="pf-close" aria-label="Close">
                         <RiCloseLine size={20} />
                     </button>
 
-                    <AvatarImage user={user} size={84} />
+                    <div className="pf-avatar-wrapper">
+                        <AvatarImage user={user} size={80} />
+                    </div>
+
                     <h2 className="pf-name">{user.name}</h2>
                     <p className="pf-username">@{user.username}</p>
 
@@ -122,7 +124,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                     </div>
 
                     <button onClick={() => { handleClose(); setTimeout(onLogoutClick, 210); }} className="pf-logout-btn">
-                        <RiLogoutBoxLine size={18} /> Log Out
+                        <RiLogoutBoxLine size={17} /> Log Out
                     </button>
                 </div>
             </div>
@@ -134,60 +136,59 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
             <style>{`
                 .pf-screen {
                     position: fixed; inset: 0; z-index: 970;
-                    background: #0a0a0a;
+                    background: #000000;
                     display: flex; flex-direction: column;
                     overflow-y: auto;
-                    animation: pfSlideUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+                    animation: pfSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
                 }
-                .pf-screen-out { animation: pfSlideDown 0.2s ease forwards; }
+                .pf-screen-out { animation: pfSlideDown 0.18s ease forwards; }
                 .pf-hero {
                     position: relative;
-                    padding: calc(28px + env(safe-area-inset-top, 0px)) 24px 26px;
+                    padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px;
                     display: flex; flex-direction: column; align-items: center;
                     text-align: center;
-                    background: linear-gradient(180deg, rgba(255,92,0,0.14), transparent 70%);
-                    border-bottom: 1px solid rgba(255,255,255,0.06);
-                    overflow: hidden;
+                    background: #0a0a0c;
+                    border-bottom: 1px solid rgba(255,255,255,0.08);
                     flex-shrink: 0;
-                }
-                .pf-hero-glow {
-                    position: absolute; top: -80px; left: 50%; transform: translateX(-50%);
-                    width: 280px; height: 280px; border-radius: 50%;
-                    background: var(--flockr-orange); opacity: 0.18; filter: blur(60px);
-                    pointer-events: none;
                 }
                 .pf-close {
                     position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px;
-                    width: 36px; height: 36px; border-radius: 50%;
+                    width: 34px; height: 34px; border-radius: 50%;
                     background: rgba(255,255,255,0.08); border: none; color: #fff;
                     display: flex; align-items: center; justify-content: center; cursor: pointer;
-                    z-index: 2;
+                    z-index: 2; transition: background 0.15s;
                 }
-                .pf-name { position: relative; margin: 16px 0 0; color: #fff; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
-                .pf-username { position: relative; margin: 3px 0 0; color: rgba(255,255,255,0.4); font-size: 13px; }
-                .pf-stats { position: relative; display: flex; align-items: center; gap: 20px; margin-top: 18px; }
+                .pf-close:active { background: rgba(255,255,255,0.16); }
+                .pf-avatar-wrapper {
+                    padding: 3px;
+                    border-radius: 50%;
+                    background: rgba(255,255,255,0.1);
+                }
+                .pf-name { margin: 14px 0 0; color: #ffffff; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
+                .pf-username { margin: 2px 0 0; color: rgba(255,255,255,0.45); font-size: 13px; font-weight: 400; }
+                .pf-stats { display: flex; align-items: center; gap: 24px; margin-top: 20px; }
                 .pf-stat { text-align: center; }
-                .pf-stat strong { display: block; color: #fff; font-size: 16px; font-weight: 800; }
-                .pf-stat span { color: rgba(255,255,255,0.4); font-size: 11px; }
-                .pf-stat-divider { width: 1px; height: 24px; background: rgba(255,255,255,0.1); }
-                .pf-body { flex: 1; padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
-                .pf-group-label { margin: 20px 6px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); }
+                .pf-stat strong { display: block; color: #ffffff; font-size: 15px; font-weight: 700; }
+                .pf-stat span { color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 1px; }
+                .pf-stat-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+                .pf-body { flex: 1; padding: 16px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
+                .pf-group-label { margin: 18px 6px 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.35); }
                 .pf-group-label:first-child { margin-top: 4px; }
-                .pf-group { background: #121212; border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; overflow: hidden; }
-                .pf-row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 15px 16px; background: none; border: none; border-top: 1px solid rgba(255,255,255,0.05); cursor: pointer; text-align: left; }
+                .pf-group { background: #121214; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; }
+                .pf-row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: none; border: none; border-top: 1px solid rgba(255,255,255,0.05); cursor: pointer; text-align: left; }
                 .pf-row:first-child { border-top: none; }
-                .pf-row:active { background: rgba(255,255,255,0.04); }
-                .pf-row-icon { width: 38px; height: 38px; border-radius: 12px; background: rgba(255,92,0,0.12); color: var(--flockr-orange); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-                .pf-row-label { flex: 1; color: #fff; font-size: 15px; font-weight: 600; }
-                .pf-row-chevron { color: rgba(255,255,255,0.2); flex-shrink: 0; }
+                .pf-row:active { background: rgba(255,255,255,0.05); }
+                .pf-row-icon { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.06); color: #ffffff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+                .pf-row-label { flex: 1; color: #ffffff; font-size: 14px; font-weight: 500; }
+                .pf-row-chevron { color: rgba(255,255,255,0.25); flex-shrink: 0; }
                 .pf-logout-btn {
                     width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
-                    margin-top: 28px; padding: 16px;
-                    background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25);
-                    border-radius: 16px; color: #F87171; font-size: 15px; font-weight: 800;
-                    cursor: pointer;
+                    margin-top: 24px; padding: 14px;
+                    background: #121214; border: 1px solid rgba(255,255,255,0.08);
+                    border-radius: 16px; color: #ffffff; font-size: 14px; font-weight: 600;
+                    cursor: pointer; transition: background 0.15s;
                 }
-                .pf-logout-btn:active { background: rgba(239,68,68,0.2); }
+                .pf-logout-btn:active { background: rgba(255,255,255,0.08); }
                 @keyframes pfSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
                 @keyframes pfSlideDown { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }
             `}</style>

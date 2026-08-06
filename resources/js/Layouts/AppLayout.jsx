@@ -104,15 +104,23 @@ export default function AppLayout({ children }) {
 
     const isSeller = auth?.user?.role === 'seller';
 
-    // Bottom nav, left-of-FAB and right-of-FAB groups — Explore lives in the
-    // mobile top bar instead, so it doesn't compete for bottom-nav space.
-    const leftNavItems  = [
-        { href: '/',          Icon: RiHome5Line,     label: 'For You'   },
-        { href: '/community', Icon: TiGroupOutline, label: 'Community' },
+    // ── Mobile Bottom Navigation Arrays based on User Role ───────────────────
+    const defaultMobileItems = [
+        { href: '/',          Icon: RiHome5Line,              label: 'For You'   },
+        { href: '/community', Icon: TiGroupOutline,          label: 'Community' },
+        { href: '/explore',   Icon: RiSearchLine,              label: 'Explore'   },
+        { href: '/shop',      Icon: RiShoppingBag2Line,        label: 'Shop'      },
+        { href: '/inbox',     Icon: IoChatboxEllipsesOutline,  label: 'Inbox'     },
     ];
-    const rightNavItems = [
-        { href: '/shop',  Icon: RiShoppingBag2Line,       label: 'Shop'  },
-        { href: '/inbox', Icon: IoChatboxEllipsesOutline, label: 'Inbox' },
+
+    const sellerLeftItems = [
+        { href: '/',          Icon: RiHome5Line,              label: 'For You'   },
+        { href: '/community', Icon: TiGroupOutline,          label: 'Community' },
+    ];
+
+    const sellerRightItems = [
+        { href: '/shop',      Icon: RiShoppingBag2Line,        label: 'Shop'      },
+        { href: '/inbox',     Icon: IoChatboxEllipsesOutline,  label: 'Inbox'     },
     ];
 
     const renderNavLink = ({ href, label, Icon }) => {
@@ -138,7 +146,7 @@ export default function AppLayout({ children }) {
                 }}
             >
                 <div style={{ position: 'relative' }}>
-                    <Icon size={23} />
+                    <Icon size={22} />
                     {isInbox && unreadMessages > 0 && (
                         <span
                             style={{
@@ -498,7 +506,7 @@ export default function AppLayout({ children }) {
                 className={isFullScreen ? 'main-full' : 'main-paged'}
                 style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
             >
-                {/* Mobile top bar — Explore lives here now, alongside Orders/Cart/Avatar */}
+                {/* Mobile top bar — Explore shows here ONLY for sellers */}
                 {!isFullScreen && (
                     <div
                         className="mobile-topbar"
@@ -522,14 +530,16 @@ export default function AppLayout({ children }) {
                             />
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Link
-                                href="/explore"
-                                onTouchStart={() => handlePrefetch('/explore')}
-                                onClick={() => handleNavClick('/explore')}
-                                style={{ color: isActive('/explore') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
-                            >
-                                <RiSearchLine size={20} />
-                            </Link>
+                            {isSeller && (
+                                <Link
+                                    href="/explore"
+                                    onTouchStart={() => handlePrefetch('/explore')}
+                                    onClick={() => handleNavClick('/explore')}
+                                    style={{ color: isActive('/explore') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}
+                                >
+                                    <RiSearchLine size={20} />
+                                </Link>
+                            )}
                             <Link
                                 href="/orders"
                                 onTouchStart={() => handlePrefetch('/orders')}
@@ -572,8 +582,6 @@ export default function AppLayout({ children }) {
                                 )}
                             </Link>
                             {auth?.user ? (
-                                // Avatar with a persistent chevron badge — signals it opens
-                                // a menu, since mobile has no hover state to hint at that.
                                 <button
                                     onClick={() => setShowUserMenu(true)}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', position: 'relative', padding: 2 }}
@@ -608,9 +616,7 @@ export default function AppLayout({ children }) {
                     {children}
                 </div>
 
-                {/* Mobile bottom nav — Home · Community · [Upload] · Shop · Inbox.
-                    The FAB is a real flex sibling sitting between the two groups,
-                    so it can never overlap another icon regardless of item count. */}
+                {/* Mobile bottom nav */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
@@ -627,23 +633,25 @@ export default function AppLayout({ children }) {
                             overflow: 'visible',
                         }}
                     >
-                        {leftNavItems.map(renderNavLink)}
-
-                        {isSeller && (
-                            <Link
-                                href="/seller/upload"
-                                onTouchStart={() => handlePrefetch('/seller/upload')}
-                                onClick={() => handleNavClick('/seller/upload')}
-                                aria-label="Upload video"
-                                style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', textDecoration: 'none' }}
-                            >
-                                <div className="upload-fab">
-                                    <RiAddLine size={22} color="#fff" />
-                                </div>
-                            </Link>
+                        {isSeller ? (
+                            <>
+                                {sellerLeftItems.map(renderNavLink)}
+                                <Link
+                                    href="/seller/upload"
+                                    onTouchStart={() => handlePrefetch('/seller/upload')}
+                                    onClick={() => handleNavClick('/seller/upload')}
+                                    aria-label="Upload video"
+                                    style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', textDecoration: 'none' }}
+                                >
+                                    <div className="upload-fab">
+                                        <RiAddLine size={24} color="#fff" />
+                                    </div>
+                                </Link>
+                                {sellerRightItems.map(renderNavLink)}
+                            </>
+                        ) : (
+                            defaultMobileItems.map(renderNavLink)
                         )}
-
-                        {rightNavItems.map(renderNavLink)}
                     </nav>
                 )}
             </main>
@@ -691,16 +699,14 @@ export default function AppLayout({ children }) {
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
                 .upload-fab {
-                    width: 44px;
-                    height: 44px;
-                    border-radius: 14px;
-                    background: var(--flockr-orange);
+                    width: 46px;
+                    height: 46px;
+                    border-radius: 9999px;
+                    background: #ff5c00;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    box-shadow: 0 8px 20px rgba(255,92,0,0.45);
-                    border: 3px solid rgba(8,8,8,0.96);
-                    transform: translateY(-14px);
+                    box-shadow: 0 4px 16px rgba(255, 92, 0, 0.4);
                 }
                 .avatar-chevron-badge {
                     position: absolute;
@@ -734,7 +740,7 @@ export function AvatarImage({ user, size = 36 }) {
                     height: size,
                     borderRadius: '50%',
                     objectFit: 'cover',
-                    border: '2px solid rgba(255,255,255,0.1)',
+                    border: '1.5px solid rgba(255,255,255,0.15)',
                     flexShrink: 0,
                     display: 'block',
                 }}
@@ -748,14 +754,14 @@ export function AvatarImage({ user, size = 36 }) {
                 height: size,
                 borderRadius: '50%',
                 flexShrink: 0,
-                background: 'linear-gradient(135deg, var(--flockr-orange), #ff8c00)',
+                background: '#1c1c1e',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
                 fontWeight: 700,
                 fontSize: size * 0.38,
-                border: '2px solid rgba(255,255,255,0.1)',
+                border: '1.5px solid rgba(255,255,255,0.15)',
             }}
         >
             {(user?.name ?? user?.username ?? 'U')[0].toUpperCase()}
