@@ -103,7 +103,7 @@ export default function AppLayout({ children }) {
 
     const isSeller = auth?.user?.role === 'seller';
 
-    // Perfectly structured 5 items for mobile bottom bar
+    // 5 primary navigation destinations for mobile
     const mobileNavItems = [
         { href: '/',          Icon: RiHome5Line,              label: 'For You' },
         { href: '/explore',   Icon: RiSearchLine,              label: 'Explore' },
@@ -537,7 +537,7 @@ export default function AppLayout({ children }) {
                     {children}
                 </div>
 
-                {/* Mobile bottom nav — 5 items: For You | Explore | Upload (or Community) | Shop | Inbox */}
+                {/* Mobile bottom nav — 5 items: For You | Explore | Community | Shop | Inbox */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
@@ -553,28 +553,9 @@ export default function AppLayout({ children }) {
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                         }}
                     >
-                        {mobileNavItems.map(({ href, label, Icon }, index) => {
+                        {mobileNavItems.map(({ href, label, Icon }) => {
                             const active = isActive(href);
                             const isInbox = href === '/inbox';
-                            
-                            // If index === 2 (middle slot) and user is a seller, substitute slot for the Floating Upload FAB
-                            if (index === 2 && isSeller) {
-                                return (
-                                    <div key="upload-fab" style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                        <Link
-                                            href="/seller/upload"
-                                            onTouchStart={() => handlePrefetch('/seller/upload')}
-                                            onClick={() => handleNavClick('/seller/upload')}
-                                            className="upload-fab-wrap"
-                                            aria-label="Upload video"
-                                        >
-                                            <div className="upload-fab">
-                                                <RiAddLine size={24} color="#fff" />
-                                            </div>
-                                        </Link>
-                                    </div>
-                                );
-                            }
 
                             return (
                                 <Link
@@ -627,6 +608,21 @@ export default function AppLayout({ children }) {
                                 </Link>
                             );
                         })}
+
+                        {/* Floating Upload FAB for Sellers — floats over top of bottom bar */}
+                        {isSeller && (
+                            <Link
+                                href="/seller/upload"
+                                onTouchStart={() => handlePrefetch('/seller/upload')}
+                                onClick={() => handleNavClick('/seller/upload')}
+                                className="upload-fab-wrap"
+                                aria-label="Upload video"
+                            >
+                                <div className="upload-fab">
+                                    <RiAddLine size={22} color="#fff" />
+                                </div>
+                            </Link>
+                        )}
                     </nav>
                 )}
             </main>
@@ -674,20 +670,23 @@ export default function AppLayout({ children }) {
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
                 .upload-fab-wrap {
+                    position: absolute;
+                    left: 50%;
+                    top: -18px;
+                    transform: translateX(-50%);
                     text-decoration: none;
+                    z-index: 55;
+                }
+                .upload-fab {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 14px;
+                    background: var(--flockr-orange);
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                }
-                .upload-fab {
-                    width: 44px; 
-                    height: 44px; 
-                    border-radius: 14px;
-                    background: var(--flockr-orange);
-                    display: flex; 
-                    align-items: center; 
-                    justify-content: center;
-                    box-shadow: 0 4px 14px rgba(255,92,0,0.4);
+                    box-shadow: 0 8px 20px rgba(255,92,0,0.45);
+                    border: 3px solid rgba(8,8,8,0.96);
                 }
             `}</style>
         </div>
