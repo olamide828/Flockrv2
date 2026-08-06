@@ -5,7 +5,7 @@ import {
     RiShoppingBasketLine, RiBankCardLine, RiShareForwardLine, RiLogoutBoxLine,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
-import { useToast } from '@/Components/Toast';
+import ShareProfileSheet from '@/Components/ShareProfileSheet';
 
 function SheetItem({ Icon, label, onClick, danger }) {
     return (
@@ -19,8 +19,8 @@ function SheetItem({ Icon, label, onClick, danger }) {
 }
 
 export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick }) {
-    const { showToast, ToastComponent } = useToast();
     const [closing, setClosing] = useState(false);
+    const [showShareSheet, setShowShareSheet] = useState(false);
 
     const handleClose = () => {
         setClosing(true);
@@ -32,18 +32,9 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
         handleClose();
     };
 
-    const handleShare = async () => {
-        const url = `${window.location.origin}/@${user.username}`;
-        if (navigator.share) {
-            try { await navigator.share({ title: user.name, url }); } catch {}
-            handleClose();
-            return;
-        }
-        try {
-            await navigator.clipboard.writeText(url);
-            showToast('Profile link copied!', 'success');
-        } catch {}
-        setTimeout(handleClose, 600);
+    const handleShareClick = () => {
+        handleClose();
+        setTimeout(() => setShowShareSheet(true), 190);
     };
 
     if (!user) return null;
@@ -83,7 +74,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                         <SheetItem Icon={RiBankCardLine} label="Payouts" onClick={() => go('/seller/payouts')} />
                     )}
 
-                    <SheetItem Icon={RiShareForwardLine} label="Share Profile" onClick={handleShare} />
+                    <SheetItem Icon={RiShareForwardLine} label="Share Profile" onClick={handleShareClick} />
                 </div>
 
                 <div className="ps-divider" />
@@ -93,7 +84,9 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                 </div>
             </div>
 
-            {ToastComponent}
+            {showShareSheet && (
+                <ShareProfileSheet user={user} onClose={() => setShowShareSheet(false)} />
+            )}
 
             <style>{`
                 .ps-backdrop { position: fixed; inset: 0; z-index: 960; background: rgba(0,0,0,0.6); animation: psFadeIn 0.18s ease; }

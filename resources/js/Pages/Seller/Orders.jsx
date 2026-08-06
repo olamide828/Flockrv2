@@ -1,11 +1,10 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import axios from 'axios';
 import { useState } from 'react';
 import {
     RiArchiveDrawerLine,
     RiArrowLeftLine,
-    RiCheckDoubleLine,
     RiCheckLine,
     RiCloseLine,
     RiExternalLinkLine,
@@ -130,12 +129,6 @@ function OrderRow({ order: initial, showToast }) {
                 </div>
             )}
 
-               {order.status === 'paid' && (
-                <button type="button" onClick={() => setShowReadyConfirm(true)} disabled={loading} /* same style as before */>
-                    {loading ? <>…Updating…</> : <><RiCheckLine size={15} />Mark Ready for Pickup</>}
-                </button>
-            )}
-
             {order.status === 'pickup_failed' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
                     <RiCloseLine size={14} color="#EF4444" style={{ flexShrink: 0 }} />
@@ -255,7 +248,7 @@ function OrderRow({ order: initial, showToast }) {
                         {order.status === 'paid' && (
                             <button
                                 type="button"
-                                onClick={markReady}
+                                onClick={() => setShowReadyConfirm(true)}
                                 disabled={loading}
                                 style={{ width: '100%', padding: '13px', background: loading ? 'rgba(59,130,246,0.4)' : '#3B82F6', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                             >
@@ -280,7 +273,7 @@ function OrderRow({ order: initial, showToast }) {
                             </button>
                         )}
 
-                        <a
+                        
                             href={'/orders/' + order.id}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
                         >
@@ -288,6 +281,18 @@ function OrderRow({ order: initial, showToast }) {
                         </a>
                     </div>
                 </div>
+            )}
+
+            {showReadyConfirm && (
+                <ConfirmModal
+                    title="Confirm Pickup Ready"
+                    message="Confirm your item is packed and ready for courier pickup."
+                    confirmLabel="Confirm"
+                    cancelLabel="Cancel"
+                    danger={false}
+                    onConfirm={markReady}
+                    onClose={() => setShowReadyConfirm(false)}
+                />
             )}
         </div>
     );
@@ -308,7 +313,6 @@ export default function SellerOrders({ orders: initialOrders = { data: [] }, sta
         return matchesTab && matchesSearch;
     });
 
-    // Real, all-time counts from the backend — not just what's on this page
     const totalAll = Object.values(stats).reduce((s, n) => s + Number(n ?? 0), 0);
 
     const goToPage = (url) => {
@@ -340,7 +344,6 @@ export default function SellerOrders({ orders: initialOrders = { data: [] }, sta
                                 </button>
                                 <h1 style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>Orders</h1>
                             </div>
-                            {/* Quick stats — sourced from all-time backend counts, not just this page */}
                             <div style={{ display: 'flex', gap: 16 }}>
                                 {[
                                     { label: 'To Pack',   value: stats['paid']      ?? 0, color: '#3B82F6' },
@@ -355,7 +358,6 @@ export default function SellerOrders({ orders: initialOrders = { data: [] }, sta
                             </div>
                         </div>
 
-                        {/* Search */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
                             <RiSearchLine size={15} color="rgba(255,255,255,0.3)" />
                             <input
@@ -428,17 +430,6 @@ export default function SellerOrders({ orders: initialOrders = { data: [] }, sta
                     </div>
                 )}
             </div>
-
-            {showReadyConfirm && (
-                <ConfirmModal
-                    title="Confirm Pickup Ready"
-                    message="Confirm your item is packed and ready for courier pickup."
-                    confirmLabel="Confirm"
-                    cancelLabel="Cancel"
-                    onConfirm={markReady}
-                    onClose={() => setShowReadyConfirm(false)}
-                />
-            )}
 
             {ToastComponent}
             <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>

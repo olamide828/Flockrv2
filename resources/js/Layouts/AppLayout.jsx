@@ -1,6 +1,5 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
-import { ShoppingBagIcon } from 'lucide-react';
 import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import ProfileSheet from '@/Components/ProfileSheet';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
@@ -49,9 +48,6 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('flockr:unread', handler);
     }, []);
 
-    // Keep local unread count in sync when the shared auth prop changes
-    // (e.g. after the focus-triggered partial reload below) — previously
-    // this only updated via the custom event and could go stale.
     useEffect(() => {
         if (typeof auth?.user?.unread_messages === 'number') {
             setUnreadMessages(auth.user.unread_messages);
@@ -65,21 +61,21 @@ export default function AppLayout({ children }) {
     }, []);
 
     // ── Instant-feeling navigation ─────────────────────────────────────────────
-    // 1. Optimistic active-tab highlighting — updates the moment a link is
-    //    tapped, not after the server responds.
-    // 2. Prefetching on hover (desktop) / touchstart (mobile, fires before the
-    //    tap completes) so the page is often already cached by the time the
-    //    click registers.
-    // 3. A slim top progress bar tied to real navigation lifecycle instead of
-    //    Inertia's default progress indicator (disable that globally by
-    //    passing `progress: false` to createInertiaApp in your app entry file).
+    // Optimistic active-tab highlighting (updates on click, not on server
+    // response) + prefetching on hover/touchstart so pages are often already
+    // cached by the time a click completes.
+    //
+    // NOTE on loading indicator: don't add a second progress bar here — Inertia
+    // already renders one. Configure ITS color/behavior instead, in your app
+    // entry file (resources/js/app.jsx), inside createInertiaApp({ ... }):
+    //   progress: { color: '#FF6B35', showSpinner: false, delay: 100 }
+    // Adding a custom bar in this component on top of that is what caused the
+    // "showing twice" duplicate you saw.
     const [optimisticHref, setOptimisticHref] = useState(null);
-    const [isNavigating, setIsNavigating] = useState(false);
 
     useEffect(() => {
-        const stopStart = router.on('start', () => setIsNavigating(true));
-        const stopFinish = router.on('finish', () => { setIsNavigating(false); setOptimisticHref(null); });
-        return () => { stopStart(); stopFinish(); };
+        const stopFinish = router.on('finish', () => setOptimisticHref(null));
+        return () => stopFinish();
     }, []);
 
     const handlePrefetch = useCallback((href) => {
@@ -117,10 +113,10 @@ export default function AppLayout({ children }) {
     }, [auth?.user]);
 
     const isSeller = auth?.user?.role === 'seller';
+    const mobileNavItems = NAV_ITEMS.filter(item => item.href !== '/explore');
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--flockr-black)', overflow: 'hidden' }}>
-            {isNavigating && <div className="flockr-topbar-progress" />}
             <VerifyEmailBanner />
             <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {/* ── Desktop sidebar ──────────────────────────────────────────── */}
@@ -185,7 +181,7 @@ export default function AppLayout({ children }) {
                     </form>
                 </div>
 
-                {/* Upload — moved up front so sellers see it immediately, no scrolling past 8 nav items */}
+                {/* Upload — front and center so sellers see it without scrolling */}
                 {isSeller && (
                     <div style={{ padding: '0 12px 12px' }}>
                         <Link
@@ -342,7 +338,6 @@ export default function AppLayout({ children }) {
                         Orders
                     </Link>
 
-                    {/* Profile — kept in nav list too for quick single-click access */}
                     <Link
                         href={profileHref}
                         onMouseEnter={() => handlePrefetch(profileHref)}
@@ -367,7 +362,7 @@ export default function AppLayout({ children }) {
                     </Link>
                 </nav>
 
-                {/* User section — opens the ProfileSheet instead of the old dropdown */}
+                {/* User section */}
                 <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     {auth?.user ? (
                         <button
@@ -552,11 +547,14 @@ export default function AppLayout({ children }) {
                     {children}
                 </div>
 
-                {/* Mobile bottom nav */}
+                {/* Mobile bottom nav — 5 evenly-spaced items (4 nav + Profile).
+                    The upload FAB is NOT a flex child; it floats absolutely
+                    above the bar so it never disrupts the other icons' spacing. */}
                 {!isVideoPage && (
                     <nav
                         className="mobile-bottom-nav"
                         style={{
+                            position: 'relative',
                             flexShrink: 0,
                             display: 'flex',
                             alignItems: 'center',
@@ -565,79 +563,9 @@ export default function AppLayout({ children }) {
                             borderTop: '1px solid rgba(255,255,255,0.07)',
                             zIndex: 50,
                             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-                            position: 'relative',
                         }}
                     >
-                        {NAV_ITEMS.filter(item => item.href !== '/explore').slice(0, 2).map(({ href, label, Icon }) => {
-                            const active = isActive(href);
-                            const isInbox = href === '/inbox';
-                            return (
-                                <Link
-                                    key={href}
-                                    href={href}
-                                    onTouchStart={() => handlePrefetch(href)}
-                                    onClick={() => handleNavClick(href)}
-                                    style={{
-                                        flex: 1,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        padding: '8px 4px 6px',
-                                        textDecoration: 'none',
-                                        color: active ? '#ff5c00' : 'rgba(255,255,255,0.4)',
-                                        transition: 'color 0.15s',
-                                        position: 'relative',
-                                    }}
-                                >
-                                    <div style={{ position: 'relative' }}>
-                                        <Icon size={23} />
-                                        {isInbox && unreadMessages > 0 && (
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    top: -4,
-                                                    right: -6,
-                                                    minWidth: 16,
-                                                    height: 16,
-                                                    borderRadius: 999,
-                                                    background: '#ff5c00',
-                                                    border: '2px solid rgba(8,8,8,0.96)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: 9,
-                                                    fontWeight: 800,
-                                                    color: '#fff',
-                                                    padding: '0 3px',
-                                                    lineHeight: 1,
-                                                    animation: 'badgePop 0.3s ease',
-                                                }}
-                                            >
-                                                {unreadMessages > 99 ? '99+' : unreadMessages}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, letterSpacing: '0.02em' }}>{label}</span>
-                                </Link>
-                            );
-                        })}
-
-                        {/* Raised center upload FAB — sellers only, TikTok-style placement */}
-                        {isSeller && (
-                            <Link
-                                href="/seller/upload"
-                                onTouchStart={() => handlePrefetch('/seller/upload')}
-                                onClick={() => handleNavClick('/seller/upload')}
-                                style={{ flex: 1, display: 'flex', justifyContent: 'center', textDecoration: 'none' }}
-                            >
-                                <div className="upload-fab">
-                                    <RiAddLine size={24} color="#fff" />
-                                </div>
-                            </Link>
-                        )}
-
-                        {NAV_ITEMS.filter(item => item.href !== '/explore').slice(2).map(({ href, label, Icon }) => {
+                        {mobileNavItems.map(({ href, label, Icon }) => {
                             const active = isActive(href);
                             const isInbox = href === '/inbox';
                             return (
@@ -711,6 +639,22 @@ export default function AppLayout({ children }) {
                             <RiUserLine size={23} />
                             <span style={{ fontSize: 10, fontWeight: profileActive ? 700 : 400 }}>Profile</span>
                         </button>
+
+                        {/* Floating upload FAB — absolutely positioned, overlaps the
+                            top edge of the bar only, doesn't affect the 5 flex items above */}
+                        {isSeller && (
+                            <Link
+                                href="/seller/upload"
+                                onTouchStart={() => handlePrefetch('/seller/upload')}
+                                onClick={() => handleNavClick('/seller/upload')}
+                                className="upload-fab-wrap"
+                                aria-label="Upload video"
+                            >
+                                <div className="upload-fab">
+                                    <RiAddLine size={22} color="#fff" />
+                                </div>
+                            </Link>
+                        )}
                     </nav>
                 )}
             </main>
@@ -757,24 +701,20 @@ export default function AppLayout({ children }) {
                     body.chat-open .mobile-bottom-nav { display: none !important; }
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
+                .upload-fab-wrap {
+                    position: absolute;
+                    left: 50%;
+                    top: -16px;
+                    transform: translateX(-50%);
+                    text-decoration: none;
+                    z-index: 5;
+                }
                 .upload-fab {
-                    width: 46px; height: 46px; border-radius: 16px;
+                    width: 48px; height: 48px; border-radius: 16px;
                     background: var(--flockr-orange);
                     display: flex; align-items: center; justify-content: center;
-                    transform: translateY(-14px);
                     box-shadow: 0 8px 20px rgba(255,92,0,0.45);
                     border: 3px solid rgba(8,8,8,0.96);
-                }
-                .flockr-topbar-progress {
-                    position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 9999;
-                    background: var(--flockr-orange);
-                    animation: flockrProgress 1s ease-in-out infinite;
-                    transform-origin: left;
-                }
-                @keyframes flockrProgress {
-                    0%   { transform: scaleX(0); opacity: 1; }
-                    50%  { transform: scaleX(0.6); }
-                    100% { transform: scaleX(0.9); opacity: 0.6; }
                 }
             `}</style>
         </div>
