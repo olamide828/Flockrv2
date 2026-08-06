@@ -34,11 +34,6 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
     const [closing, setClosing] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
-    useEffect(() => {
-        document.body.classList.add('chat-open');
-        return () => document.body.classList.remove('chat-open');
-    }, []);
-
     const handleClose = () => {
         setClosing(true);
         setTimeout(onClose, 200);
@@ -47,11 +42,6 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
     const go = (path) => {
         onNavigate(path);
         handleClose();
-    };
-
-    const handleShareClick = () => {
-        handleClose();
-        setTimeout(() => setShowShareSheet(true), 210);
     };
 
     if (!user) return null;
@@ -120,7 +110,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
 
                     <GroupLabel>Share</GroupLabel>
                     <div className="pf-group">
-                        <Row Icon={RiShareForwardLine} label="Share Profile" onClick={handleShareClick} />
+                        <Row Icon={RiShareForwardLine} label="Share Profile" onClick={() => setShowShareSheet(true)} />
                     </div>
 
                     <button onClick={() => { handleClose(); setTimeout(onLogoutClick, 210); }} className="pf-logout-btn">
@@ -129,6 +119,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                 </div>
             </div>
 
+            {/* ShareProfileSheet opens directly on top with high z-index */}
             {showShareSheet && (
                 <ShareProfileSheet user={user} onClose={() => setShowShareSheet(false)} />
             )}

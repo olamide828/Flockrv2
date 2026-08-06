@@ -506,7 +506,7 @@ export default function AppLayout({ children }) {
                 className={isFullScreen ? 'main-full' : 'main-paged'}
                 style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
             >
-                {/* Mobile top bar — Explore shows here ONLY for sellers */}
+                {/* Mobile top bar */}
                 {!isFullScreen && (
                     <div
                         className="mobile-topbar"
@@ -693,20 +693,20 @@ export default function AppLayout({ children }) {
                     70%  { transform: scale(1.2); }
                     100% { transform: scale(1); }
                 }
-                @media (max-width: 767px) {
-                    body.chat-open .mobile-topbar     { display: none !important; }
-                    body.chat-open .mobile-bottom-nav { display: none !important; }
-                    body.chat-open .page-content       { overflow: hidden !important; }
-                }
                 .upload-fab {
-                    width: 46px;
-                    height: 46px;
+                    width: 48px;
+                    height: 48px;
                     border-radius: 9999px;
                     background: #ff5c00;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    box-shadow: 0 4px 16px rgba(255, 92, 0, 0.4);
+                    margin-top: -12px;
+                    box-shadow: 0 4px 18px rgba(255, 92, 0, 0.45);
+                    transition: transform 0.15s ease;
+                }
+                .upload-fab:active {
+                    transform: scale(0.95);
                 }
                 .avatar-chevron-badge {
                     position: absolute;
