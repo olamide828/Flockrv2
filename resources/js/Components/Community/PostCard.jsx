@@ -13,8 +13,8 @@ import PostMediaCarousel from './PostMediaCarousel'
 import PostShareSheet from './PostShareSheet'
 import PostViewersSheet from './PostViewersSheet'
 import { timeAgo, fmtCount } from './Helpers'
-import VerifiedBadge from '@/Components/VerifiedBadge';
-import HeartBurst from './HeartBurst'
+import VerifiedBadge from '@/Components/VerifiedBadge'
+import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
@@ -32,21 +32,9 @@ export default function PostCard({
 
   const cardRef = useRef(null)
   const viewedRef = useRef(false)
-
-  // Heart burst state and media tap double-tap ref
-  const [showBurst, setShowBurst] = useState(false)
+  const likeBtnRef = useRef(null)
   const lastMediaTapRef = useRef(0)
-
-  const handleMediaTap = (e) => {
-    e.stopPropagation()
-    const now = Date.now()
-    if (now - lastMediaTapRef.current < 300) {
-      if (!post.is_liked_by_me) onLike(post)
-      setShowBurst(true)
-      setTimeout(() => setShowBurst(false), 850)
-    }
-    lastMediaTapRef.current = now
-  }
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
 
   useEffect(() => {
     if (viewedRef.current || !cardRef.current) return
@@ -80,6 +68,16 @@ export default function PostCard({
     setShowViewers(true)
   }
 
+  const handleMediaTap = (e) => {
+    e.stopPropagation()
+    const now = Date.now()
+    if (now - lastMediaTapRef.current < 300) {
+      if (!post.is_liked_by_me) onLike(post)
+      triggerLikeAnim(e.clientX, e.clientY)
+    }
+    lastMediaTapRef.current = now
+  }
+
   const media = post.media?.length ? post.media : (post.media_url ? [{ media_url: post.media_url, media_type: post.media_type }] : [])
 
   return (
@@ -87,6 +85,7 @@ export default function PostCard({
       style={{ display:'flex', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}>
       {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
       {showViewers && <PostViewersSheet postId={post.id} onClose={() => setShowViewers(false)} />}
+      <LikeAnimationOverlay burst={burst} />
 
       <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block', flexShrink:0 }}>
         <Av user={post.user} size={40} />
@@ -165,11 +164,8 @@ export default function PostCard({
         )}
 
         {media.length > 0 && (
-          <div 
-            onClick={handleMediaTap}
-            style={{ position:'relative', borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000', height:460 }}
-          >
-            {showBurst && <HeartBurst />}
+          <div onClick={handleMediaTap}
+            style={{ position:'relative', borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000', height:460 }}>
             {media.length === 1 ? (
               media[0].media_type === 'video'
                 ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onExpand={onOpenLightbox ? () => onOpenLightbox(0) : undefined} />
@@ -190,7 +186,7 @@ export default function PostCard({
         )}
 
         <div style={{ display:'flex', alignItems:'center', gap:2, marginTop:4, marginLeft:-8 }}>
-          <button onClick={handleLikeClick} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
+          <button ref={likeBtnRef} onClick={handleLikeClick} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
             {post.is_liked_by_me ? <RiHeartFill size={20} /> : <RiHeartLine size={20} />}
             {post.likes_count > 0 && <span>{fmtCount(post.likes_count)}</span>}
           </button>

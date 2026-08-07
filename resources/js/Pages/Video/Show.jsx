@@ -9,7 +9,6 @@ import {
     RiCheckLine,
     RiCloseFill,
     RiCloseLine,
-    RiDeleteBinLine,
     RiDownload2Line,
     RiFacebookCircleLine,
     RiHeartFill,
@@ -19,16 +18,12 @@ import {
     RiLoader4Line,
     RiMapPinLine,
     RiMoreLine,
-    RiReplyLine,
     RiSearchLine,
     RiSendPlaneFill,
     RiShareForwardLine,
     RiShoppingBag2Line,
     RiTelegramLine,
     RiTwitterXLine,
-    RiUserAddLine,
-    RiUserFollowLine,
-    RiVerifiedBadgeLine,
     RiVolumeMuteLine,
     RiVolumeUpLine,
     RiWhatsappLine,
@@ -39,6 +34,9 @@ import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay';
+import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
+import { useVideoSeek } from '@/lib/useVideoSeek';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -56,6 +54,10 @@ const timeAgo = (d) => {
     if (s < 3600) return `${Math.floor(s / 60)}m`;
     if (s < 86400) return `${Math.floor(s / 3600)}h`;
     return new Date(d).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' });
+};
+const postedDate = (d) => {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 function MoreSheet({ onClose, onReport, videoRef }) {
@@ -170,7 +172,6 @@ function useVideoDownload(video) {
                     setTimeout(() => setDlState('idle'), 4000);
                 }
             }, 2000);
-            // Timeout after 5 minutes
             setTimeout(() => {
                 if (pollTimer.current) {
                     stopPolling();
@@ -190,8 +191,8 @@ function useVideoDownload(video) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SideBtn
 // ─────────────────────────────────────────────────────────────────────────────
-const SideBtn = ({ onClick, children, label }) => (
-    <button onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+const SideBtn = ({ onClick, children, label, btnRef }) => (
+    <button ref={btnRef} onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.7))' }}>{children}</div>
         {label !== undefined && label !== '' && <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.9)', marginTop: 1 }}>{label}</span>}
     </button>
@@ -253,13 +254,14 @@ const DescriptionPanel = ({ text }) => {
     )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 // ProductRow
 // ─────────────────────────────────────────────────────────────────────────────
 const ProductRow = ({ product }) => {
     const sellerUsername = product.seller?.username
     const href = sellerUsername
         && `/@${sellerUsername}/products/${product.slug ?? product.id}`
-     
+
     return (
         <Link href={href}>
             <button style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer' }}>
@@ -277,7 +279,7 @@ const ProductRow = ({ product }) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ShareSheet — all original options + Download button
+// ShareSheet
 // ─────────────────────────────────────────────────────────────────────────────
 const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
     const [copied, setCopied] = useState(false);
@@ -292,7 +294,6 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
 
     const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
-    // Download button appearance based on dlState
     const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download';
     const dlColor = { idle: '#fff', preparing: 'rgba(255,255,255,0.4)', processing: 'rgba(255,255,255,0.4)', done: '#10B981', error: '#EF4444' }[dlState] ?? '#fff';
     const dlBg    = { idle: 'rgba(255,255,255,0.06)', preparing: 'rgba(255,255,255,0.04)', processing: 'rgba(255,255,255,0.04)', done: 'rgba(16,185,129,0.12)', error: 'rgba(239,68,68,0.12)' }[dlState] ?? 'rgba(255,255,255,0.06)';
@@ -306,7 +307,6 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
         { label: 'Reddit',     Icon: RiRedditLine,         color: '#FF4500', bg: 'rgba(255,69,0,0.12)',    href: `https://reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}` },
         { label: 'Instagram',  Icon: RiInstagramLine,      color: '#E1306C', bg: 'rgba(225,48,108,0.12)', href: null, onClick: handleCopy },
         ...(canNativeShare ? [{ label: 'More', Icon: RiShareForwardLine, color: '#FF6B35', bg: 'rgba(255,107,53,0.12)', href: null, onClick: () => navigator.share({ title: videoTitle || 'Flockr', url: videoUrl }).catch(() => {}) }] : []),
-        // ── Download (server-side watermarked) ────────────────────────────────
         { label: dlLabel, Icon: RiDownload2Line, color: dlColor, bg: dlBg, href: null, onClick: dlBusy ? undefined : onDownload, busy: dlBusy },
     ];
 
@@ -352,8 +352,6 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
     );
 };
 
-
-
 // ─────────────────────────────────────────────────────────────────────────────
 // VideoSlide — one full-screen slide
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,14 +360,16 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const videoRef        = useRef(null);
     const progressBarRef  = useRef(null);
     const watchStartRef   = useRef(null);
-    const commentInputRef = useRef(null);
-    const viewTimerRef = useRef(null);
+    const viewTimerRef    = useRef(null);
+    const tapTimerRef     = useRef(null);
+    const unmuteUnsubRef  = useRef(null);
+    const likeBtnRef      = useRef(null);
+    const lastTap         = useRef(0);
 
     const [playing,       setPlaying]       = useState(false);
-    const [muted,         setMuted]         = useState(false);
+    const [muted,         setMuted]         = useState(true);
     const [progress,      setProgress]      = useState(0);
     const [loading,       setLoading]       = useState(true);
-    const [tapFlash,      setTapFlash]      = useState(false);
     const [showPP,        setShowPP]        = useState(false);
     const [liked,         setLiked]         = useState(video.is_liked ?? false);
     const [likesCount,    setLikesCount]    = useState(Number(video.likes_count ?? 0));
@@ -381,53 +381,68 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [mobileSheet,   setMobileSheet]   = useState(null);
     const [showSearch,    setShowSearch]    = useState(false);
     const [toast,    setToast]    = useState(null)
-const [duration, setDuration] = useState(0)  // only if not already present
+    const [duration, setDuration] = useState(0)
     const [searchQuery,   setSearchQuery]   = useState('');
     const searchInputRef = useRef(null);
 
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
-const [reportOpen, setReportOpen] = useState(false);
+    const [reportOpen, setReportOpen] = useState(false);
 
+    const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef);
 
-    // ── Download hook ─────────────────────────────────────────────────────────
     const { download, dlState } = useVideoDownload(video);
 
     const isOwner     = auth?.user?.id === video.user_id;
-    const isAdmin     = auth?.user?.role === 'admin';
     const hasProducts = video.is_for_sale && video.products?.length > 0;
     const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
     const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url;
     const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : '';
 
-  useEffect(() => {
-    const el = videoRef.current
-    if (!el) return
-    if (isActive) {
-        el.muted = true
-        el.play().then(() => { setPlaying(true); setTimeout(() => { el.muted = false; setMuted(false) }, 300) }).catch(() => {})
-        watchStartRef.current = Date.now()
+    useEffect(() => {
+        const el = videoRef.current
+        if (!el) return
 
-        // Fire view after 5 seconds of watching — catches users who never scroll away
-        viewTimerRef.current = setTimeout(() => {
-            const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
-            if (secs >= 3) {
-                axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-                watchStartRef.current = null // prevent double-firing on scroll away
+        if (isActive) {
+            unmuteUnsubRef.current?.()
+            unmuteUnsubRef.current = null
+
+            if (hasUserInteracted()) {
+                el.muted = false
+                setMuted(false)
+                el.play().then(() => setPlaying(true)).catch(() => {
+                    el.muted = true; setMuted(true)
+                    el.play().then(() => setPlaying(true)).catch(() => {})
+                })
+            } else {
+                el.muted = true
+                setMuted(true)
+                el.play().then(() => setPlaying(true)).catch(() => {})
+                unmuteUnsubRef.current = onFirstInteraction(() => {
+                    if (videoRef.current === el) { el.muted = false; setMuted(false) }
+                })
             }
-        }, 5000)
-    } else {
-        clearTimeout(viewTimerRef.current)
-        el.pause(); el.currentTime = 0
-        // setShowComments(false);
-        //  setShowProducts(false); setShowShare(false)
-        if (watchStartRef.current) {
-            const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
-            if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-            watchStartRef.current = null
-        }
-    }
-}, [isActive])
 
+            watchStartRef.current = Date.now()
+            viewTimerRef.current = setTimeout(() => {
+                const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+                if (secs >= 3) {
+                    axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+                    watchStartRef.current = null
+                }
+            }, 5000)
+        } else {
+            unmuteUnsubRef.current?.()
+            unmuteUnsubRef.current = null
+
+            clearTimeout(viewTimerRef.current)
+            el.pause(); el.currentTime = 0
+            if (watchStartRef.current) {
+                const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+                if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+                watchStartRef.current = null
+            }
+        }
+    }, [isActive])
 
     useEffect(() => {
         const el = videoRef.current; if (!el) return;
@@ -437,68 +452,17 @@ const [reportOpen, setReportOpen] = useState(false);
     }, []);
 
     useEffect(() => {
-    const handleKey = (e) => {
-        const el = videoRef.current
-        if (!el) return
-        if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5) }
-        if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5) }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-}, [])
-
-    
-    useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
-
-    const lastTap = useRef(0);
-    const handleVideoTap = useCallback(() => {
-        if (mobileSheet || showSearch) return;
-        const now = Date.now();
-        if (now - lastTap.current < 300) {
-            if (!liked) handleLike();
-            setTapFlash(true); setTimeout(() => setTapFlash(false), 700);
-        } else {
-            videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause();
-setShowPP(true);
+        const handleKey = (e) => {
+            const el = videoRef.current
+            if (!el) return
+            if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5) }
+            if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5) }
         }
-        lastTap.current = now;
-    }, [liked, mobileSheet, showSearch]);
+        window.addEventListener('keydown', handleKey)
+        return () => window.removeEventListener('keydown', handleKey)
+    }, [])
 
-  const handleSeek = useCallback((e) => {
-    e.stopPropagation();
-    const el = videoRef.current;
-    const bar = progressBarRef.current;
-    if (!el?.duration || !bar) return;
-
-    const updateSeek = (clientX) => {
-        const rect = bar.getBoundingClientRect();
-        const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        el.currentTime = pct * el.duration;
-        setProgress(pct * 100);
-    };
-
-    // Handle initial click/touch point
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    updateSeek(clientX);
-
-    // Track dragging
-    const handleMove = (moveEvent) => {
-        const moveX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
-        updateSeek(moveX);
-    };
-
-    const handleEnd = () => {
-        window.removeEventListener('mousemove', handleMove);
-        window.removeEventListener('mouseup', handleEnd);
-        window.removeEventListener('touchmove', handleMove);
-        window.removeEventListener('touchend', handleEnd);
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove, { passive: true });
-    window.addEventListener('touchend', handleEnd);
-}, []);
+    useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
 
     const handleLike = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -506,6 +470,35 @@ setShowPP(true);
         try { const { data } = await axios.post(`/api/videos/${video.ulid}/like`, {}, { withCredentials: true }); setLiked(data.liked); setLikesCount(Number(data.likes_count ?? 0)); }
         catch { setLiked(was); setLikesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [liked, auth, video.id]);
+
+    // Single/double-tap disambiguation: a single tap waits up to 300ms before
+    // acting, so a following second tap cancels it and likes instead — this is
+    // what stops play/pause and double-tap-like from fighting each other.
+    const handleVideoTap = useCallback((e) => {
+        if (mobileSheet || showSearch) return;
+        const now = Date.now();
+        const dt = now - lastTap.current;
+        if (dt > 0 && dt < 300) {
+            clearTimeout(tapTimerRef.current);
+            tapTimerRef.current = null;
+            lastTap.current = 0;
+            if (!liked) handleLike();
+            triggerLikeAnim(e.clientX, e.clientY);
+        } else {
+            lastTap.current = now;
+            tapTimerRef.current = setTimeout(() => {
+                tapTimerRef.current = null;
+                videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause();
+                setShowPP(true);
+            }, 300);
+        }
+    }, [liked, mobileSheet, showSearch, triggerLikeAnim, handleLike]);
+
+    const { handleSeekDown, handleSeekMove, handleSeekUp } = useVideoSeek(
+        () => videoRef.current,
+        progressBarRef,
+        { onSeeking: setProgress }
+    );
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -525,107 +518,98 @@ setShowPP(true);
     const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; }); }, []);
     const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
     const showToast = (msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 2500)
-}
+        setToast({ msg, type })
+        setTimeout(() => setToast(null), 2500)
+    }
 
-
-
-
-
- const openSheet = (sheet) => { setMobileSheet(sheet); };
+    const openSheet = (sheet) => { setMobileSheet(sheet); };
 
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
 
-            {/* ShareSheet — passes download props */}
-          {mobileSheet === 'share' && (
-    <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
-)}
-{moreSheetOpen && (
-    <MoreSheet
-        onClose={() => setMoreSheetOpen(false)}
-        onReport={() => setReportOpen(true)}
-        videoRef={videoRef}
-    />
-)}
-{reportOpen && (
-    <ReportVideoModal
-        video={video}
-        onClose={() => setReportOpen(false)}
-    />
-)}
-
-            
+            {mobileSheet === 'share' && (
+                <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
+            )}
+            {moreSheetOpen && (
+                <MoreSheet
+                    onClose={() => setMoreSheetOpen(false)}
+                    onReport={() => setReportOpen(true)}
+                    videoRef={videoRef}
+                />
+            )}
+            {reportOpen && (
+                <ReportVideoModal
+                    video={video}
+                    onClose={() => setReportOpen(false)}
+                />
+            )}
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
                 <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload="metadata"
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
+                    onPlaying={() => setLoading(false)}
                     onPlay={() => { setPlaying(true); setShowPP(false) }} onPause={() => setPlaying(false)}
                     onClick={handleVideoTap}
                     onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
                     onLoadedMetadata={e => setDuration(e.target.duration)}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
                 />
-                {/* Text overlays */}
-{Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
-    <span
-        key={overlay.id}
-        style={{
-            position: 'absolute',
-            top: `${overlay.top}%`,
-            left: `${overlay.left}%`,
-            zIndex: 8,
-            color: overlay.textColor ?? '#fff',
-            fontSize: overlay.fontSize ?? 18,
-            fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
-            fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
-            textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
-            border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
-            borderRadius: overlay.showOutline ? 8 : 0,
-            padding: overlay.showOutline ? '3px 10px' : 0,
-            pointerEvents: 'none',
-            userSelect: 'none',
-            maxWidth: '80%',
-            wordBreak: 'break-word',
-            lineHeight: 1.3,
-            display: 'inline-block',
-        }}
-    >
-        {overlay.text}
-    </span>
-))}
+                {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
+                    <span
+                        key={overlay.id}
+                        style={{
+                            position: 'absolute',
+                            top: `${overlay.top}%`,
+                            left: `${overlay.left}%`,
+                            zIndex: 8,
+                            color: overlay.textColor ?? '#fff',
+                            fontSize: overlay.fontSize ?? 18,
+                            fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
+                            fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
+                            textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
+                            border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
+                            borderRadius: overlay.showOutline ? 8 : 0,
+                            padding: overlay.showOutline ? '3px 10px' : 0,
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                            maxWidth: '80%',
+                            wordBreak: 'break-word',
+                            lineHeight: 1.3,
+                            display: 'inline-block',
+                        }}
+                    >
+                        {overlay.text}
+                    </span>
+                ))}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
 
                 {/* Top bar */}
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
+                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
                     <button onClick={showBackBtn ? onBack : () => window.history.back()} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
                         <RiArrowLeftLine size={20} />
                     </button>
                     <div className="flex flex-row gap-3">
                         {showSearch ? (
-                        <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
-                            <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
-                                <RiCloseFill size={20} />
+                            <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
+                                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
+                                    <RiCloseFill size={20} />
+                                </button>
+                            </form>
+                        ) : (
+                            <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                <RiSearchLine size={20} />
                             </button>
-                        </form>
-                    ) : (
-                        <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                            <RiSearchLine size={20} />
+                        )}
+                        <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
+                            <RiMoreLine size={20} />
                         </button>
-                        
-                    )}
-       <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
-    <RiMoreLine size={20} />
-</button>
                     </div>
                 </div>
 
                 {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
-                {tapFlash && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><RiHeartFill size={90} color="#EF4444" style={{ filter: 'drop-shadow(0 0 20px rgba(239,68,68,0.5))', animation: 'heartPop 0.7s ease forwards' }} /></div>}
                 {showPP && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
                         <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -637,81 +621,84 @@ setShowPP(true);
                     </div>
                 )}
 
-                {/* Improved progress bar with active pointer handling */}
-<div 
-    ref={progressBarRef} 
-    onMouseDown={handleSeek}
-    onTouchStart={handleSeek}
-    style={{ 
-        position: 'absolute', 
-        bottom: 0, 
-        left: 0, 
-        right: 0, 
-        height: 24, // slightly larger touch target
-        zIndex: 40, // high z-index to clear overlay overlaps
-        cursor: 'pointer', 
-        display: 'flex', 
-        alignItems: 'flex-end',
-        paddingBottom: 4,
-        pointerEvents: 'auto' // ensures it intercepts events
-    }}
->
-    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
-        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%` }} />
-    </div>
-</div>
+                <div
+                    ref={progressBarRef}
+                    onPointerDown={e => { e.stopPropagation(); handleSeekDown(e) }}
+                    onPointerMove={e => { e.stopPropagation(); handleSeekMove(e) }}
+                    onPointerUp={e => { e.stopPropagation(); handleSeekUp(e) }}
+                    style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: 24,
+                        zIndex: 40,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        paddingBottom: 4,
+                        touchAction: 'none',
+                    }}
+                >
+                    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
+                        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.08s linear' }} />
+                    </div>
+                </div>
 
                 {/* Right actions */}
-                <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
+                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
                     <div style={{ position: 'relative', marginBottom: 4 }}>
-    <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
-</div>
-                    <SideBtn onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
+                        <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
+                    </div>
+                    <SideBtn btnRef={likeBtnRef} onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
                     <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
                         <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>
                     <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
                     {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
                     <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-    <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
-    </button>
-    {duration > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
-            <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur) })()}
-            </span>
-            <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration) })()}
-            </span>
-        </div>
-    )}
-</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
+                        </button>
+                        {duration > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+                                <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                                    {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur) })()}
+                                </span>
+                                <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
+                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                                    {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration) })()}
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Bottom info */}
-                <div className='lg:w-[50%]' style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div className='lg:w-[50%]' onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
                     {!isOwner && (
-        <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
-            {followed ? 'Following' : 'Follow'}
-        </button>
-    )}
+                        <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
+                            {followed ? 'Following' : 'Follow'}
+                        </button>
+                    )}
                     <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
                         <VerifiedBadge type={auth?.user?.verification_type} size={18} />
                     </button>
+                    {video.created_at && (
+                        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{postedDate(video.created_at)}</span>
+                    )}
                     {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
                     {video.description && <ExpandableDescription text={video.description} />}
-{video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
-   <Link href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
-    onClick={e => e.stopPropagation()}
-    prefetch="hover"
-    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
-    {tag.startsWith('#') ? tag : `#${tag}`}
-</Link>
-))}</div>}                    
+                    {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
+                        <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+                            onClick={e => e.stopPropagation()}
+                            prefetch="hover"
+                            style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+                            {tag.startsWith('#') ? tag : `#${tag}`}
+                        </Link>
+                    ))}</div>}
                     {video.user?.location && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RiMapPinLine size={11} color="rgba(255,255,255,0.55)" /><span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span></div>}
                     {hasProducts && <button onClick={() => window.innerWidth < 768 ? openSheet('products') : setTab('products')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.45)', borderRadius: 999, padding: '6px 13px', backdropFilter: 'blur(8px)', cursor: 'pointer', width: 'fit-content', marginTop: 2 }}><RiShoppingBag2Line size={13} color="#FF6B35" /><span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop</span></button>}
                 </div>
@@ -726,28 +713,35 @@ setShowPP(true);
                             <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
                             <VerifiedBadge type={auth?.user?.verification_type} size={18} />
                         </div>
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: '2px 0 0' }}>@{video.user?.username}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>@{video.user?.username}</p>
+                            {video.created_at && (
+                                <>
+                                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>·</span>
+                                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>{postedDate(video.created_at)}</p>
+                                </>
+                            )}
+                        </div>
                     </div>
                     {!isOwner && <button onClick={auth?.user ? handleFollow : () => router.visit('/login')} style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, border: 'none', background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed ? 'rgba(255,255,255,0.5)' : '#fff' }}>{followed ? 'Following' : 'Follow'}</button>}
-          <button onClick={() => setMoreSheetOpen(true)} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-    <RiMoreLine size={16} color="rgba(255,255,255,0.5)" />
-</button>
+                    <button onClick={() => setMoreSheetOpen(true)} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                        <RiMoreLine size={16} color="rgba(255,255,255,0.5)" />
+                    </button>
                 </div>
                 {(video.title || video.description) && (
                     <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
                         {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
                         {video.description && (
-            <DescriptionPanel text={video.description} />
-        )}
-{video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => (
-    <Link href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
-    onClick={e => e.stopPropagation()}
-    prefetch="hover"
-    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
-    {tag.startsWith('#') ? tag : `#${tag}`}
-</Link>
-))}</div>}                       
-                         {/* Desktop share/download button row */}
+                            <DescriptionPanel text={video.description} />
+                        )}
+                        {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => (
+                            <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+                                onClick={e => e.stopPropagation()}
+                                prefetch="hover"
+                                style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+                                {tag.startsWith('#') ? tag : `#${tag}`}
+                            </Link>
+                        ))}</div>}
                         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                             <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                                 <RiShareForwardLine size={14} /> Share
@@ -768,13 +762,13 @@ setShowPP(true);
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     {tab === 'products' && hasProducts && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{video.products.map(p => <ProductRow key={p.id} product={p} />)}</div>}
                     {tab === 'comments' && (
-    <CommentSheet
-        videoId={video.ulid}
-        videoOwnerId={video.user_id}
-        onClose={() => setTab('products')}  // or whatever default tab fallback you want
-        onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
-    />
-)}
+                        <CommentSheet
+                            videoId={video.ulid}
+                            videoOwnerId={video.user_id}
+                            onClose={() => setTab('products')}
+                            onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -790,24 +784,36 @@ setShowPP(true);
                         </div>
                         {mobileSheet === 'products' && <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>{video.products?.map(p => <ProductRow key={p.id} product={p} />)}</div>}
                         {mobileSheet === 'comments' && (
-    <CommentSheet
-        videoId={video.ulid}
-        videoOwnerId={video.user_id}
-        onClose={() => setTab('products')}  // or whatever default tab fallback you want
-        onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
-    />
-)}
+                            <CommentSheet
+                                videoId={video.ulid}
+                                videoOwnerId={video.user_id}
+                                onClose={() => setTab('products')}
+                                onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
+                            />
+                        )}
                     </div>
                 </>
             )}
 
+            <LikeAnimationOverlay burst={burst} />
+
             {toast && (
-    <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
-        <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
-    </div>
-)}
+                <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
+                    <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+                </div>
+            )}
         </div>
     );
+}
+
+// Small inline icon components to avoid importing more than needed for the mute button.
+function RiVolumeMuteIcon() {
+    const { RiVolumeMuteLine } = require('react-icons/ri');
+    return <RiVolumeMuteLine size={17} color="#fff" />;
+}
+function RiVolumeUpIcon() {
+    const { RiVolumeUpLine } = require('react-icons/ri');
+    return <RiVolumeUpLine size={17} color="#fff" />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -878,7 +884,6 @@ export default function VideoShow({ video, isLiked, isSaved, isFollowing, initia
                 @media (min-width: 768px) { .video-show-panel { display: flex !important; } }
                 ::-webkit-scrollbar { display: none; }
                 @keyframes spin { to { transform: rotate(360deg); } }
-                @keyframes heartPop { 0%{transform:scale(0);opacity:1} 50%{transform:scale(1.2)} 100%{transform:scale(1);opacity:0} }
                 @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
             `}</style>
         </>

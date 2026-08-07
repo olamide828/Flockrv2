@@ -5,7 +5,7 @@ import axios from 'axios'
 import { useToast } from '@/Components/Toast'
 import {
   RiArrowLeftLine, RiHeartLine, RiHeartFill, RiChat1Line,
-  RiEyeLine, RiSendPlaneFill, RiVerifiedBadgeLine, RiShareForwardLine,
+  RiEyeLine, RiSendPlaneFill, RiShareForwardLine,
   RiMoreLine, RiCloseLine, RiInformationLine, RiFullscreenLine,
 } from 'react-icons/ri'
 import Av from '@/Components/Community/Av'
@@ -15,13 +15,11 @@ import PostMediaCarousel from '@/Components/Community/PostMediaCarousel'
 import PostShareSheet from '@/Components/Community/PostShareSheet'
 import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
+import MediaLightbox from '@/Components/Community/MediaLightBox'
 import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
-import VerifiedBadge from '@/Components/VerifiedBadge';
-import MediaLightbox from '../../Components/Community/MediaLightBox';
-import HeartBurst from '@/Components/Community/HeartBurst'
+import VerifiedBadge from '@/Components/VerifiedBadge'
+import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 
-
-// ── Comment like button ──────────────────────────────────────────────────────
 function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 }) {
   const [liked, setLiked] = useState(initialLiked)
   const [count, setCount] = useState(initialCount)
@@ -51,7 +49,6 @@ function LikeBtn({ commentId, initialCount = 0, initialLiked = false, size = 13 
   )
 }
 
-// ── Flat reply row ────────────────────────────────────────────────────────────
 function ReplyItem({ reply, postOwnerId, currentUserId, onReply, onDelete }) {
   const isCreator = reply.user?.id === postOwnerId
   const canDel = currentUserId && reply.user?.id === currentUserId
@@ -85,7 +82,6 @@ function ReplyItem({ reply, postOwnerId, currentUserId, onReply, onDelete }) {
   )
 }
 
-// ── Top-level comment ─────────────────────────────────────────────────────────
 function CommentItem({ comment, postOwnerId, currentUserId, onReply, onDelete, onPin }) {
   const [showReplies, setShowReplies] = useState(false)
   const isCreator = comment.user?.id === postOwnerId
@@ -146,7 +142,6 @@ function CommentItem({ comment, postOwnerId, currentUserId, onReply, onDelete, o
   )
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────────
 export default function CommunityPost({ post: initPost, comments: initComments }) {
   const { auth } = usePage().props
   const { showToast, ToastComponent } = useToast()
@@ -154,21 +149,23 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const [post, setPost] = useState(initPost)
   const [comments, setComments] = useState(initComments)
   const [body, setBody] = useState('')
-  const [replyTo, setReplyTo] = useState(null) // { rootId, tagUsername }
+  const [replyTo, setReplyTo] = useState(null)
   const [sending, setSending] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showViewers, setShowViewers] = useState(false)
   const [showInfoTip, setShowInfoTip] = useState(false)
-  const [lightboxIndex, setLightboxIndex] = useState(null)
   const [showReportModal, setShowReportModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [showBurst, setShowBurst] = useState(false)
-  const lastMediaTapRef = useRef(0)
+  const [lightboxIndex, setLightboxIndex] = useState(null)
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
+  const likeBtnRef = useRef(null)
+  const lastMediaTapRef = useRef(0)
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
 
   const isFollowingAuthor = post.is_following_author ?? false
   const isOwnPost = auth?.user?.id === post.user_id
+  const media = post.media?.length ? post.media : (post.media_url ? [{ media_url: post.media_url, media_type: post.media_type, thumbnail_url: post.thumbnail_url }] : [])
 
   useEffect(() => {
     if (viewedRef.current) return
@@ -194,24 +191,22 @@ export default function CommunityPost({ post: initPost, comments: initComments }
     } catch { setPost(p => ({ ...p, is_liked_by_me: was })) }
   }
 
-
-
-const handleMediaTap = () => {
-  const now = Date.now()
-  if (now - lastMediaTapRef.current < 300) {
-    if (!post.is_liked_by_me) handleLike()
-    setShowBurst(true)
-    setTimeout(() => setShowBurst(false), 850)
+  const handleMediaTap = (e) => {
+    e.stopPropagation()
+    const now = Date.now()
+    if (now - lastMediaTapRef.current < 300) {
+      if (!post.is_liked_by_me) handleLike()
+      triggerLikeAnim(e.clientX, e.clientY)
+    }
+    lastMediaTapRef.current = now
   }
-  lastMediaTapRef.current = now
-}
 
   const handlePin = useCallback(async (comment) => {
     try {
       const { data } = await axios.post(`/api/community/comments/${comment.id}/pin`)
       setComments(prev => prev.map(c => ({
         ...c,
-        is_pinned: c.id === comment.id ? data.is_pinned : false, // only one pin at a time, mirrors backend
+        is_pinned: c.id === comment.id ? data.is_pinned : false,
       })))
     } catch { showToast('Failed to pin comment', 'error') }
   }, [showToast])
@@ -277,11 +272,27 @@ const handleMediaTap = () => {
     }
   }, [post.id])
 
+  const submitPostReport = async (reason, description) => {
+    try {
+      await axios.post(`/api/users/${post.user_id}/report`, { reason, description, post_id: post.id })
+      showToast('Report submitted')
+    } catch (e) {
+      showToast('Failed to submit report', 'error')
+      throw e
+    }
+  }
+
+  const handleBlockAuthor = async () => {
+    try {
+      await axios.post(`/api/users/${post.user_id}/block`)
+      showToast(`Blocked @${post.user?.username}`)
+      router.visit('/community')
+    } catch { showToast('Failed to block', 'error') }
+  }
+
   const replyingToComment = replyTo ? comments.find(c => c.id === replyTo.rootId) : null
 
-  const back = () => {
-    window.history.back()
-  }
+  const back = () => { window.history.back() }
 
   return (
     <>
@@ -293,12 +304,26 @@ const handleMediaTap = () => {
         <PostReportModal
           post={post}
           onClose={() => setShowReportModal(false)}
-          onSubmit={async (reason) => {
-            await axios.post(`/api/users/${post.user_id}/report`, { reason, post_id: post.id })
-            showToast('Report submitted')
-          }}
+          onSubmit={submitPostReport}
         />
       )}
+      {lightboxIndex !== null && (
+        <MediaLightbox
+          posts={[post]}
+          startPostIndex={0}
+          startMediaIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          auth={auth}
+          onLike={handleLike}
+          followingMap={{ [post.user_id]: isFollowingAuthor }}
+          onFollowChange={handleFollowChange}
+          onLoadMore={() => {}}
+          hasMore={false}
+          onReport={() => setShowReportModal(true)}
+          onBlockAuthor={!isOwnPost ? handleBlockAuthor : undefined}
+        />
+      )}
+      <LikeAnimationOverlay burst={burst} />
 
       <div style={{ minHeight: '100%', background: '#050505', color: '#fff', fontFamily: '"DM Sans", sans-serif' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
@@ -309,7 +334,6 @@ const handleMediaTap = () => {
             <span style={{ fontWeight: 800, fontSize: 18 }}>Post</span>
           </div>
 
-          {/* Post */}
           <div style={{ padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -325,7 +349,7 @@ const handleMediaTap = () => {
                   <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>@{post.user?.username}</span>
                 </div>
               </div>
-              {isOwnPost && (
+              {isOwnPost ? (
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', padding: 4 }}>
                     <RiMoreLine size={18} />
@@ -345,8 +369,7 @@ const handleMediaTap = () => {
                     </>
                   )}
                 </div>
-              )}
-              {!isOwnPost && (
+              ) : (
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', padding: 4 }}>
                     <RiMoreLine size={18} />
@@ -355,11 +378,8 @@ const handleMediaTap = () => {
                     <>
                       <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
                       <div style={{ position: 'absolute', top: 28, right: 0, zIndex: 99, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', minWidth: 170, boxShadow: '0 8px 32px rgba(0,0,0,0.7)' }}>
-                        <button onClick={async () => {
-                          setMenuOpen(false)
-                          try { await axios.post(`/api/users/${post.user_id}/block`); showToast(`Blocked @${post.user?.username}`); router.visit('/community') }
-                          catch { showToast('Failed to block', 'error') }
-                        }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 13, fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <button onClick={async () => { setMenuOpen(false); await handleBlockAuthor() }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 13, fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                           Block @{post.user?.username}
                         </button>
                         <button onClick={() => { setMenuOpen(false); setShowReportModal(true) }}
@@ -375,54 +395,29 @@ const handleMediaTap = () => {
 
             {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}>{post.content}</p>}
 
-   {(post.media?.length > 0 || post.media_url) && (
-  <div 
-  onClick={handleMediaTap}
-  style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>
-    {showBurst && <HeartBurst />}
-    {(() => {
-      const media = post.media?.length ? post.media : [{ media_url: post.media_url, media_type: post.media_type, thumbnail_url: post.thumbnail_url }]
-      if (media.length === 1) {
-        return media[0].media_type === 'video'
-          ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onReport={() => setShowReportModal(true)} onExpand={() => setLightboxIndex(0)} />
-          : (
-            <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img src={media[0].media_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
-              <button onPointerDown={(e) => { e.stopPropagation(); setLightboxIndex(0) }} style={{ position: 'absolute', top: 10, left: 10, width: 32, height: 32, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <RiFullscreenLine size={15} />
-              </button>
-            </div>
-          )
-      }
-      return <PostMediaCarousel media={media} onReport={() => setShowReportModal(true)} height={560} onExpand={setLightboxIndex} />
-    })()}
-  </div>
-)}
-
-{lightboxIndex !== null && (
-  <MediaLightbox
-    posts={[post]}
-    startPostIndex={0}
-    startMediaIndex={lightboxIndex}
-    onClose={() => setLightboxIndex(null)}
-    auth={auth}
-    onLike={handleLike}
-    followingMap={{ [post.user_id]: isFollowingAuthor }}
-    onFollowChange={handleFollowChange}
-    onLoadMore={() => {}}
-    hasMore={false}
-    onReport={() => setShowReportModal(true)}
-    onBlockAuthor={async () => {
-      try { await axios.post(`/api/users/${post.user_id}/block`); showToast(`Blocked @${post.user?.username}`); router.visit('/community') }
-      catch { showToast('Failed to block', 'error') }
-    }}
-  />
-)}
+            {media.length > 0 && (
+              <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>
+                {media.length === 1 ? (
+                  media[0].media_type === 'video'
+                    ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onExpand={() => setLightboxIndex(0)} />
+                    : (
+                      <div onClick={handleMediaTap} style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img src={media[0].media_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
+                        <button onPointerDown={(e) => { e.stopPropagation(); setLightboxIndex(0) }} style={{ position: 'absolute', top: 10, left: 10, width: 32, height: 32, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                          <RiFullscreenLine size={15} />
+                        </button>
+                      </div>
+                    )
+                ) : (
+                  <PostMediaCarousel media={media} height={560} onExpand={setLightboxIndex} />
+                )}
+              </div>
+            )}
 
             <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: '0 0 14px' }}>{timeAgo(post.created_at)}</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', marginLeft: -10 }}>
-              <button onClick={handleLike} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
+              <button ref={likeBtnRef} onClick={handleLike} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
                 {post.is_liked_by_me ? <RiHeartFill size={19} /> : <RiHeartLine size={19} />}
                 <span>{fmtCount(post.likes_count)}</span>
               </button>
@@ -459,7 +454,6 @@ const handleMediaTap = () => {
             </div>
           </div>
 
-          {/* Comment composer */}
           {auth?.user && (
             <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               {replyTo && (
@@ -485,7 +479,6 @@ const handleMediaTap = () => {
             </div>
           )}
 
-          {/* Comments — flat-thread, matches your video CommentSheet exactly */}
           {comments.map(comment => (
             <CommentItem key={comment.id} comment={comment} postOwnerId={post.user_id} currentUserId={auth?.user?.id}
               onReply={setReplyTo} onDelete={handleDelete} onPin={handlePin} />

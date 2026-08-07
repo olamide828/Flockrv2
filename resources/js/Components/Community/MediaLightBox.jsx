@@ -9,8 +9,10 @@ import Av from './Av'
 import FollowButton from './FollowButton'
 import PostShareSheet from './PostShareSheet'
 import VerifiedBadge from '@/Components/VerifiedBadge'
-import HeartBurst from './HeartBurst'
 import { timeAgo, fmtCount } from './Helpers'
+import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
+import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
+import { useVideoSeek } from '@/lib/useVideoSeek'
 
 const AUTO_ADVANCE_KEY = 'flockr_lightbox_autoadvance'
 
@@ -83,38 +85,26 @@ export default function MediaLightbox({
   const [autoAdvance, setAutoAdvance] = useState(() => {
     try { return localStorage.getItem(AUTO_ADVANCE_KEY) !== 'off' } catch { return true }
   })
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(() => !hasUserInteracted())
   const [speed, setSpeed] = useState(1)
   const [progress, setProgress] = useState(0)
   const [shareTarget, setShareTarget] = useState(null)
   const [showMore, setShowMore] = useState(false)
   const [playing, setPlaying] = useState(true)
   const [showPPIcon, setShowPPIcon] = useState(false)
-
-  const lastTapRef = useRef(0)
-  const [burstFor, setBurstFor] = useState(null)
-
-  const triggerBurst = (post) => {
-    setBurstFor(post.id)
-    setTimeout(() => setBurstFor(id => id === post.id ? null : id), 850)
-  }
-
-  const handleMediaTap = (post) => {
-    const now = Date.now()
-    if (now - lastTapRef.current < 300) {
-      if (!post.is_liked_by_me) onLike(post)
-      triggerBurst(post)
-    }
-    lastTapRef.current = now
-  }
+  const [videoLoading, setVideoLoading] = useState(false)
 
   const outerRef = useRef(null)
   const slideRefs = useRef(new Map())
   const innerRefs = useRef({})
   const videoRefs = useRef({})
   const seekBarRef = useRef(null)
-  const seekingRef = useRef(false)
   const loadingMoreRef = useRef(false)
+  const likeBtnRefs = useRef({})
+  const lastTapRef = useRef(0)
+  const tapTimerRef = useRef(null)
+
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const activePost = posts[postIndex]
   const activeMedia = activePost ? mediaFor(activePost) : []
@@ -122,11 +112,12 @@ export default function MediaLightbox({
   const hasVideoInActivePost = activeMedia.some(m => m.media_type === 'video')
   const activeVideoKey = activePost ? `${activePost.id}-${activeMediaIndex}` : null
   const activeVideoEl = activeVideoKey ? videoRefs.current[activeVideoKey] : null
+  const activeItemIsVideo = activeMedia[activeMediaIndex]?.media_type === 'video'
 
-  useEffect(() => {
-    setPlaying(true)
-    setShowPPIcon(false)
-  }, [activeVideoKey])
+  const getActiveVideoEl = useCallback(() => videoRefs.current[activeVideoKey], [activeVideoKey])
+  const { seekingRef, handleSeekDown, handleSeekMove, handleSeekUp } = useVideoSeek(
+    getActiveVideoEl, seekBarRef, { onSeeking: setProgress }
+  )
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -136,6 +127,17 @@ export default function MediaLightbox({
   useEffect(() => {
     if (!posts[postIndex]) onClose()
   }, [posts, postIndex, onClose])
+
+  useEffect(() => {
+    if (hasUserInteracted()) return
+    return onFirstInteraction(() => setMuted(false))
+  }, [])
+
+  useEffect(() => {
+    setPlaying(true)
+    setShowPPIcon(false)
+    setVideoLoading(false)
+  }, [activeVideoKey])
 
   useEffect(() => {
     const root = outerRef.current
@@ -154,11 +156,13 @@ export default function MediaLightbox({
     }, { root, threshold: [0.6] })
     slideRefs.current.forEach(el => el && observer.observe(el))
     return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length])
 
   useEffect(() => {
     const el = slideRefs.current.get(posts[startPostIndex]?.id)
     el?.scrollIntoView({ behavior: 'auto', block: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -167,7 +171,7 @@ export default function MediaLightbox({
       if (key === activeVideoKey) { el.muted = muted; el.playbackRate = speed; el.play().catch(() => {}) }
       else el.pause()
     })
-  }, [postIndex, activeMediaIndex, activePost?.id])
+  }, [postIndex, activeMediaIndex, activePost?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (activeVideoEl) activeVideoEl.muted = muted }, [muted, activeVideoEl])
   useEffect(() => { if (activeVideoEl) activeVideoEl.playbackRate = speed }, [speed, activeVideoEl])
@@ -182,7 +186,7 @@ export default function MediaLightbox({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [activeVideoEl])
+  }, [activeVideoEl, seekingRef])
 
   const scrollToPost = (i) => {
     if (i < 0 || i >= posts.length) return
@@ -224,18 +228,36 @@ export default function MediaLightbox({
     })
   }
 
-  const seekToClientX = useCallback((clientX) => {
-    const el = activeVideoEl
-    if (!el?.duration || !seekBarRef.current) return
-    const rect = seekBarRef.current.getBoundingClientRect()
-    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-    setProgress(pct * 100)
-    el.currentTime = pct * el.duration
-  }, [activeVideoEl])
+  const handleVideoTapClick = (e, post, mi) => {
+    const v = e.currentTarget
+    const clientX = e.clientX, clientY = e.clientY
+    const now = Date.now()
+    const dt = now - lastTapRef.current
+    if (dt > 0 && dt < 300) {
+      clearTimeout(tapTimerRef.current)
+      tapTimerRef.current = null
+      lastTapRef.current = 0
+      if (!post.is_liked_by_me) onLike(post)
+      triggerLikeAnim(clientX, clientY, likeBtnRefs.current[post.id])
+    } else {
+      lastTapRef.current = now
+      tapTimerRef.current = setTimeout(() => {
+        tapTimerRef.current = null
+        v.paused ? v.play().catch(() => {}) : v.pause()
+        setShowPPIcon(true)
+        setTimeout(() => setShowPPIcon(false), 500)
+      }, 300)
+    }
+  }
 
-  const handleSeekDown = (e) => { seekingRef.current = true; seekToClientX(e.clientX) }
-  const handleSeekMove = (e) => { if (seekingRef.current) seekToClientX(e.clientX) }
-  const handleSeekUp = () => { seekingRef.current = false }
+  const handleImageTapClick = (e, post) => {
+    const now = Date.now()
+    if (now - lastTapRef.current < 300) {
+      if (!post.is_liked_by_me) onLike(post)
+      triggerLikeAnim(e.clientX, e.clientY, likeBtnRefs.current[post.id])
+    }
+    lastTapRef.current = now
+  }
 
   if (!activePost) return null
 
@@ -272,7 +294,7 @@ export default function MediaLightbox({
           const media = mediaFor(post)
           const mIdx = mediaIndexByPost[post.id] ?? 0
           const isActiveSlide = pIdx === postIndex
-          const activeItemIsVideo = isActiveSlide && media[mIdx]?.media_type === 'video'
+          const slideActiveItemIsVideo = isActiveSlide && media[mIdx]?.media_type === 'video'
 
           return (
             <div key={post.id} data-index={pIdx}
@@ -288,22 +310,21 @@ export default function MediaLightbox({
                         src={item.media_url}
                         poster={item.thumbnail_url}
                         playsInline
+                        preload="metadata"
                         muted={muted}
                         autoPlay={isActiveSlide && mi === mIdx}
                         onEnded={() => handleVideoEnded(post, mi)}
                         onPlay={() => { if (isActiveSlide && mi === mIdx) setPlaying(true) }}
                         onPause={() => { if (isActiveSlide && mi === mIdx) setPlaying(false) }}
-                        onClick={(e) => {
-                          const v = e.currentTarget
-                          v.paused ? v.play().catch(() => {}) : v.pause()
-                          setShowPPIcon(true)
-                          setTimeout(() => setShowPPIcon(false), 500)
-                          handleMediaTap(post)
-                        }}
+                        onWaiting={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(true) }}
+                        onCanPlay={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(false) }}
+                        onPlaying={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(false) }}
+                        onClick={(e) => handleVideoTapClick(e, post, mi)}
                         style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }}
                       />
                     ) : (
-                      <img src={item.media_url} alt="" onClick={() => handleMediaTap(post)} style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
+                      <img src={item.media_url} alt="" onClick={(e) => handleImageTapClick(e, post)}
+                        style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
                     )}
                   </div>
                 ))}
@@ -315,9 +336,7 @@ export default function MediaLightbox({
                 </div>
               )}
 
-              {burstFor === post.id && <HeartBurst />}
-
-              {activeItemIsVideo && (showPPIcon || !playing) && (
+              {slideActiveItemIsVideo && (showPPIcon || !playing) && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 3 }}>
                   <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {playing
@@ -328,17 +347,23 @@ export default function MediaLightbox({
                 </div>
               )}
 
+              {slideActiveItemIsVideo && videoLoading && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 4 }}>
+                  <div style={{ width: 36, height: 36, border: '2.5px solid rgba(255,255,255,0.15)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'lb-spin 0.8s linear infinite' }} />
+                </div>
+              )}
+
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.88), rgba(0,0,0,0.35) 65%, transparent)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {activeItemIsVideo && (
+                {slideActiveItemIsVideo && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <button onPointerDown={() => setMuted(m => !m)} style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.14)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
                       {muted ? <RiVolumeMuteLine size={14} /> : <RiVolumeUpLine size={14} />}
                     </button>
                     <div ref={seekBarRef}
-                      onPointerDown={handleSeekDown} onPointerMove={handleSeekMove} onPointerUp={handleSeekUp} onPointerLeave={handleSeekUp}
-                      style={{ flex: 1, height: 18, display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      onPointerDown={handleSeekDown} onPointerMove={handleSeekMove} onPointerUp={handleSeekUp}
+                      style={{ flex: 1, height: 18, display: 'flex', alignItems: 'center', cursor: 'pointer', touchAction: 'none' }}>
                       <div style={{ width: '100%', height: 3, borderRadius: 999, background: 'rgba(255,255,255,0.25)' }}>
-                        <div style={{ height: '100%', borderRadius: 999, background: '#FF6B35', width: `${progress}%`, transition: seekingRef.current ? 'none' : 'width 0.08s linear' }} />
+                        <div style={{ height: '100%', borderRadius: 999, background: '#FF6B35', width: `${progress}%`, transition: 'width 0.08s linear' }} />
                       </div>
                     </div>
                   </div>
@@ -363,7 +388,7 @@ export default function MediaLightbox({
                 )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: -8 }}>
-                  <button onPointerDown={() => onLike(post)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
+                  <button ref={el => { likeBtnRefs.current[post.id] = el }} onPointerDown={() => onLike(post)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
                     {post.is_liked_by_me ? <RiHeartFill size={21} /> : <RiHeartLine size={21} />}
                     {post.likes_count > 0 && <span>{fmtCount(post.likes_count)}</span>}
                   </button>
@@ -384,6 +409,13 @@ export default function MediaLightbox({
           )
         })}
       </div>
+
+      {/* Lives once, outside the per-slide loop — the burst state carries its
+          own screen coordinates so it renders correctly regardless of which
+          slide triggered it. */}
+      <LikeAnimationOverlay burst={burst} />
+
+      <style>{`@keyframes lb-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
