@@ -47,6 +47,11 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
     if (!user) return null;
     const isSeller = user.role === 'seller';
 
+    useEffect(() => {
+        document.body.style.overflow = 'hidden'
+        return () => { document.body.style.overflow = '' }
+    }, [])
+
     return (
         <>
             <div className={`pf-screen ${closing ? 'pf-screen-out' : ''}`}>

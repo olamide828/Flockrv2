@@ -721,6 +721,11 @@ export default function AppLayout({ children }) {
                     align-items: center;
                     justify-content: center;
                 }
+                @media (max-width: 767px) {
+                    body.chat-open .mobile-topbar     { display: none !important; }
+                    body.chat-open .mobile-bottom-nav { display: none !important; }
+                    body.chat-open .page-content       { overflow: hidden !important; }
+                }
             `}</style>
         </div>
     );
@@ -767,4 +772,4 @@ export function AvatarImage({ user, size = 36 }) {
             {(user?.name ?? user?.username ?? 'U')[0].toUpperCase()}
         </div>
     );
-}
+} 

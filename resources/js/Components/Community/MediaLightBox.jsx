@@ -9,6 +9,7 @@ import Av from './Av'
 import FollowButton from './FollowButton'
 import PostShareSheet from './PostShareSheet'
 import VerifiedBadge from '@/Components/VerifiedBadge'
+import HeartBurst from './HeartBurst'
 import { timeAgo, fmtCount } from './Helpers'
 
 const AUTO_ADVANCE_KEY = 'flockr_lightbox_autoadvance'
@@ -75,9 +76,6 @@ export default function MediaLightbox({
   auth, onLike, followingMap, onFollowChange, onLoadMore, hasMore,
   onReport, onBlockAuthor,
 }) {
-  // Only posts with actual media belong in the lightbox — filtering here too
-  // (in addition to wherever the caller opens it from) makes this component
-  // safe regardless of what array a caller passes in.
   const posts = useMemo(() => rawPosts.filter(p => mediaFor(p).length > 0), [rawPosts])
 
   const [postIndex, setPostIndex] = useState(Math.min(startPostIndex, Math.max(posts.length - 1, 0)))
@@ -90,6 +88,25 @@ export default function MediaLightbox({
   const [progress, setProgress] = useState(0)
   const [shareTarget, setShareTarget] = useState(null)
   const [showMore, setShowMore] = useState(false)
+  const [playing, setPlaying] = useState(true)
+  const [showPPIcon, setShowPPIcon] = useState(false)
+
+  const lastTapRef = useRef(0)
+  const [burstFor, setBurstFor] = useState(null)
+
+  const triggerBurst = (post) => {
+    setBurstFor(post.id)
+    setTimeout(() => setBurstFor(id => id === post.id ? null : id), 850)
+  }
+
+  const handleMediaTap = (post) => {
+    const now = Date.now()
+    if (now - lastTapRef.current < 300) {
+      if (!post.is_liked_by_me) onLike(post)
+      triggerBurst(post)
+    }
+    lastTapRef.current = now
+  }
 
   const outerRef = useRef(null)
   const slideRefs = useRef(new Map())
@@ -105,6 +122,11 @@ export default function MediaLightbox({
   const hasVideoInActivePost = activeMedia.some(m => m.media_type === 'video')
   const activeVideoKey = activePost ? `${activePost.id}-${activeMediaIndex}` : null
   const activeVideoEl = activeVideoKey ? videoRefs.current[activeVideoKey] : null
+
+  useEffect(() => {
+    setPlaying(true)
+    setShowPPIcon(false)
+  }, [activeVideoKey])
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -132,13 +154,11 @@ export default function MediaLightbox({
     }, { root, threshold: [0.6] })
     slideRefs.current.forEach(el => el && observer.observe(el))
     return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts.length])
 
   useEffect(() => {
     const el = slideRefs.current.get(posts[startPostIndex]?.id)
     el?.scrollIntoView({ behavior: 'auto', block: 'start' })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -147,13 +167,11 @@ export default function MediaLightbox({
       if (key === activeVideoKey) { el.muted = muted; el.playbackRate = speed; el.play().catch(() => {}) }
       else el.pause()
     })
-  }, [postIndex, activeMediaIndex, activePost?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [postIndex, activeMediaIndex, activePost?.id])
 
   useEffect(() => { if (activeVideoEl) activeVideoEl.muted = muted }, [muted, activeVideoEl])
   useEffect(() => { if (activeVideoEl) activeVideoEl.playbackRate = speed }, [speed, activeVideoEl])
 
-  // Smooth progress via rAF instead of `timeupdate` (which only fires a
-  // few times a second and made the bar visibly step rather than glide).
   useEffect(() => {
     const el = activeVideoEl
     if (!el) { setProgress(0); return }
@@ -183,10 +201,19 @@ export default function MediaLightbox({
   }
 
   const handleVideoEnded = (post, mediaIdx) => {
-    if (post.id !== activePost?.id || mediaIdx !== activeMediaIndex || !autoAdvance) return
+    if (post.id !== activePost?.id || mediaIdx !== activeMediaIndex) return
+    const el = videoRefs.current[`${post.id}-${mediaIdx}`]
     const items = mediaFor(post)
-    if (mediaIdx < items.length - 1) scrollToMediaWithin(post, mediaIdx + 1)
-    else scrollToPost(postIndex + 1)
+
+    if (!autoAdvance) {
+      if (el) { el.currentTime = 0; el.play().catch(() => {}) }
+      return
+    }
+
+    if (mediaIdx < items.length - 1) { scrollToMediaWithin(post, mediaIdx + 1); return }
+    if (postIndex < posts.length - 1) { scrollToPost(postIndex + 1); return }
+
+    if (el) { el.currentTime = 0; el.play().catch(() => {}) }
   }
 
   const toggleAutoAdvance = () => {
@@ -231,9 +258,6 @@ export default function MediaLightbox({
       )}
 
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0))' }}>
-        {/* onClick, not onPointerDown — this button unmounts the whole overlay,
-            and pointerdown-triggered removal can leave a "ghost click" that
-            lands on whatever's now underneath (fixed here). */}
         <button onClick={onClose} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <RiCloseLine size={20} />
         </button>
@@ -267,11 +291,19 @@ export default function MediaLightbox({
                         muted={muted}
                         autoPlay={isActiveSlide && mi === mIdx}
                         onEnded={() => handleVideoEnded(post, mi)}
-                        onClick={(e) => { const v = e.currentTarget; v.paused ? v.play().catch(() => {}) : v.pause() }}
+                        onPlay={() => { if (isActiveSlide && mi === mIdx) setPlaying(true) }}
+                        onPause={() => { if (isActiveSlide && mi === mIdx) setPlaying(false) }}
+                        onClick={(e) => {
+                          const v = e.currentTarget
+                          v.paused ? v.play().catch(() => {}) : v.pause()
+                          setShowPPIcon(true)
+                          setTimeout(() => setShowPPIcon(false), 500)
+                          handleMediaTap(post)
+                        }}
                         style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }}
                       />
                     ) : (
-                      <img src={item.media_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
+                      <img src={item.media_url} alt="" onClick={() => handleMediaTap(post)} style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
                     )}
                   </div>
                 ))}
@@ -283,11 +315,19 @@ export default function MediaLightbox({
                 </div>
               )}
 
-              {/* Single stacked flex column for the whole bottom overlay — this
-                  is the fix for the overlap: seek bar, user row, caption and
-                  actions now all share one natural flow instead of some being
-                  absolutely positioned at fixed offsets that a long caption
-                  could collide with. */}
+              {burstFor === post.id && <HeartBurst />}
+
+              {activeItemIsVideo && (showPPIcon || !playing) && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 3 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {playing
+                      ? <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" /></svg>
+                      : <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
+                    }
+                  </div>
+                </div>
+              )}
+
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.88), rgba(0,0,0,0.35) 65%, transparent)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {activeItemIsVideo && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

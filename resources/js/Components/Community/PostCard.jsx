@@ -14,6 +14,7 @@ import PostShareSheet from './PostShareSheet'
 import PostViewersSheet from './PostViewersSheet'
 import { timeAgo, fmtCount } from './Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import HeartBurst from './HeartBurst'
 
 export default function PostCard({
   post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
@@ -31,6 +32,21 @@ export default function PostCard({
 
   const cardRef = useRef(null)
   const viewedRef = useRef(false)
+
+  // Heart burst state and media tap double-tap ref
+  const [showBurst, setShowBurst] = useState(false)
+  const lastMediaTapRef = useRef(0)
+
+  const handleMediaTap = (e) => {
+    e.stopPropagation()
+    const now = Date.now()
+    if (now - lastMediaTapRef.current < 300) {
+      if (!post.is_liked_by_me) onLike(post)
+      setShowBurst(true)
+      setTimeout(() => setShowBurst(false), 850)
+    }
+    lastMediaTapRef.current = now
+  }
 
   useEffect(() => {
     if (viewedRef.current || !cardRef.current) return
@@ -149,8 +165,11 @@ export default function PostCard({
         )}
 
         {media.length > 0 && (
-          <div onClick={e => e.stopPropagation()}
-            style={{ position:'relative', borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000', height:460 }}>
+          <div 
+            onClick={handleMediaTap}
+            style={{ position:'relative', borderRadius:18, overflow:'hidden', border:'1px solid rgba(255,255,255,0.07)', marginBottom:10, background:'#000', height:460 }}
+          >
+            {showBurst && <HeartBurst />}
             {media.length === 1 ? (
               media[0].media_type === 'video'
                 ? <PostVideoPlayer src={media[0].media_url} poster={media[0].thumbnail_url} onExpand={onOpenLightbox ? () => onOpenLightbox(0) : undefined} />

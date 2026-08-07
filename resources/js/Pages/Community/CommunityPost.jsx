@@ -18,6 +18,7 @@ import PostReportModal from '@/Components/Community/PostReportModal'
 import { timeAgo, fmtCount } from '@/Components/Community/Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import MediaLightbox from '../../Components/Community/MediaLightBox';
+import HeartBurst from '@/Components/Community/HeartBurst'
 
 
 // ── Comment like button ──────────────────────────────────────────────────────
@@ -161,6 +162,8 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [showReportModal, setShowReportModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showBurst, setShowBurst] = useState(false)
+  const lastMediaTapRef = useRef(0)
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
 
@@ -190,6 +193,18 @@ export default function CommunityPost({ post: initPost, comments: initComments }
       setPost(p => ({ ...p, is_liked_by_me: data.liked, likes_count: data.likes_count }))
     } catch { setPost(p => ({ ...p, is_liked_by_me: was })) }
   }
+
+
+
+const handleMediaTap = () => {
+  const now = Date.now()
+  if (now - lastMediaTapRef.current < 300) {
+    if (!post.is_liked_by_me) handleLike()
+    setShowBurst(true)
+    setTimeout(() => setShowBurst(false), 850)
+  }
+  lastMediaTapRef.current = now
+}
 
   const handlePin = useCallback(async (comment) => {
     try {
@@ -361,7 +376,10 @@ export default function CommunityPost({ post: initPost, comments: initComments }
             {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}>{post.content}</p>}
 
    {(post.media?.length > 0 || post.media_url) && (
-  <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>
+  <div 
+  onClick={handleMediaTap}
+  style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>
+    {showBurst && <HeartBurst />}
     {(() => {
       const media = post.media?.length ? post.media : [{ media_url: post.media_url, media_type: post.media_type, thumbnail_url: post.thumbnail_url }]
       if (media.length === 1) {

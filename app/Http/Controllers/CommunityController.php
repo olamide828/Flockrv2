@@ -256,6 +256,30 @@ class CommunityController extends Controller
         return response()->json($viewers);
     }
 
+    public function trending(): JsonResponse
+    {
+        $userId = Auth::id();
+        $posts  = $this->feedService->getTrending($userId, 5);
+
+        $likedIds = [];
+        if ($userId && $posts->isNotEmpty()) {
+            $likedIds = DB::table('post_likes')
+                ->where('user_id', $userId)
+                ->whereIn('post_id', $posts->pluck('id'))
+                ->pluck('post_id')
+                ->all();
+        }
+
+        $data = $posts->map(function ($p) use ($likedIds) {
+            $arr = $p->toArray();
+            $arr['is_liked_by_me'] = in_array($p->id, $likedIds);
+            if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
+            return $arr;
+        });
+
+        return response()->json($data);
+    }
+
     // ── Post Comments ─────────────────────────────────────────────────────────
 
     public function postComments(Post $post): JsonResponse

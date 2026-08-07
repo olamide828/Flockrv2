@@ -196,4 +196,31 @@ class CommunityFeedService
             return $iBlocked->concat($blockedMe)->unique()->toArray();
         });
     }
+
+    /**
+     * Lightweight "what's hot right now" list for the desktop rail — ranks
+     * posts from the last 48h purely by engagement, no recency blending or
+     * seen-exclusion (this isn't a personalized feed, it's a shared
+     * "what's trending" signal everyone should see roughly the same version of).
+     */
+    public function getTrending(?int $userId, int $limit = 5): Collection
+    {
+        $blockedIds = $userId ? $this->blockedIds($userId) : [];
+
+        return Post::whereNull('room_id')
+            ->where('created_at', '>=', now()->subHours(48))
+            ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds))
+            ->with(['user:id,name,username,avatar,is_verified,role', 'media'])
+            ->get()
+            ->map(function ($post) {
+                $post->_trend_score = ($post->likes_count * 1.0)
+                    + ($post->comments_count * 1.8)
+                    + (($post->views_count ?? 0) * 0.05);
+                return $post;
+            })
+            ->sortByDesc('_trend_score')
+            ->take($limit)
+            ->values();
+    }
+
 }

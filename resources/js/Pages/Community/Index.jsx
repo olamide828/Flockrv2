@@ -21,19 +21,14 @@ import CreateRoomModal from '@/Components/Community/CreateRoomModal'
 import RoomTrayAvatar from '@/Components/Community/RoomTrayAvatar'
 import ShareRoomSheet from '@/Components/Community/ShareRoomSheet'
 import MediaLightbox from '../../Components/Community/MediaLightBox';
+import { fmtCount } from '@/Components/Community/Helpers'
 
 const FEED_CACHE_KEY = 'flockr_community_feed_cache'
 
-/**
- * Read the feed cache synchronously, BEFORE the component's first render —
- * used as a lazy useState initializer below. This is what actually kills
- * the loading-flash: previously `loading` always started `true` and only
- * flipped to `false` inside a useEffect (which runs AFTER the first paint),
- * so returning from CommunityPost always showed one frame — sometimes more,
- * depending on render timing — of the skeleton loader even though no
- * network request was happening. Seeding state from the cache before the
- * first render ever happens means there's nothing to flash.
- */
+function mediaFor(post) {
+  return post.media?.length ? post.media : (post.media_url ? [{ media_url: post.media_url, media_type: post.media_type }] : [])
+}
+
 function readFeedCache() {
   try {
     const nav = performance.getEntriesByType?.('navigation')?.[0]
@@ -65,17 +60,16 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   const [rulesRoom,      setRulesRoom]      = useState(null)
   const [settingsRoom,   setSettingsRoom]   = useState(null)
   const [shareRoom,      setShareRoom]      = useState(null)
-  const [joinTarget,     setJoinTarget]     = useState(null) // room pending the Discord-style confirm modal
+  const [joinTarget,     setJoinTarget]     = useState(null)
   const [reportPost,     setReportPost]     = useState(null)
+  const [trendingPosts, setTrendingPosts] = useState([])
 
-  // Read once, synchronously, before the first render — every state below
-  // that depends on it uses a lazy initializer so there's no in-between
-  // "empty then filled" render.
+
   const cachedFeedRef = useRef(undefined)
   if (cachedFeedRef.current === undefined) cachedFeedRef.current = readFeedCache()
   const cachedFeed = cachedFeedRef.current
 
-  const [lightboxState, setLightboxState] = useState(null) // { postIndex, mediaIndex } | null
+  const [lightboxState, setLightboxState] = useState(null) // { postIndex, mediaIndex, sourcePosts } | null
   const [posts,   setPosts]   = useState(() => cachedFeed?.posts ?? [])
   const [loading, setLoading] = useState(() => !cachedFeed)
   const [page,    setPage]    = useState(() => cachedFeed?.page ?? 1)
@@ -87,13 +81,15 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     ;(cachedFeed?.posts ?? []).forEach(post => { map[post.user_id] = !!post.is_following_author })
     return map
   })
-  const [initialized, setInitialized] = useState(() => !!cachedFeed) // true once the very first load (cache or network) has settled
-  const [leaveTarget, setLeaveTarget] = useState(null) // room pending the leave-confirmation modal
+  const [initialized, setInitialized] = useState(() => !!cachedFeed)
+  const [leaveTarget, setLeaveTarget] = useState(null)
+  const [typingByRoom, setTypingByRoom] = useState({}) // { [roomId]: { [userId]: name } }
 
   const loaderRef      = useRef(null)
   const scrollElRef    = useRef(null)
   const touchStartY    = useRef(0)
   const activeRoomIdRef = useRef(activeRoomId)
+  const typingTimersRef = useRef({})
 
   const activeRoom = activeRoomId ? joinedRooms.find(r => r.id === activeRoomId) : null
 
@@ -105,7 +101,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     return () => document.body.classList.remove('chat-open')
   }, [activeRoom])
 
-  // ── Auto-open Discover with a prefilled invite code from /community?invite=CODE ──
   useEffect(() => {
     const params = new URLSearchParams(pageUrl.split('?')[1] ?? '')
     const invite = params.get('invite')
@@ -116,7 +111,10 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     }
   }, [])
 
-  // ── Feed loading, with session-cached "don't refetch on back navigation" ──
+  useEffect(() => {
+    axios.get('/api/community/trending').then(({ data }) => setTrendingPosts(data)).catch(() => {})
+  }, [])
+
   const loadFeed = useCallback(async (reset = false) => {
     const p = reset ? 1 : page
     if (!reset && !hasMore) return
@@ -137,9 +135,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     } catch {} finally { setLoading(false) }
   }, [page, hasMore])
 
-  // Only need to actually fetch when there was no cache to seed from —
-  // `posts`/`loading`/`page`/`hasMore`/`initialized` above are already
-  // correct as of the very first render in the cache-hit case.
   useEffect(() => {
     if (cachedFeed) return
     loadFeed(true).then(() => setInitialized(true))
@@ -151,9 +146,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ posts, page, hasMore }))
   }, [posts, page, hasMore])
 
-  // Gated on `initialized` so restoring from the session cache (e.g. coming
-  // back from a CommunityPost visit) never fires an immediate extra fetch —
-  // this only starts watching once the very first render cycle has settled.
   useEffect(() => {
     if (!initialized || !loaderRef.current) return
     const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting && !loading && hasMore) loadFeed() }, { threshold:0.1 })
@@ -161,7 +153,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     return () => obs.disconnect()
   }, [initialized, loadFeed, loading, hasMore])
 
-  // ── Pull-to-refresh ──────────────────────────────────────────────────────
   const onTouchStart = (e) => {
     if (scrollElRef.current?.scrollTop > 0) return
     touchStartY.current = e.touches[0].clientY
@@ -180,13 +171,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     setPullY(0)
   }
 
-  // ── Realtime unread tracking for the ROOM LIST (separate from RoomChat's
-  // own subscription, which only exists while a chat is open). Without
-  // this, has_unread only ever updates on a hard page refresh. ──────────
   // ── Realtime unread + typing tracking for the ROOM LIST ──────────────────
-  const [typingByRoom, setTypingByRoom] = useState({}) // { [roomId]: { [userId]: name } }
-  const typingTimersRef = useRef({}) // { [`${roomId}-${userId}`]: timeoutId }
-
   useEffect(() => {
     if (!window.Echo) return
     const roomIds = joinedRooms.map(r => r.id)
@@ -205,7 +190,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
       })
       channel.listenForWhisper('typing', (e) => {
         if (e.user_id === auth?.user?.id) return
-        if (activeRoomIdRef.current === id) return // RoomChat's own indicator handles this case
+        if (activeRoomIdRef.current === id) return
         setTypingByRoom(prev => ({ ...prev, [id]: { ...prev[id], [e.user_id]: e.name || 'Someone' } }))
         const key = `${id}-${e.user_id}`
         clearTimeout(typingTimersRef.current[key])
@@ -228,9 +213,8 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joinedRooms.map(r => r.id).sort((a, b) => a - b).join(',')]);
+  }, [joinedRooms.map(r => r.id).sort((a, b) => a - b).join(',')])
 
-  // ── Post actions ─────────────────────────────────────────────────────────
   const handleLike = async (post) => {
     if (!auth?.user) { router.visit('/login'); return }
     const was = post.is_liked_by_me
@@ -262,9 +246,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     } catch { showToast('Failed to block', 'error') }
   }
 
-  // Single source of truth for follow state — every PostCard by the same
-  // author reads from this map, so following/unfollowing from any one post
-  // updates all of them immediately, no refresh needed.
   const handleFollowChange = (userId, following) => {
     setFollowingMap(prev => ({ ...prev, [userId]: following }))
   }
@@ -284,7 +265,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     }
   }
 
-  // ── Room join flow — RoomJoinModal is now the single entry point ────────
   const handleJoin = (room) => {
     if (!auth?.user) { router.visit('/login'); return }
     setJoinTarget(room)
@@ -292,9 +272,6 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
 
   const doJoin = async (room) => {
     try {
-      // Came from the invite-code preview flow — must go through the
-      // invite endpoint specifically (it's what validates the code and
-      // decides join-immediately vs pending-request for private rooms).
       if (room._inviteCode) {
         const { data } = await axios.post('/api/community/rooms/join-by-invite', { invite_code: room._inviteCode })
         if (data.joined && data.room) {
@@ -340,15 +317,13 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     catch { showToast('Failed', 'error') }
   }
 
-  const handleLeaveRoom = (room) => {
-    setLeaveTarget(room)
-  }
+  const handleLeaveRoom = (room) => setLeaveTarget(room)
 
   const confirmLeaveRoom = async () => {
     const room = leaveTarget
     if (!room) return
     try {
-      await axios.post(`/api/community/rooms/${room.id}/join`) // toggles -> leaves since already a member
+      await axios.post(`/api/community/rooms/${room.id}/join`)
       setJoinedRooms(p => p.filter(r => r.id !== room.id))
       setActiveRoomId(null)
       showToast(`Left ${room.name}`)
@@ -358,6 +333,13 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   const openRoom = (room) => {
     setActiveRoomId(room.id)
     setJoinedRooms(p => p.map(r => r.id === room.id ? { ...r, has_unread:false } : r))
+  }
+
+  const openLightbox = (post, mediaIndex) => {
+    const mediaPosts = posts.filter(p => mediaFor(p).length > 0)
+    const realIndex = mediaPosts.findIndex(p => p.id === post.id)
+    if (realIndex === -1) return
+    setLightboxState({ postIndex: 0, mediaIndex, sourcePosts: mediaPosts.slice(realIndex) })
   }
 
   // ── Full-screen room chat ────────────────────────────────────────────────
@@ -401,22 +383,22 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
       {shareRoom       && <ShareRoomSheet room={shareRoom} onClose={() => setShareRoom(null)} />}
       {joinTarget      && <RoomJoinModal room={joinTarget} onClose={() => setJoinTarget(null)} onConfirm={doJoin} />}
       {reportPost      && <PostReportModal post={reportPost} onClose={() => setReportPost(null)} onSubmit={submitPostReport} />}
-        {lightboxState && (
-  <MediaLightbox
-    posts={posts.filter(p => (p.media?.length ? p.media : (p.media_url ? [1] : [])).length > 0)}
-    startPostIndex={lightboxState.postIndex}
-    startMediaIndex={lightboxState.mediaIndex}
-    onClose={() => setLightboxState(null)}
-    auth={auth}
-    onLike={handleLike}
-    followingMap={followingMap}
-    onFollowChange={handleFollowChange}
-    onLoadMore={() => loadFeed()}
-    hasMore={hasMore}
-    onReport={setReportPost}
-    onBlockAuthor={handleBlockAuthor}
-  />
-)}
+      {lightboxState && (
+        <MediaLightbox
+          posts={lightboxState.sourcePosts}
+          startPostIndex={0}
+          startMediaIndex={lightboxState.mediaIndex}
+          onClose={() => setLightboxState(null)}
+          auth={auth}
+          onLike={handleLike}
+          followingMap={followingMap}
+          onFollowChange={handleFollowChange}
+          onLoadMore={() => loadFeed()}
+          hasMore={hasMore}
+          onReport={setReportPost}
+          onBlockAuthor={handleBlockAuthor}
+        />
+      )}
 
       <div
         ref={scrollElRef}
@@ -425,182 +407,266 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
         onTouchEnd={onTouchEndPull}
         style={{ height:'100%', overflowY:'auto', background:'#050505', color:'#fff', fontFamily:'"DM Sans", sans-serif', position:'relative' }}
       >
-        {/* Pull-to-refresh indicator */}
         {(pullY > 0 || refreshing) && (
           <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height: refreshing ? 44 : pullY, transition: refreshing ? 'height 0.2s' : 'none', overflow:'hidden' }}>
             <RiLoader4Line size={20} color="#FF6B35" style={{ animation: (refreshing || pullY > 50) ? 'spin 0.7s linear infinite' : 'none', opacity: refreshing ? 1 : Math.min(pullY / 50, 1) }} />
           </div>
         )}
 
-        <div style={{ maxWidth:640, margin:'0 auto' }}>
+        <div className="community-layout" style={{ maxWidth:1100, margin:'0 auto', display:'flex', gap:28, alignItems:'flex-start' }}>
 
-          {/* ── HEADER ─────────────────────────────────────────────── */}
-          <div style={{ position:'sticky', top:0, zIndex:40, background:'rgba(5,5,5,0.97)', backdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 0' }}>
-              <h1 style={{ margin:0, fontSize:20, fontWeight:800, letterSpacing:'-0.4px' }}>Community</h1>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={() => setShowDiscover(true)} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.07)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.6)' }}>
-                  <RiSearchLine size={17} />
-                </button>
-                {isSeller && (
-                  <button onClick={() => setShowCreateRoom(true)} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:999, background:'#FF6B35', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:700 }}>
-                    <RiAddLine size={15} /> Room
+          <div className="community-main" style={{ flex:'1 1 0%', minWidth:0, maxWidth:640 }}>
+
+            {/* ── HEADER ─────────────────────────────────────────────── */}
+            <div style={{ position:'sticky', top:0, zIndex:40, background:'rgba(5,5,5,0.97)', backdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 0' }}>
+                <h1 style={{ margin:0, fontSize:20, fontWeight:800, letterSpacing:'-0.4px' }}>Community</h1>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => setShowDiscover(true)} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.07)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.6)' }}>
+                    <RiSearchLine size={17} />
                   </button>
-                )}
+                  {isSeller && (
+                    <button onClick={() => setShowCreateRoom(true)} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:999, background:'#FF6B35', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:700 }}>
+                      <RiAddLine size={15} /> Room
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="community-tabs" style={{ display:'flex', marginTop:12 }}>
+                {[{ key:'feed', label:'Feed' }, { key:'rooms', label:`Rooms${joinedRooms.length > 0 ? ` (${joinedRooms.length})` : ''}` }].map(t => (
+                  <button key={t.key} onClick={() => { setView(t.key); setActiveRoomId(null) }}
+                    style={{ flex:1, padding:'11px 0', background:'none', border:'none', cursor:'pointer', color: view===t.key ? '#fff' : 'rgba(255,255,255,0.4)', fontSize:14, fontWeight: view===t.key ? 700 : 500, borderBottom: view===t.key ? '2px solid #FF6B35' : '2px solid transparent', position:'relative' }}>
+                    {t.label}
+                    {t.key === 'rooms' && joinedRooms.some(r => r.has_unread) && (
+                      <span style={{ position:'absolute', top:9, right:'calc(50% - 28px)', width:7, height:7, borderRadius:'50%', background:'#FF6B35', border:'1.5px solid #050505' }} />
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div style={{ display:'flex', marginTop:12 }}>
-              {[{ key:'feed', label:'Feed' }, { key:'rooms', label:`Rooms${joinedRooms.length > 0 ? ` (${joinedRooms.length})` : ''}` }].map(t => (
-                <button key={t.key} onClick={() => { setView(t.key); setActiveRoomId(null) }}
-                  style={{ flex:1, padding:'11px 0', background:'none', border:'none', cursor:'pointer', color: view===t.key ? '#fff' : 'rgba(255,255,255,0.4)', fontSize:14, fontWeight: view===t.key ? 700 : 500, borderBottom: view===t.key ? '2px solid #FF6B35' : '2px solid transparent', position:'relative' }}>
-                  {t.label}
-                  {t.key === 'rooms' && joinedRooms.some(r => r.has_unread) && (
-                    <span style={{ position:'absolute', top:9, right:'calc(50% - 28px)', width:7, height:7, borderRadius:'50%', background:'#FF6B35', border:'1.5px solid #050505' }} />
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* ── ROOMS VIEW ──────────────────────────────────────────── */}
+            {view === 'rooms' && (
+              <>
+                {joinedRooms.length === 0 ? (
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'60px 24px', textAlign:'center', gap:20 }}>
+                    <div style={{ width:80, height:80, borderRadius:24, background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <RiGroupLine size={36} color="#FF6B35" />
+                    </div>
+                    <div>
+                      <h3 style={{ color:'#fff', fontSize:20, fontWeight:700, margin:'0 0 8px' }}>Join your first Room</h3>
+                      <p style={{ color:'rgba(255,255,255,0.45)', fontSize:14, lineHeight:1.65, margin:0, maxWidth:300 }}>
+                        Rooms are exclusive spaces by sellers. Get early drops, insider info, and direct access to your favourite vendors.
+                      </p>
+                    </div>
+                    <button onClick={() => setShowDiscover(true)} style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 30px', background:'linear-gradient(135deg, rgba(255,107,53,0.2), rgba(255,107,53,0.08))', border:'1px solid rgba(255,107,53,0.35)', borderRadius:999, cursor:'pointer', backdropFilter:'blur(12px)' }}>
+                      <RiSearchLine size={18} color="#FF6B35" />
+                      <span style={{ color:'#FF6B35', fontWeight:700, fontSize:15 }}>Explore Rooms</span>
+                    </button>
+                    {discoverRooms.slice(0, 3).map(room => (
+                      <div key={room.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'rgba(255,255,255,0.04)', borderRadius:16, border:'1px solid rgba(255,255,255,0.07)', width:'100%', maxWidth:400 }}>
+                        <img src={room.avatar_url} alt="" style={{ width:44, height:44, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} />
+                        <div style={{ flex:1, minWidth:0, textAlign:'left' }}>
+                          <p style={{ color:'#fff', fontSize:14, fontWeight:700, margin:0 }}>{room.name}</p>
+                          <p style={{ color:'rgba(255,255,255,0.35)', fontSize:11, margin:'2px 0 0' }}>{room.members_count} members</p>
+                        </div>
+                        <button onClick={() => handleJoin(room)} style={{ padding:'7px 16px', borderRadius:999, background:'#FF6B35', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:700, flexShrink:0 }}>{room.is_private ? 'Request' : 'Join'}</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'16px 16px 4px', background:'rgba(8,8,8,0.5)' }}>
+                      <div style={{ display:'flex', gap:14, overflowX:'auto', scrollbarWidth:'none', paddingBottom:12 }}>
+                        {joinedRooms.map(room => (
+                          <RoomTrayAvatar key={room.id} room={room} isActive={false} onClick={() => openRoom(room)} />
+                        ))}
+                        <button onClick={() => setShowDiscover(true)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', flexShrink:0, width:68 }}>
+                          <div style={{ width:54, height:54, borderRadius:'50%', background:'rgba(255,255,255,0.05)', border:'1px dashed rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <RiAddLine size={22} color="rgba(255,255,255,0.4)" />
+                          </div>
+                          <span style={{ color:'rgba(255,255,255,0.3)', fontSize:10 }}>Explore</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ padding:'14px 0' }}>
+                      <p style={{ color:'rgba(255,255,255,0.3)', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', margin:'0 0 8px', padding:'0 16px' }}>Your Rooms</p>
+                      {joinedRooms.map(room => {
+                        const names = Object.values(typingByRoom[room.id] || {})
+                        const typingText = names.length === 0 ? null
+                          : names.length === 1 ? `${names[0]} is typing`
+                          : `${names[0]} & ${names.length - 1} other${names.length - 1 > 1 ? 's' : ''} typing`
+
+                        return (
+                          <button key={room.id} onClick={() => openRoom(room)}
+                            style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', width:'100%', background:'none', border:'none', cursor:'pointer', textAlign:'left', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ position:'relative', flexShrink:0 }}>
+                              {room.has_unread && <div style={{ position:'absolute', inset:-2, borderRadius:'50%', background:'conic-gradient(#FF6B35, #FFD700, #FF6B35)', animation:'spin 2s linear infinite', zIndex:0 }} />}
+                              <div style={{ position:'relative', zIndex:1, width:50, height:50, borderRadius:'50%', overflow:'hidden', border: room.has_unread ? '2px solid #050505' : '2px solid rgba(255,255,255,0.08)' }}>
+                                <img src={room.avatar_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                              </div>
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
+                                <p style={{ color:'#fff', fontWeight: room.has_unread ? 700 : 600, fontSize:14, margin:0 }}>{room.name}</p>
+                                {room.pivot_role === 'moderator' && <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:'rgba(255,107,53,0.15)', color:'#FF6B35' }}>Host</span>}
+                              </div>
+                              {typingText ? (
+                                <p style={{ color:'#FF6B35', fontSize:12, margin:0, fontStyle:'italic', fontWeight:500 }}>{typingText}</p>
+                              ) : (
+                                <p style={{ color: room.has_unread ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', fontSize:12, margin:0, fontWeight: room.has_unread ? 500 : 400 }}>
+                                  {room.has_unread ? 'New messages' : 'Tap to open chat'}
+                                </p>
+                              )}
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              {room.has_unread && <div style={{ width:10, height:10, borderRadius:'50%', background:'#FF6B35' }} />}
+                              <RiArrowRightSLine size={18} color="rgba(255,255,255,0.25)" />
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── GENERAL FEED ────────────────────────────────────────── */}
+            {view === 'feed' && (
+              <div>
+                {loading && posts.length === 0 && (
+                  Array.from({ length:3 }).map((_, i) => (
+                    <div key={i} style={{ display:'flex', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', opacity: 1 - i*0.25 }}>
+                      <div style={{ width:40, height:40, borderRadius:'50%', background:'rgba(255,255,255,0.07)', flexShrink:0 }} />
+                      <div style={{ flex:1 }}>
+                        <div style={{ width:120, height:10, borderRadius:999, background:'rgba(255,255,255,0.07)', marginBottom:8 }} />
+                        <div style={{ width:'90%', height:10, borderRadius:999, background:'rgba(255,255,255,0.05)', marginBottom:6 }} />
+                        <div style={{ width:'65%', height:10, borderRadius:999, background:'rgba(255,255,255,0.04)' }} />
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {!loading && posts.length === 0 && (
+                  <div style={{ textAlign:'center', padding:'80px 24px' }}>
+                    <RiFireLine size={40} color="rgba(255,255,255,0.1)" style={{ margin:'0 auto 12px', display:'block' }} />
+                    <p style={{ color:'rgba(255,255,255,0.4)', fontSize:15, fontWeight:600, margin:'0 0 6px' }}>Nothing here yet</p>
+                    <p style={{ color:'rgba(255,255,255,0.25)', fontSize:13, margin:0 }}>Be the first to post something!</p>
+                  </div>
+                )}
+
+                {posts.map(post => (
+                  <PostCard key={post.id} post={post} auth={auth} showToast={showToast}
+                    onDelete={handleDelete} onLike={handleLike}
+                    onDismiss={handleDismiss} onBlockAuthor={handleBlockAuthor}
+                    onReport={setReportPost}
+                    isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
+                    onFollowChange={handleFollowChange}
+                    onViewed={handleViewed}
+                    onOpenLightbox={(mediaIndex) => openLightbox(post, mediaIndex)}
+                  />
+                ))}
+
+                {hasMore && <div ref={loaderRef} style={{ height:1 }} />}
+                {loading && posts.length > 0 && (
+                  <div style={{ display:'flex', justifyContent:'center', padding:'20px 0' }}>
+                    <div style={{ width:22, height:22, border:'2px solid rgba(255,255,255,0.1)', borderTopColor:'#FF6B35', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* ── ROOMS VIEW ──────────────────────────────────────────── */}
-          {view === 'rooms' && (
-            <>
+          {/* ── DESKTOP RIGHT RAIL ─────────────────────────────────────── */}
+          <aside className="community-rail" style={{ width:300, flexShrink:0, position:'sticky', top:16, display:'none', paddingTop:14 }}>
+            <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:18, padding:16, marginBottom:16 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                <p style={{ color:'#fff', fontSize:14, fontWeight:700, margin:0 }}>Your Rooms</p>
+                {isSeller && (
+                  <button onClick={() => setShowCreateRoom(true)} style={{ background:'none', border:'none', cursor:'pointer', color:'#FF6B35', fontSize:12, fontWeight:700 }}>+ New</button>
+                )}
+              </div>
               {joinedRooms.length === 0 ? (
-                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'60px 24px', textAlign:'center', gap:20 }}>
-                  <div style={{ width:80, height:80, borderRadius:24, background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    <RiGroupLine size={36} color="#FF6B35" />
-                  </div>
-                  <div>
-                    <h3 style={{ color:'#fff', fontSize:20, fontWeight:700, margin:'0 0 8px' }}>Join your first Room</h3>
-                    <p style={{ color:'rgba(255,255,255,0.45)', fontSize:14, lineHeight:1.65, margin:0, maxWidth:300 }}>
-                      Rooms are exclusive spaces by sellers. Get early drops, insider info, and direct access to your favourite vendors.
-                    </p>
-                  </div>
-                  <button onClick={() => setShowDiscover(true)} style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 30px', background:'linear-gradient(135deg, rgba(255,107,53,0.2), rgba(255,107,53,0.08))', border:'1px solid rgba(255,107,53,0.35)', borderRadius:999, cursor:'pointer', backdropFilter:'blur(12px)' }}>
-                    <RiSearchLine size={18} color="#FF6B35" />
-                    <span style={{ color:'#FF6B35', fontWeight:700, fontSize:15 }}>Explore Rooms</span>
-                  </button>
-                  {discoverRooms.slice(0, 3).map(room => (
-                    <div key={room.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'rgba(255,255,255,0.04)', borderRadius:16, border:'1px solid rgba(255,255,255,0.07)', width:'100%', maxWidth:400 }}>
-                      <img src={room.avatar_url} alt="" style={{ width:44, height:44, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} />
-                      <div style={{ flex:1, minWidth:0, textAlign:'left' }}>
-                        <p style={{ color:'#fff', fontSize:14, fontWeight:700, margin:0 }}>{room.name}</p>
-                        <p style={{ color:'rgba(255,255,255,0.35)', fontSize:11, margin:'2px 0 0' }}>{room.members_count} members</p>
+                <p style={{ color:'rgba(255,255,255,0.35)', fontSize:12.5, margin:0, lineHeight:1.5 }}>You haven't joined any rooms yet.</p>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {joinedRooms.slice(0, 6).map(room => (
+                    <button key={room.id} onClick={() => { setView('rooms'); openRoom(room) }}
+                      style={{ display:'flex', alignItems:'center', gap:10, background:'none', border:'none', cursor:'pointer', padding:0, textAlign:'left' }}>
+                      <div style={{ position:'relative', flexShrink:0 }}>
+                        <img src={room.avatar_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', border: room.has_unread ? '2px solid #FF6B35' : '2px solid rgba(255,255,255,0.08)' }} />
+                        {room.has_unread && <div style={{ position:'absolute', bottom:-1, right:-1, width:9, height:9, borderRadius:'50%', background:'#FF6B35', border:'2px solid #050505' }} />}
                       </div>
-                      <button onClick={() => handleJoin(room)} style={{ padding:'7px 16px', borderRadius:999, background:'#FF6B35', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:700, flexShrink:0 }}>{room.is_private ? 'Request' : 'Join'}</button>
+                      <div style={{ minWidth:0, flex:1 }}>
+                        <p style={{ color:'#fff', fontSize:13, fontWeight: room.has_unread ? 700 : 500, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</p>
+                        <p style={{ color:'rgba(255,255,255,0.3)', fontSize:11, margin:0 }}>{room.members_count} members</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {discoverRooms.length > 0 && (
+              <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:18, padding:16 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                  <p style={{ color:'#fff', fontSize:14, fontWeight:700, margin:0 }}>Discover Rooms</p>
+                  <button onClick={() => setShowDiscover(true)} style={{ background:'none', border:'none', cursor:'pointer', color:'#FF6B35', fontSize:12, fontWeight:700 }}>See all</button>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {discoverRooms.slice(0, 4).map(room => (
+                    <div key={room.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <img src={room.avatar_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} />
+                      <div style={{ minWidth:0, flex:1 }}>
+                        <p style={{ color:'#fff', fontSize:13, fontWeight:600, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</p>
+                        <p style={{ color:'rgba(255,255,255,0.3)', fontSize:11, margin:0 }}>{room.members_count} members</p>
+                      </div>
+                      <button onClick={() => handleJoin(room)} style={{ padding:'5px 12px', borderRadius:999, background:'rgba(255,107,53,0.12)', border:'1px solid rgba(255,107,53,0.3)', cursor:'pointer', color:'#FF6B35', fontSize:11.5, fontWeight:700, flexShrink:0 }}>
+                        {room.is_private ? 'Request' : 'Join'}
+                      </button>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div>
-                  <div style={{ borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'16px 16px 4px', background:'rgba(8,8,8,0.5)' }}>
-                    <div style={{ display:'flex', gap:14, overflowX:'auto', scrollbarWidth:'none', paddingBottom:12 }}>
-                      {joinedRooms.map(room => (
-                        <RoomTrayAvatar key={room.id} room={room} isActive={false} onClick={() => openRoom(room)} />
-                      ))}
-                      <button onClick={() => setShowDiscover(true)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', flexShrink:0, width:68 }}>
-                        <div style={{ width:54, height:54, borderRadius:'50%', background:'rgba(255,255,255,0.05)', border:'1px dashed rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          <RiAddLine size={22} color="rgba(255,255,255,0.4)" />
-                        </div>
-                        <span style={{ color:'rgba(255,255,255,0.3)', fontSize:10 }}>Explore</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ padding:'14px 0' }}>
-                    <p style={{ color:'rgba(255,255,255,0.3)', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', margin:'0 0 8px', padding:'0 16px' }}>Your Rooms</p>
-                    {joinedRooms.map(room => (
-                      <button key={room.id} onClick={() => openRoom(room)}
-                        style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', width:'100%', background:'none', border:'none', cursor:'pointer', textAlign:'left', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ position:'relative', flexShrink:0 }}>
-                          {room.has_unread && <div style={{ position:'absolute', inset:-2, borderRadius:'50%', background:'conic-gradient(#FF6B35, #FFD700, #FF6B35)', animation:'spin 2s linear infinite', zIndex:0 }} />}
-                          <div style={{ position:'relative', zIndex:1, width:50, height:50, borderRadius:'50%', overflow:'hidden', border: room.has_unread ? '2px solid #050505' : '2px solid rgba(255,255,255,0.08)' }}>
-                            <img src={room.avatar_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+              </div>
+            )}
+            {trendingPosts.length > 0 && (
+              <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:18, padding:16, marginTop:16 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12 }}>
+                  <RiFireLine size={15} color="#FF6B35" />
+                  <p style={{ color:'#fff', fontSize:14, fontWeight:700, margin:0 }}>Trending</p>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {trendingPosts.map(post => {
+                    const thumb = post.media?.[0]?.media_url ?? post.media_url
+                    return (
+                      <button key={post.id} onClick={() => router.visit(`/community/posts/${post.id}`)}
+                        style={{ display:'flex', gap:10, background:'none', border:'none', cursor:'pointer', padding:0, textAlign:'left' }}>
+                        {thumb ? (
+                          <img src={thumb} alt="" style={{ width:52, height:52, borderRadius:12, objectFit:'cover', flexShrink:0 }} />
+                        ) : (
+                          <div style={{ width:52, height:52, borderRadius:12, background:'rgba(255,255,255,0.05)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <RiFireLine size={18} color="rgba(255,255,255,0.2)" />
                           </div>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
-                            <p style={{ color:'#fff', fontWeight: room.has_unread ? 700 : 600, fontSize:14, margin:0 }}>{room.name}</p>
-                            {room.pivot_role === 'moderator' && <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:'rgba(255,107,53,0.15)', color:'#FF6B35' }}>Host</span>}
-                          </div>
-                          {(() => {
-  const names = Object.values(typingByRoom[room.id] || {})
-  if (names.length > 0) {
-    const text = names.length === 1
-      ? `${names[0]} is typing`
-      : `${names[0]} & ${names.length - 1} other${names.length - 1 > 1 ? 's' : ''} typing`
-    return (
-      <p style={{ color: '#FF6B35', fontSize: 12, margin: 0, fontStyle: 'italic', fontWeight: 500 }}>{text}</p>
-    )
-  }
-  return (
-    <p style={{ color: room.has_unread ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', fontSize: 12, margin: 0, fontWeight: room.has_unread ? 500 : 400 }}>
-      {room.has_unread ? 'New messages' : 'Tap to open chat'}
-    </p>
-  )
-})()}
-                        </div>
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          {room.has_unread && <div style={{ width:10, height:10, borderRadius:'50%', background:'#FF6B35' }} />}
-                          <RiArrowRightSLine size={18} color="rgba(255,255,255,0.25)" />
+                        )}
+                        <div style={{ minWidth:0, flex:1 }}>
+                          <p style={{ color:'#fff', fontSize:12.5, fontWeight:600, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            @{post.user?.username}
+                          </p>
+                          <p style={{ color:'rgba(255,255,255,0.4)', fontSize:12, margin:'2px 0 4px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {post.content || (thumb ? 'Shared media' : '')}
+                          </p>
+                          <p style={{ color:'#FF6B35', fontSize:11, fontWeight:700, margin:0 }}>{fmtCount(post.likes_count)} likes</p>
                         </div>
                       </button>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
-              )}
-            </>
-          )}
-
-          {/* ── GENERAL FEED ────────────────────────────────────────── */}
-          {view === 'feed' && (
-            <div>
-              {loading && posts.length === 0 && (
-                Array.from({ length:3 }).map((_, i) => (
-                  <div key={i} style={{ display:'flex', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', opacity: 1 - i*0.25 }}>
-                    <div style={{ width:40, height:40, borderRadius:'50%', background:'rgba(255,255,255,0.07)', flexShrink:0 }} />
-                    <div style={{ flex:1 }}>
-                      <div style={{ width:120, height:10, borderRadius:999, background:'rgba(255,255,255,0.07)', marginBottom:8 }} />
-                      <div style={{ width:'90%', height:10, borderRadius:999, background:'rgba(255,255,255,0.05)', marginBottom:6 }} />
-                      <div style={{ width:'65%', height:10, borderRadius:999, background:'rgba(255,255,255,0.04)' }} />
-                    </div>
-                  </div>
-                ))
-              )}
-
-              {!loading && posts.length === 0 && (
-                <div style={{ textAlign:'center', padding:'80px 24px' }}>
-                  <RiFireLine size={40} color="rgba(255,255,255,0.1)" style={{ margin:'0 auto 12px', display:'block' }} />
-                  <p style={{ color:'rgba(255,255,255,0.4)', fontSize:15, fontWeight:600, margin:'0 0 6px' }}>Nothing here yet</p>
-                  <p style={{ color:'rgba(255,255,255,0.25)', fontSize:13, margin:0 }}>Be the first to post something!</p>
-                </div>
-              )}
-
-              {posts.map((post, i) => (
-  <PostCard key={post.id} post={post} auth={auth} showToast={showToast}
-    onDelete={handleDelete} onLike={handleLike}
-    onDismiss={handleDismiss} onBlockAuthor={handleBlockAuthor}
-    onReport={setReportPost}
-    isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
-    onFollowChange={handleFollowChange}
-    onViewed={handleViewed}
-    onOpenLightbox={(mediaIndex) => {
-      const mediaPosts = posts.filter(p => (p.media?.length ? p.media : (p.media_url ? [1] : [])).length > 0)
-      const realIndex = mediaPosts.findIndex(p => p.id === post.id)
-      if (realIndex !== -1) setLightboxState({ postIndex: realIndex, mediaIndex })
-    }}
-  />
-))}
-
-              {hasMore && <div ref={loaderRef} style={{ height:1 }} />}
-              {loading && posts.length > 0 && (
-                <div style={{ display:'flex', justifyContent:'center', padding:'20px 0' }}>
-                  <div style={{ width:22, height:22, border:'2px solid rgba(255,255,255,0.1)', borderTopColor:'#FF6B35', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
-                </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </aside>
 
         </div>
 
@@ -619,6 +685,10 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
         @keyframes slideUp  { from { transform:translateY(100%); } to { transform:translateY(0); } }
         @keyframes typingDot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-6px); opacity: 1; } }
         ::-webkit-scrollbar { display:none; }
+        @media (min-width: 1024px) {
+          .community-rail { display:block !important; }
+          .community-main { max-width:640px !important; }
+        }
       `}</style>
     </>
   )

@@ -42,6 +42,7 @@ Route::post('/products/summary', [ProductController::class, 'generateSummary']);
 // doesn't require a session) — this is the ONLY /community/feed route.
 Route::get('/community/feed', [CommunityController::class, 'feed']);
 Route::get("/community/users/{user}/posts", [CommunityController::class, "userPosts"]);
+Route::get('/community/trending', [CommunityController::class, 'trending']);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
