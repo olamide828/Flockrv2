@@ -447,9 +447,17 @@ export default function ProductEdit({ product, categories = [] }) {
                                 <span style={{ position: 'absolute', top: 3, left: shipsNationwide ? 23 : 3, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
                             </button>
                         </div>
-                        <Field label="Shipping Fee (₦ — enter 0 for free)" error={errors.shipping_fee}>
-                            <input type="number" value={shippingFee} onChange={e => setShippingFee(e.target.value)} placeholder="0" style={inp} />
-                        </Field>
+                        {/* TShip notice — replaces manual shipping fee */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.15)', borderRadius: 14, marginTop: 8 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="8" x="9" y="13" rx="2"/><path d="M17 17v-4l4 2-4 2z"/></svg>
+                            <div>
+                                <p style={{ margin: '0 0 3px', color: '#fff', fontSize: 13, fontWeight: 700 }}>Delivery handled by TShip</p>
+                                <p style={{ margin: 0, color: 'rgba(255,255,255,0.45)', fontSize: 12, lineHeight: 1.6 }}>
+                                    Courier rates are calculated at checkout automatically. No need to set a delivery fee.
+                                    Ensure your <a href="/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>pickup address</a> is set in Settings → Addresses.
+                                </p>
+                            </div>
+                        </div>
                     </Section>
 
                     {/* ── Bottom save button ───────────────────────────────── */}

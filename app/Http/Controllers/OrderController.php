@@ -81,13 +81,15 @@ class OrderController extends Controller
         }
 
         return Inertia::render('Order/Success', [
-            'order' => array_merge($order->toArray(), [
-                'formatted_total' => '₦' . number_format($order->total, 2),
-                'courier_name'    => $order->courier_name ?? $order->courier ?? null,
-                'tracking_number' => $order->tracking_number ?? null,
-                'courier_fee'     => (float) ($order->courier_fee ?? 0),
-            ]),
-        ]);
+    'order' => array_merge($order->toArray(), [
+        'formatted_total' => '₦' . number_format($order->total, 2),
+        'courier_name'    => $order->courier_name ?? $order->courier ?? null,
+        'tracking_number' => $order->tracking_number ?? null,
+        'courier_fee'     => (float) ($order->courier_fee > 0
+                                ? $order->courier_fee
+                                : $order->shipping_fee), 
+    ]),
+]);
     }
 
     // ── API ───────────────────────────────────────────────────────────────────

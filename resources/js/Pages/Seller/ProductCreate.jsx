@@ -34,7 +34,7 @@ export default function ProductCreate({ categories = [] }) {
   const [form, setForm] = useState({
     name: '', description: '', price: '', compare_price: '',
     stock_quantity: 1, category_id: '', condition: 'new',
-    shipping_fee: '', ships_nationwide: true,
+    shipping_fee: 0, ships_nationwide: true, // kept for backend compat
   })
   const [tagsInput,  setTagsInput]  = useState('')
   const [attributes, setAttributes] = useState([{ key: '', value: '' }])
@@ -363,16 +363,17 @@ export default function ProductCreate({ categories = [] }) {
 
           {/* Shipping */}
           <Card>
-            <SectionTitle title="Shipping" />
-            <Field label="Shipping Fee (₦)" error={errors.shipping_fee}>
-              <input type="number" value={form.shipping_fee} onChange={e => set('shipping_fee', e.target.value)} placeholder="0 for free shipping" min="0" style={inputSt} />
-            </Field>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <div onClick={() => set('ships_nationwide', !form.ships_nationwide)} style={{ width: 44, height: 24, borderRadius: 999, background: form.ships_nationwide ? '#ff5c00' : 'rgba(255,255,255,0.1)', position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer' }}>
-                <div style={{ position: 'absolute', top: 3, left: form.ships_nationwide ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+            <SectionTitle title="Delivery" />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.15)', borderRadius: 14 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="8" x="9" y="13" rx="2"/><path d="M17 17v-4l4 2-4 2z"/></svg>
+              <div>
+                <p style={{ margin: '0 0 4px', color: '#fff', fontSize: 13, fontWeight: 700 }}>Delivery handled by TShip</p>
+                <p style={{ margin: 0, color: 'rgba(255,255,255,0.45)', fontSize: 12, lineHeight: 1.6 }}>
+                  You don't need to set a delivery fee. Courier rates are calculated automatically at checkout based on your pickup address and the buyer's location.
+                  Make sure your <a href="/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>pickup address</a> is set in Settings → Addresses.
+                </p>
               </div>
-              <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>Ships nationwide across Nigeria</span>
-            </label>
+            </div>
           </Card>
 
           <button type="submit" disabled={submitting || uploading || !form.name || !form.price} style={{ ...primaryBtn, opacity: (submitting || uploading || !form.name || !form.price) ? 0.5 : 1 }}>

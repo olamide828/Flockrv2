@@ -4,7 +4,6 @@ import CheckoutModal from '@/Components/CheckoutModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
-import CouponModal from '@/Components/CouponModal';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     RiAddLine,
@@ -334,7 +333,6 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
     const [reviewList,      setReviewList]      = useState(initialReviews ?? []);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [earnedCoupon,    setEarnedCoupon]    = useState(null);
-    const [showModal,       setShowModal]       = useState(false);
     const [filterStar,      setFilterStar]      = useState(null);
     const [filterPhoto,     setFilterPhoto]     = useState(false);
     const [page,            setPage]            = useState(1);
@@ -358,12 +356,9 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
         return true;
     });
 
-  const handleReviewSubmitted = (data) => {
+    const handleReviewSubmitted = (data) => {
         setReviewSubmitted(true);
-        if (data.coupon) {
-            setEarnedCoupon(data.coupon);
-            setShowModal(true); // <--- Open modal when coupon is received
-        }
+        if (data.coupon) setEarnedCoupon(data.coupon);
         axios.get(`/api/products/${product.slug}/reviews`, { params: { page: 1, per_page: 10 } })
             .then(r => {
                 setReviewList(r.data.reviews ?? []);
@@ -392,13 +387,6 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
         <>
             {reviewLightbox && (
                 <ReviewLightbox photos={reviewLightbox.photos} startIdx={reviewLightbox.idx} onClose={() => setReviewLightbox(null)} />
-            )}
-
-            {showModal && earnedCoupon && (
-                <CouponModal
-                    coupon={earnedCoupon}
-                    onClose={() => setShowModal(false)}
-                />
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -795,8 +783,8 @@ const [addrLoading,  setAddrLoading]  = useState(false);
                                 <div className="flex items-start gap-3 text-sm">
                                     <RiTruckLine size={18} color="#FF6B35" className="mt-0.5 shrink-0" />
                                     <div>
-                                        <p className="font-medium text-white">{Number(product.shipping_fee) === 0 ? 'Free Shipping' : `₦${Number(product.shipping_fee).toLocaleString()} delivery`}</p>
-                                        <p className="text-flockr-muted mt-0.5 text-xs">{product.ships_nationwide ? 'Ships nationwide across Nigeria' : `Ships from ${product.location ?? 'Nigeria'}`}</p>
+                                        <p className="font-medium text-white">Delivery handled by TShip</p>
+                                        <p className="text-flockr-muted mt-0.5 text-xs">Courier rates are calculated at checkout based on your location. Ships nationwide across Nigeria.</p>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 text-sm">
