@@ -7,6 +7,31 @@ import {
   RiCheckDoubleLine, RiCheckLine, RiSearchLine,
   RiCloseLine, RiMoreLine, RiAlertLine, RiProhibitedLine, RiBellLine,
 } from 'react-icons/ri'
+import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
+import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
+
+// ── Off-platform payment detection ─────────────────────────────────────────────
+const OFF_PLATFORM_KEYWORDS = [
+  'account number', 'acct no', 'acc no', 'account no', 'bank transfer',
+  'pay me directly', 'pay directly', 'pay you directly', 'whatsapp me',
+  'whatsapp number', 'my whatsapp', 'send money', 'outside flockr',
+  'off flockr', 'off-platform', 'off platform', 'zelle', 'venmo',
+  'cash app', 'cashapp', 'wire transfer', 'bank details', 'sort code',
+  'iban', 'paypal', 'moniepoint', 'opay', 'palmpay', 'kuda bank',
+  'transfer directly', "don't use flockr", 'skip flockr', 'avoid the fee',
+  'cash on delivery', 'western union', 'money gram', 'moneygram',
+  'bitcoin', 'crypto payment', 'gift card', 'send the money',
+  'my number is', 'call me on', 'text me on',
+]
+const OFF_PLATFORM_REGEX = new RegExp(
+  '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
+  'i'
+)
+function detectOffPlatformKeyword(text) {
+  if (!text) return null
+  const match = text.match(OFF_PLATFORM_REGEX)
+  return match ? match[0] : null
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) return ''
@@ -199,6 +224,16 @@ const [latestNotif, setLatestNotif]   = useState(null)
 const typingTimeoutRef = useRef(null)
 const lastTypingSentRef = useRef(0)
 const [typingUsers, setTypingUsers] = useState({})
+
+// ── Off-platform payment safety ────────────────────────────────────────────
+const [showWarningSheet, setShowWarningSheet]   = useState(false)
+const [warningKeyword, setWarningKeyword]       = useState(null)
+const [sellerInfoCache, setSellerInfoCache]     = useState({})
+const [continuedCounts, setContinuedCounts]     = useState({})
+const [bannerConversations, setBannerConversations] = useState({})
+const [showPayFlockrSheet, setShowPayFlockrSheet]   = useState(false)
+const [payFlockrSeller, setPayFlockrSeller]         = useState(null)
+const scannedMsgIdsRef = useRef(new Set())
 
 
 
@@ -393,6 +428,32 @@ useEffect(() => {
     if (!msgSearch) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, msgSearch])
 
+  // Hydrate the off-platform banner/continued-count for this conversation —
+  // so it persists across reloads instead of resetting every time you reopen it.
+  useEffect(() => {
+    if (!active) return
+    axios.get(`/api/safety/conversations/${active.id}/status`)
+      .then(({ data }) => {
+        setContinuedCounts(prev => ({ ...prev, [active.id]: data.continued_count }))
+        if (data.show_banner) {
+          setBannerConversations(prev => ({ ...prev, [active.id]: true }))
+        }
+      })
+      .catch(() => {})
+  }, [active?.id])
+
+  // Scan the newest message for off-platform payment keywords and trigger the
+  // warning sheet. Dedupes by message id so it never re-fires on re-render.
+  useEffect(() => {
+    if (!active || !messages.length) return
+    const last = messages[messages.length - 1]
+    if (!last?.body || String(last.id).startsWith('opt-') || scannedMsgIdsRef.current.has(last.id)) return
+    scannedMsgIdsRef.current.add(last.id)
+
+    const matched = detectOffPlatformKeyword(last.body)
+    if (matched) triggerOffPlatformWarning(matched)
+  }, [messages, active])
+
   // User search
   useEffect(() => {
     if (!userSearch.trim()) { setUserResults([]); return }
@@ -468,6 +529,64 @@ useEffect(() => {
     conv?.participants?.find(p => p.id !== auth?.user?.id),
   [auth?.user?.id])
 
+  // ── Off-platform payment safety handlers ──────────────────────────────────
+  const fetchSellerInfo = async (id) => {
+    if (sellerInfoCache[id]) return sellerInfoCache[id]
+    try {
+      const { data } = await axios.get(`/api/safety/seller-info/${id}`)
+      setSellerInfoCache(prev => ({ ...prev, [id]: data }))
+      return data
+    } catch { return null }
+  }
+
+  const triggerOffPlatformWarning = (keyword) => {
+    const other = otherUser(active)
+    if (!other || !active) return
+    setWarningKeyword(keyword)
+    setShowWarningSheet(true)
+    fetchSellerInfo(other.id)
+    axios.post('/api/safety/off-platform-warning', {
+      conversation_id: active.id,
+      seller_id: other.id,
+      action: 'shown',
+      trigger_keyword: keyword,
+    }).catch(() => {})
+  }
+
+  const handleWarningContinue = async () => {
+    setShowWarningSheet(false)
+    const other = otherUser(active)
+    if (!other || !active) return
+    try {
+      const { data } = await axios.post('/api/safety/off-platform-warning', {
+        conversation_id: active.id,
+        seller_id: other.id,
+        action: 'continued',
+        trigger_keyword: warningKeyword,
+      })
+      setContinuedCounts(prev => ({ ...prev, [active.id]: data.continued_count }))
+      if (data.show_banner) {
+        setBannerConversations(prev => ({ ...prev, [active.id]: true }))
+      }
+    } catch {}
+  }
+
+  const handleWarningPayFlockr = async () => {
+    setShowWarningSheet(false)
+    const other = otherUser(active)
+    if (!active) return
+    if (other) {
+      axios.post('/api/safety/off-platform-warning', {
+        conversation_id: active.id,
+        seller_id: other.id,
+        action: 'paid_flockr',
+        trigger_keyword: warningKeyword,
+      }).catch(() => {})
+    }
+    setPayFlockrSeller(other)
+    setShowPayFlockrSheet(true)
+  }
+
   // A user is "blocked" from my perspective if I blocked them OR they blocked me
   const isEffectivelyBlocked = (userId) => !!blockedByMe[userId] || !!blockedByOther[userId]
 
@@ -504,6 +623,22 @@ useEffect(() => {
         />
       )}
 
+      {showWarningSheet && active && (
+        <OffPlatformWarningSheet
+          seller={sellerInfoCache[otherUser(active)?.id]}
+          onContinue={handleWarningContinue}
+          onPayFlockr={handleWarningPayFlockr}
+          onClose={() => setShowWarningSheet(false)}
+        />
+      )}
+
+      {showPayFlockrSheet && payFlockrSeller && (
+        <PayWithFlockrSheet
+          seller={payFlockrSeller}
+          onClose={() => setShowPayFlockrSheet(false)}
+        />
+      )}
+
       <style>{`
         @media (max-width: 767px) {
           body.chat-open .mobile-topbar     { display: none !important; }
@@ -531,11 +666,6 @@ useEffect(() => {
               <h1 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.4px' }}>Messages</h1>
               {starting && <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
             </div>
-            {/* <div style={{ position: 'relative' }}>
-              <RiSearchLine size={14} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-              <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search people..." className="search-inp" />
-              {userSearch && <button onClick={() => { setUserSearch(''); setUserResults([]) }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', display: 'flex' }}><RiCloseLine size={14} /></button>}
-            </div> */}
             {(userResults.length > 0 || searchingUsers) && (
               <div style={{ marginTop: 8, background: '#161616', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden' }}>
                 {searchingUsers && <div style={{ padding: '12px 16px', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Searching...</div>}
@@ -620,8 +750,6 @@ useEffect(() => {
                 <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>Search for someone above to start chatting.</p>
               </div>
             )}
-            {/* ── Pinned Notifications row ── */}
-
             {filteredConvs.map(conv => {
               const other    = otherUser(conv)
               const isAct    = active?.id === conv.id
@@ -729,6 +857,14 @@ useEffect(() => {
                     )}
                   </div>
                 </div>
+
+                {/* Off-platform payment banner — appears after 2 "continue chat" clicks */}
+                {bannerConversations[active.id] && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)', flexShrink: 0 }}>
+                    <RiAlertLine size={15} color="#EF4444" style={{ flexShrink: 0 }} />
+                    <p style={{ margin: 0, color: '#EF4444', fontSize: 12, fontWeight: 600 }}>This seller asked to be paid outside Flockr. Be extra careful.</p>
+                  </div>
+                )}
 
                 {/* Message search */}
                 {msgSearchOpen && (

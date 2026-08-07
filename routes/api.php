@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\SafetyController;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
@@ -43,6 +44,7 @@ Route::post('/products/summary', [ProductController::class, 'generateSummary']);
 Route::get('/community/feed', [CommunityController::class, 'feed']);
 Route::get("/community/users/{user}/posts", [CommunityController::class, "userPosts"]);
 Route::get('/community/trending', [CommunityController::class, 'trending']);
+Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRooms']);
 
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
@@ -276,7 +278,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/community/posts/{post}/comments', [CommunityController::class, 'postComments']);
     Route::post('/community/posts/{post}/comments', [CommunityController::class, 'storePostComment']);
 
-    Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRooms']);
+    
     Route::get('/community/rooms/joined', [CommunityController::class, 'joinedRooms']);
     Route::post('/community/rooms', [CommunityController::class, 'storeRoom']);
     Route::put('/community/rooms/{room}', [CommunityController::class, 'updateRoom']);
@@ -448,6 +450,10 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
     Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
+    Route::post('/api/safety/off-platform-warning', [SafetyController::class, 'recordWarning']);
+    Route::get('/api/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
+    Route::get('/api/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
+
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {
