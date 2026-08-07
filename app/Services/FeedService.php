@@ -24,6 +24,7 @@ class FeedService
     const MAX_PER_SELLER = 2;
     const MAX_PER_CATEGORY = 3;
     const EXPLORATION_RATIO = 0.15;
+    const PRO_BOOST_MULTIPLIER = 1.15; // Pro sellers' videos score 15% higher in ranking
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -240,12 +241,18 @@ class FeedService
         // Velocity bonus
         $velocityBonus = (($video->_velocity_24h ?? 0) / $maxVelocity) * 0.05;
 
-        return (self::W_QUALITY * $quality)
-            + (self::W_PERSONALIZATION * $personalization)
-            + (self::W_COMMERCE * $commerce)
-            + (self::W_RECENCY * $recency)
-            + (self::W_NOVELTY * $novelty)
-            + $velocityBonus;
+        $baseScore = (self::W_QUALITY * $quality)
+    + (self::W_PERSONALIZATION * $personalization)
+    + (self::W_COMMERCE * $commerce)
+    + (self::W_RECENCY * $recency)
+    + (self::W_NOVELTY * $novelty)
+    + $velocityBonus;
+
+$proBoost = ($video->relationLoaded('user') && $video->user?->hasActiveSubscription())
+    ? self::PRO_BOOST_MULTIPLIER
+    : 1.0;
+
+return $baseScore * $proBoost;
     }
 
     private function computePersonalizationScore(Video $video, array $affinities): float
