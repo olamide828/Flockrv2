@@ -327,13 +327,15 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     //     Route::post('/cart/checkout', [CartController::class, 'checkout']);
     // });
      Route::post('/orders/checkout', [OrderController::class, 'checkout']);
-        Route::post('/cart/checkout', [CartController::class, 'checkout']);
+    Route::post('/cart/checkout', [CartController::class, 'checkout']);
     Route::post('/orders/{order}/reschedule-pickup', [OrderController::class, 'reschedulePickup']);
     Route::get('/orders/{order}', [OrderController::class, 'apiShow']);
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('/orders/resume-payment', [OrderController::class, 'resumePayment']);
     Route::get('/orders/{order}/review',  [ReviewController::class, 'show']);
     Route::post('/orders/{order}/review', [ReviewController::class, 'store']);
+    Route::get('/orders/{order}/status',   [OrderController::class, 'getStatus']);
+    Route::get('/orders/{order}/tracking', [OrderController::class, 'getTrackingEvents']);
     Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
         $total  = (float) $request->input('total', 0);
         $userId = Auth::id();

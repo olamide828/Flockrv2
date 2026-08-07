@@ -10,8 +10,9 @@ import {
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 
-// ── Off-platform payment detection ─────────────────────────────────────────────
+// ── Off-platform payment detection ───────────────────────────────────────────────────────
 const OFF_PLATFORM_KEYWORDS = [
+  
   'account number', 'acct no', 'acc no', 'account no', 'bank transfer',
   'pay me directly', 'pay directly', 'pay you directly', 'whatsapp me',
   'whatsapp number', 'my whatsapp', 'send money', 'outside flockr',
@@ -21,14 +22,28 @@ const OFF_PLATFORM_KEYWORDS = [
   'transfer directly', "don't use flockr", 'skip flockr', 'avoid the fee',
   'cash on delivery', 'western union', 'money gram', 'moneygram',
   'bitcoin', 'crypto payment', 'gift card', 'send the money',
-  'my number is', 'call me on', 'text me on',
-]
+  'my number is', 'call me on', 'text me on', 'send aza', 'aza', 
+  'where should i make payment to', 'where should i make payment to?', 
+  'where can i send money to', 'where can i send money to?', 'send me your details',
+
+  'account details', 'acct details', 'acct number', 'acc details', 'bank account',
+  'account name', 'acct name', 'bank name', 'routing number', 'swift code',
+  'fairmoney', 'vfd', 'access bank', 'gtb', 'zenith', 'first bank',
+  'fcmb', 'wema', 'alat', 'drop aza', 'send your aza', 'drop your account',
+  'drop acct', 'drop account', 'send account', 'send acct', 'drop your details',
+  'send details', 'make transfer', 'direct transfer', 'do transfer', 'wire me',
+  'bypass fee', 'save on fee', 'save fees', 'platform fee', 'flockr fee',
+  'without fee', 'no commission', 'cheaper outside', 'cheaper if you pay',
+  'discount if direct', 'pay outside', 'pay off app', 'off the app', 'take it off',
+  'reach me on', 'dm me on', 'ig dm', 'check instagram', 'my ig',
+  'my instagram', 'hit me on'
+];
 const OFF_PLATFORM_REGEX = new RegExp(
   '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
   'i'
 )
 function detectOffPlatformKeyword(text) {
-  if (!text) return null
+  if (!text) return null  
   const match = text.match(OFF_PLATFORM_REGEX)
   return match ? match[0] : null
 }

@@ -230,6 +230,31 @@ export default function OrderShow({ order }) {
             </div>
           )}
 
+          {/* Track Order button — shown for active deliveries */}
+{!['pending', 'cancelled', 'refunded'].includes(order.status) && (
+    <Link
+        href={`/orders/${order.id}/tracking`}
+        style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            padding: '13px',
+            background: 'rgba(139,92,246,0.1)',
+            border: '1px solid rgba(139,92,246,0.25)',
+            borderRadius: 14,
+            color: '#8B5CF6',
+            fontSize: 14,
+            fontWeight: 700,
+            textDecoration: 'none',
+            marginBottom: 10,
+        }}
+    >
+        <RiTruckLine size={16} />
+        Track Delivery
+    </Link>
+)}
+
           {/* Tracking number */}
           {order.tracking_number && (
             <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>

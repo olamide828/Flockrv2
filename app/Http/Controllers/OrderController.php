@@ -207,6 +207,78 @@ $platformFee = round($subtotal * $feePercent / 100, 2);
     }
 
     /**
+ * GET /orders/{order}/tracking — Inertia page
+ */
+public function tracking(Order $order): Response|\Illuminate\Http\RedirectResponse
+{
+    $userId = Auth::id();
+    if ($order->buyer_id !== $userId && $order->seller_id !== $userId) {
+        return redirect()->route('orders.index');
+    }
+
+    $order->load([
+        'items.product:id,name,images,slug',
+        'seller:id,name,username,avatar',
+        'buyer:id,name,email',
+    ]);
+
+    return Inertia::render('Order/Tracking', [
+        'order' => array_merge($order->toArray(), [
+            'courier_name'    => $order->courier_name ?? $order->courier ?? null,
+            'tracking_number' => $order->tracking_number ?? null,
+            'courier_fee'     => (float) ($order->courier_fee > 0
+                                    ? $order->courier_fee
+                                    : $order->shipping_fee),
+        ]),
+    ]);
+}
+
+/**
+ * GET /api/orders/{order}/status — polling endpoint
+ */
+public function getStatus(Order $order): JsonResponse
+{
+    $userId = Auth::id();
+    if ($order->buyer_id !== $userId && $order->seller_id !== $userId) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    return response()->json([
+        'order' => [
+            'status'          => $order->status,
+            'paid_at'         => $order->paid_at,
+            'shipped_at'      => $order->shipped_at,
+            'delivered_at'    => $order->delivered_at,
+            'tracking_number' => $order->tracking_number,
+            'courier_name'    => $order->courier_name ?? $order->courier,
+        ],
+    ]);
+}
+
+/**
+ * GET /api/orders/{order}/tracking — Terminal events
+ */
+public function getTrackingEvents(Order $order): JsonResponse
+{
+    $userId = Auth::id();
+    if ($order->buyer_id !== $userId && $order->seller_id !== $userId) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    if (!$order->terminal_shipment_id) {
+        return response()->json(['events' => []]);
+    }
+
+    try {
+        $terminal = app(\App\Services\TerminalService::class);
+        $events   = $terminal->trackShipment($order->terminal_shipment_id);
+        return response()->json(['events' => $events]);
+    } catch (\Throwable $e) {
+        return response()->json(['events' => []]);
+    }
+}
+
+    /**
      * GET /orders/callback — Paystack redirects here after payment.
      * Handles both single-product orders AND multi-seller cart orders.
      */

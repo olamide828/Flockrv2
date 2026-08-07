@@ -184,7 +184,7 @@ export default function OrderSuccess({ order }) {
                     {/* CTA buttons */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         <Link
-                            href={'/orders/' + order.id}
+                            href={'/orders/' + order.id + '/tracking'}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px', background: '#FF6B35', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}
                         >
                             Track Order <RiArrowRightLine size={16} />

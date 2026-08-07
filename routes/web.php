@@ -83,6 +83,7 @@ Route::post('/email/verification-notification', [AuthController::class, 'sendVer
     Route::get('/orders/success', [OrderController::class, 'success'])->name('orders.success');
     Route::get('/orders/callback', [OrderController::class, 'paystackCallback'])->name('orders.callback');
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
+    Route::get('/orders/{order}/tracking', [OrderController::class, 'tracking'])->name('orders.tracking');
 
     Route::get('/settings/profile', [SettingsController::class, 'profile'])->name('settings.profile');
     Route::post('/settings/profile', [SettingsController::class, 'updateProfile']);
@@ -98,8 +99,8 @@ Route::post('/email/verification-notification', [AuthController::class, 'sendVer
     Route::post('/become-seller', [AuthController::class, 'convertToSeller'])->name('become-seller');
 
     Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans'])->name('subscriptions.plans');
-Route::post('/subscriptions/checkout', [SubscriptionController::class, 'checkout'])->name('subscriptions.checkout');
-Route::get('/subscriptions/callback', [SubscriptionController::class, 'callback'])->name('subscriptions.callback');
+    Route::post('/subscriptions/checkout', [SubscriptionController::class, 'checkout'])->name('subscriptions.checkout');
+    Route::get('/subscriptions/callback', [SubscriptionController::class, 'callback'])->name('subscriptions.callback');
 
     Route::middleware('role:seller')->prefix('seller')->name('seller.')->group(function () {
         Route::get('/dashboard', [SellerController::class, 'dashboard'])->name('dashboard');
