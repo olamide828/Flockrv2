@@ -10,9 +10,8 @@ import {
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 
-// ── Off-platform payment detection ───────────────────────────────────────────────────────
+// ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
-  
   'account number', 'acct no', 'acc no', 'account no', 'bank transfer',
   'pay me directly', 'pay directly', 'pay you directly', 'whatsapp me',
   'whatsapp number', 'my whatsapp', 'send money', 'outside flockr',
@@ -22,8 +21,8 @@ const OFF_PLATFORM_KEYWORDS = [
   'transfer directly', "don't use flockr", 'skip flockr', 'avoid the fee',
   'cash on delivery', 'western union', 'money gram', 'moneygram',
   'bitcoin', 'crypto payment', 'gift card', 'send the money',
-  'my number is', 'call me on', 'text me on', 'send aza', 'aza', 
-  'where should i make payment to', 'where should i make payment to?', 
+  'my number is', 'call me on', 'text me on', 'send aza', 'aza',
+  'where should i make payment to', 'where should i make payment to?',
   'where can i send money to', 'where can i send money to?', 'send me your details',
 
   'account details', 'acct details', 'acct number', 'acc details', 'bank account',
@@ -36,16 +35,32 @@ const OFF_PLATFORM_KEYWORDS = [
   'without fee', 'no commission', 'cheaper outside', 'cheaper if you pay',
   'discount if direct', 'pay outside', 'pay off app', 'off the app', 'take it off',
   'reach me on', 'dm me on', 'ig dm', 'check instagram', 'my ig',
-  'my instagram', 'hit me on'
-];
+  'my instagram', 'hit me on', 'send ur details', 'send your details',
+  'send your account details', 'send ur account details',
+]
 const OFF_PLATFORM_REGEX = new RegExp(
   '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
   'i'
 )
 function detectOffPlatformKeyword(text) {
-  if (!text) return null  
+  if (!text) return null
   const match = text.match(OFF_PLATFORM_REGEX)
   return match ? match[0] : null
+}
+
+// ── Layer 2 — soft signal gate for the AI classifier. A message only reaches
+// the AI if it survives keyword regex (no exact hit) AND looks payment-
+// adjacent — this keeps ordinary chat from ever touching the API call. ─────
+const SOFT_SIGNAL_WORDS = [
+  'pay', 'payment', 'send', 'transfer', 'account', 'bank', 'whatsapp',
+  'instagram', 'telegram', 'number', 'cash', 'fee', 'commission',
+  'direct', 'outside', 'off', 'app', 'details', 'wallet', 'crypto',
+]
+function hasSoftSignal(text) {
+  if (!text) return false
+  const lower = text.toLowerCase()
+  if (/\d{6,}/.test(text)) return true // looks like it could be an account number
+  return SOFT_SIGNAL_WORDS.some(w => lower.includes(w))
 }
 
 function timeAgo(dateStr) {
@@ -235,7 +250,6 @@ export default function Inbox({ conversations: initialConvs = [], blockedByMeIds
   const [reportTarget,   setReportTarget]   = useState(null)
   const [notifUnread, setNotifUnread]   = useState(false)
 const [latestNotif, setLatestNotif]   = useState(null)
-// const [otherTyping, setOtherTyping] = useState(false)
 const typingTimeoutRef = useRef(null)
 const lastTypingSentRef = useRef(0)
 const [typingUsers, setTypingUsers] = useState({})
@@ -256,17 +270,14 @@ const scannedMsgIdsRef = useRef(new Set())
 const broadcastTyping = () => {
     if (!active || !window.Echo) return
     const now = Date.now()
-    // Throttle — only send every 2 seconds
     if (now - lastTypingSentRef.current < 2000) return
     lastTypingSentRef.current = now
-    // Use Pusher/Reverb client event (must enable client events in config)
     try {
         window.Echo.private(`conversation.${active.id}`)
             .whisper('typing', { user_id: auth.user.id })
     } catch {}
 }
 
-  // blockedByMe: users I blocked. blockedByOther: users who blocked me.
   const [blockedByMe,    setBlockedByMe]    = useState(() => {
     const m = {}; blockedByMeIds.forEach(id => { m[id] = true }); return m
   })
@@ -284,7 +295,6 @@ const broadcastTyping = () => {
     return () => document.body.classList.remove('chat-open')
   }, [active])
 
-  // Auto-open from URL param
   useEffect(() => {
     const params = new URLSearchParams(pageUrl.split('?')[1] ?? '')
     const userId = params.get('user')
@@ -300,7 +310,6 @@ const broadcastTyping = () => {
       .finally(() => setStarting(false))
   }, [])
 
-  //Notifications
   useEffect(() => {
     if (!auth?.user) return
     axios.get('/api/notifications?limit=1').then(({ data }) => {
@@ -308,7 +317,6 @@ const broadcastTyping = () => {
         setLatestNotif(data.notifications?.[0] ?? null)
     }).catch(() => {})
 
-    // Also listen for new notifications clearing (when user visits /notifications)
     const handler = () => setNotifUnread(false)
     window.addEventListener('flockr:notif-read', handler)
     return () => window.removeEventListener('flockr:notif-read', handler)
@@ -317,7 +325,6 @@ const broadcastTyping = () => {
 
 
 
-// Realtime updates for ALL conversations
 useEffect(() => {
     if (!window.Echo || !initialConvs.length) return
 
@@ -327,7 +334,6 @@ useEffect(() => {
         const channel = window.Echo.private(`conversation.${conv.id}`)
 
         channel.listen('.MessageSent', (e) => {
-            // Sidebar update
             setConversations(prev => {
                 const updated = prev.map(c => {
                     if (c.id !== conv.id) return c
@@ -350,7 +356,6 @@ useEffect(() => {
                 ]
             })
 
-            // Active chat panel update
             if (active?.id === conv.id) {
                 setMessages(prev => {
                     if (prev.some(m => m.id === e.message.id)) {
@@ -401,7 +406,6 @@ useEffect(() => {
     }
 }, [active?.id])
 
-// Load messages when active conversation changes
 useEffect(() => {
     if (!active) return
 
@@ -418,7 +422,6 @@ useEffect(() => {
 
             setMessages(msgs)
 
-            // Clear unread count
             setConversations(prev =>
                 prev.map(c =>
                     c.id === active.id
@@ -443,8 +446,7 @@ useEffect(() => {
     if (!msgSearch) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, msgSearch])
 
-  // Hydrate the off-platform banner/continued-count for this conversation —
-  // so it persists across reloads instead of resetting every time you reopen it.
+  // Hydrate the off-platform banner/continued-count for this conversation.
   useEffect(() => {
     if (!active) return
     axios.get(`/api/safety/conversations/${active.id}/status`)
@@ -457,19 +459,35 @@ useEffect(() => {
       .catch(() => {})
   }, [active?.id])
 
-  // Scan the newest message for off-platform payment keywords and trigger the
-  // warning sheet. Dedupes by message id so it never re-fires on re-render.
+  // Scan the newest message for off-platform payment signals.
+  // Only warns the RECIPIENT — never the person who sent it — so you never
+  // get warned about your own message, and it doesn't fire twice per message.
   useEffect(() => {
     if (!active || !messages.length) return
     const last = messages[messages.length - 1]
     if (!last?.body || String(last.id).startsWith('opt-') || scannedMsgIdsRef.current.has(last.id)) return
+    if (last.sender_id === auth?.user?.id) return // don't warn the sender about their own message
     scannedMsgIdsRef.current.add(last.id)
 
     const matched = detectOffPlatformKeyword(last.body)
-    if (matched) triggerOffPlatformWarning(matched)
+    if (matched) {
+      triggerOffPlatformWarning(matched)
+      return
+    }
+
+    // No exact keyword hit — if the message still looks payment-adjacent,
+    // ask the AI classifier (catches obfuscation / indirect phrasing).
+    if (hasSoftSignal(last.body)) {
+      axios.post('/api/safety/classify-message', { message: last.body })
+        .then(({ data }) => {
+          if (data?.is_risky && (data.confidence ?? 0) >= 0.55) {
+            triggerOffPlatformWarning(data.reason ? `AI: ${data.reason}` : 'AI-detected risk')
+          }
+        })
+        .catch(() => {})
+    }
   }, [messages, active])
 
-  // User search
   useEffect(() => {
     if (!userSearch.trim()) { setUserResults([]); return }
     const t = setTimeout(async () => {
@@ -484,7 +502,6 @@ useEffect(() => {
   const sendMessage = async (e) => {
     e.preventDefault()
     if (!body.trim() || !active || sending) return
-    // Prevent sending if blocked on either side
     const other = otherUser(active)
     if (other && (blockedByMe[other.id] || blockedByOther[other.id])) return
     setSending(true)
@@ -531,10 +548,8 @@ useEffect(() => {
     if (!other || !conv) return
 
     if (conv?.id) {
-      // Conversation report — attaches conversation_id for admin review
       await axios.post(`/api/conversations/${conv.id}/report`, { reason })
     } else {
-      // Fallback: generic user report (e.g. from profile page)
       await axios.post(`/api/users/${other.id}/report`, { reason })
     }
   }
@@ -546,10 +561,10 @@ useEffect(() => {
 
   // ── Off-platform payment safety handlers ──────────────────────────────────
   const fetchSellerInfo = async (id) => {
-    if (sellerInfoCache[id]) return sellerInfoCache[id]
     try {
       const { data } = await axios.get(`/api/safety/seller-info/${id}`)
-      setSellerInfoCache(prev => ({ ...prev, [id]: data }))
+      // Merge, don't overwrite — keeps whatever we already showed instantly.
+      setSellerInfoCache(prev => ({ ...prev, [id]: { ...prev[id], ...data } }))
       return data
     } catch { return null }
   }
@@ -557,9 +572,26 @@ useEffect(() => {
   const triggerOffPlatformWarning = (keyword) => {
     const other = otherUser(active)
     if (!other || !active) return
+
+    // Show what we already have from the conversation participant data
+    // IMMEDIATELY — don't wait on a network round trip for the sheet to
+    // have something to display.
+    setSellerInfoCache(prev => ({
+      ...prev,
+      [other.id]: prev[other.id] ?? {
+        id: other.id,
+        name: other.name,
+        username: other.username,
+        avatar_url: other.avatar_url,
+        is_verified: other.is_verified,
+        joined_at: null,
+      },
+    }))
+
     setWarningKeyword(keyword)
     setShowWarningSheet(true)
-    fetchSellerInfo(other.id)
+    fetchSellerInfo(other.id) // enriches with joined_at once it resolves
+
     axios.post('/api/safety/off-platform-warning', {
       conversation_id: active.id,
       seller_id: other.id,
@@ -602,14 +634,13 @@ useEffect(() => {
     setShowPayFlockrSheet(true)
   }
 
-  // A user is "blocked" from my perspective if I blocked them OR they blocked me
   const isEffectivelyBlocked = (userId) => !!blockedByMe[userId] || !!blockedByOther[userId]
 
   const filteredConvs = convSearch.trim()
     ? conversations.filter(c => {
         const other = otherUser(c)
         const isBlk = other && isEffectivelyBlocked(other.id)
-        if (isBlk) return false // hide blocked conversations from search
+        if (isBlk) return false
         return other?.name?.toLowerCase().includes(convSearch.toLowerCase())
             || other?.username?.toLowerCase().includes(convSearch.toLowerCase())
       })
@@ -714,7 +745,6 @@ useEffect(() => {
         borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left',
     }}
 >
-    {/* Bell icon + unread dot */}
     <div style={{ position: 'relative', flexShrink: 0 }}>
         <div style={{
             width: 48, height: 48, borderRadius: '50%',
@@ -735,7 +765,6 @@ useEffect(() => {
         )}
     </div>
 
-    {/* Text */}
     <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
             <p style={{ color: '#fff', fontSize: 14, fontWeight: notifUnread ? 700 : 600, margin: 0 }}>
@@ -830,7 +859,6 @@ useEffect(() => {
 
             return (
               <>
-                {/* Chat header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative' }}>
                   <button onClick={() => setActive(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex', padding: 6, borderRadius: 8 }}>
                     <RiArrowLeftLine size={20} />
@@ -873,7 +901,6 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* Off-platform payment banner — appears after 2 "continue chat" clicks */}
                 {bannerConversations[active.id] && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)', flexShrink: 0 }}>
                     <RiAlertLine size={15} color="#EF4444" style={{ flexShrink: 0 }} />
@@ -881,7 +908,6 @@ useEffect(() => {
                   </div>
                 )}
 
-                {/* Message search */}
                 {msgSearchOpen && (
                   <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', flexShrink: 0 }}>
                     <div style={{ position: 'relative' }}>
@@ -897,7 +923,6 @@ useEffect(() => {
                   </div>
                 )}
 
-                {/* Messages */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {loadingMsgs && <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
                   {!loadingMsgs && filteredMsgs.length === 0 && (
@@ -911,7 +936,6 @@ useEffect(() => {
                     const last    = isLast(filteredMsgs, i)
                     const showAv  = showAvatar(filteredMsgs, i)
 
-                       // Show date separator when day changes
     const msgDate = msg.created_at ? new Date(msg.created_at).toDateString() : null
     const prevDate = i > 0 && filteredMsgs[i-1].created_at ? new Date(filteredMsgs[i-1].created_at).toDateString() : null
     const showDate = i === 0 || msgDate !== prevDate
@@ -921,12 +945,10 @@ useEffect(() => {
                       ? `18px ${first ? 18 : 4}px ${last ? 18 : 4}px 18px`
                       : `${first ? 18 : 4}px 18px 18px ${last ? 18 : 4}px`
 
-                    // Sender is blocked — show placeholder avatar for their messages
                     const senderIsBlocked = !mine && blocked
 
                     return (
         <div key={msg.id}>
-            {/* Date separator */}
             {showDate && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 8px', padding: '0 4px' }}>
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
@@ -937,7 +959,6 @@ useEffect(() => {
                 </div>
             )}
 
-            {/* Message bubble */}
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, justifyContent: mine ? 'flex-end' : 'flex-start', marginTop: first && !showDate ? 8 : 0 }}>
                 {!mine && (
                     <div style={{ width: 28, flexShrink: 0 }}>
@@ -975,7 +996,6 @@ useEffect(() => {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* Input or blocked notice */}
                 <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d' }}>
                   {iBlocked ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0' }}>

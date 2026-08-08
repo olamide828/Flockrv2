@@ -8,16 +8,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class SafetyController extends Controller
 {
-    // Show the in-chat "seller asked to be paid outside Flockr" banner once
-    // this many "continued" clicks have happened in THIS conversation.
     private const CONTINUE_BANNER_THRESHOLD = 2;
-
-    // Flag a user's account for review once the warning sheet has been shown
-    // this many times across ALL their conversations (any participant).
     private const SELLER_FLAG_THRESHOLD = 5;
 
     private function assertParticipant(int $conversationId): void
@@ -37,7 +33,7 @@ class SafetyController extends Controller
             'conversation_id' => 'required|integer|exists:conversations,id',
             'seller_id'       => 'required|integer|exists:users,id',
             'action'          => 'required|in:shown,continued,paid_flockr',
-            'trigger_keyword' => 'nullable|string|max:100',
+            'trigger_keyword' => 'nullable|string|max:150',
         ]);
 
         $this->assertParticipant($validated['conversation_id']);
@@ -90,10 +86,10 @@ class SafetyController extends Controller
     }
 
     /** GET /api/safety/seller-info/{seller} */
-    public function sellerInfo(int $sellerId): JsonResponse
+    public function sellerInfo(int $seller): JsonResponse
     {
         $user = User::select('id', 'name', 'username', 'avatar', 'is_verified', 'created_at')
-            ->findOrFail($sellerId);
+            ->findOrFail($seller);
 
         return response()->json([
             'id'          => $user->id,
@@ -103,5 +99,66 @@ class SafetyController extends Controller
             'is_verified' => $user->is_verified,
             'joined_at'   => $user->created_at,
         ]);
+    }
+
+    /**
+     * POST /api/safety/classify-message
+     *
+     * Second-layer detection for off-platform payment solicitation that the
+     * keyword list doesn't literally match — obfuscated spelling, indirect
+     * phrasing, etc. Only called by the frontend when a message contains a
+     * "soft signal" (payment-adjacent words or a long digit run) but missed
+     * the keyword regex, so this stays cheap — most ordinary chat messages
+     * never reach this endpoint at all.
+     */
+    public function classifyMessage(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'message' => 'required|string|max:1000',
+        ]);
+
+        $text = trim($validated['message']);
+        if ($text === '') {
+            return response()->json(['is_risky' => false, 'confidence' => 0]);
+        }
+
+        $prompt = <<<PROMPT
+You are a safety classifier for an e-commerce chat app called Flockr. Buyers and sellers message each other about products. Flockr takes a small platform fee on in-app payments, so some bad actors try to convince the other party to pay outside the app (bank transfer, WhatsApp, cash, crypto, gift cards, etc.) to avoid the fee or to scam them.
+
+Decide whether the message below is trying to arrange or solicit payment OUTSIDE the Flockr app / checkout. This includes: asking for or sharing bank account details, asking to move to WhatsApp/Instagram/phone specifically to arrange payment, asking for cash/crypto/gift-card payment, or explicitly suggesting avoiding Flockr's fee. Ordinary chat about the product, price negotiation within the app, or general conversation is NOT risky.
+
+Respond with ONLY a compact JSON object, no markdown, no explanation:
+{"is_risky": true|false, "confidence": 0.0-1.0, "reason": "short phrase, max 6 words"}
+
+Message: "{$text}"
+PROMPT;
+
+        try {
+            $response = Http::timeout(8)->post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+                ['contents' => [['parts' => [['text' => $prompt]]]]]
+            );
+
+            $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
+            if (!$content) {
+                return response()->json(['is_risky' => false, 'confidence' => 0]);
+            }
+
+            $clean = trim(preg_replace('/```json|```/', '', $content));
+            $parsed = json_decode($clean, true);
+
+            if (!is_array($parsed) || !array_key_exists('is_risky', $parsed)) {
+                return response()->json(['is_risky' => false, 'confidence' => 0]);
+            }
+
+            return response()->json([
+                'is_risky'   => (bool) $parsed['is_risky'],
+                'confidence' => (float) ($parsed['confidence'] ?? 0),
+                'reason'     => $parsed['reason'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Off-platform AI classification failed: ' . $e->getMessage());
+            return response()->json(['is_risky' => false, 'confidence' => 0]);
+        }
     }
 }
