@@ -125,7 +125,9 @@ class SafetyController extends Controller
         $prompt = <<<PROMPT
 You are a safety classifier for an e-commerce chat app called Flockr. Buyers and sellers message each other about products. Flockr takes a small platform fee on in-app payments, so some bad actors try to convince the other party to pay outside the app (bank transfer, WhatsApp, cash, crypto, gift cards, etc.) to avoid the fee or to scam them.
 
-Decide whether the message below is trying to arrange or solicit payment OUTSIDE the Flockr app / checkout. This includes: asking for or sharing bank account details, asking to move to WhatsApp/Instagram/phone specifically to arrange payment, asking for cash/crypto/gift-card payment, or explicitly suggesting avoiding Flockr's fee. Ordinary chat about the product, price negotiation within the app, or general conversation is NOT risky.
+The message may use obfuscated spelling to evade simple keyword filters — leetspeak (e.g. "s3nd", "acc0unt", "b4nk"), letters separated by spaces or punctuation (e.g. "a c c o u n t", "s.e.n.d"), stretched-out letters (e.g. "seeeend"), or intentional misspellings. Mentally normalize the message before judging it — treat "s3nd ur acc0unt" the same as "send your account".
+
+Decide whether the message is trying to arrange or solicit payment OUTSIDE the Flockr app / checkout, including obfuscated attempts to do so. This includes: asking for or sharing bank account details, asking to move to WhatsApp/Instagram/phone specifically to arrange payment, asking for cash/crypto/gift-card payment, or suggesting avoiding Flockr's fee — however it's spelled. Ordinary chat about the product, price negotiation within the app, or general conversation is NOT risky.
 
 Respond with ONLY a compact JSON object, no markdown, no explanation:
 {"is_risky": true|false, "confidence": 0.0-1.0, "reason": "short phrase, max 6 words"}

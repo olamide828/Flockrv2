@@ -42,11 +42,33 @@ const OFF_PLATFORM_REGEX = new RegExp(
   '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
   'i'
 )
+
+function normalizeForDetection(text) {
+  if (!text) return ''
+  let t = text.toLowerCase()
+
+
+  const leetMap = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's' }
+  t = t.replace(/[013457@$]/g, ch => leetMap[ch] ?? ch)
+
+  t = t.replace(/\b(?:[a-z][\s._-]){2,}[a-z]\b/g, match => match.replace(/[\s._-]/g, ''))
+
+
+  t = t.replace(/([a-z])\1{2,}/g, '$1')
+
+  return t
+}
+
 function detectOffPlatformKeyword(text) {
   if (!text) return null
-  const match = text.match(OFF_PLATFORM_REGEX)
-  return match ? match[0] : null
+  const direct = text.match(OFF_PLATFORM_REGEX)
+  if (direct) return direct[0]
+
+  const normalized = normalizeForDetection(text)
+  const normMatch = normalized.match(OFF_PLATFORM_REGEX)
+  return normMatch ? `${normMatch[0]} (obfuscated)` : null
 }
+
 
 // ── Layer 2 — soft signal gate for the AI classifier. ─────────────────────────
 const SOFT_SIGNAL_WORDS = [
@@ -54,11 +76,17 @@ const SOFT_SIGNAL_WORDS = [
   'instagram', 'telegram', 'number', 'cash', 'fee', 'commission',
   'direct', 'outside', 'off', 'app', 'details', 'wallet', 'crypto',
 ]
+
+
 function hasSoftSignal(text) {
   if (!text) return false
-  const lower = text.toLowerCase()
   if (/\d{6,}/.test(text)) return true
-  return SOFT_SIGNAL_WORDS.some(w => lower.includes(w))
+
+  const lower = text.toLowerCase()
+  if (SOFT_SIGNAL_WORDS.some(w => lower.includes(w))) return true
+
+  const normalized = normalizeForDetection(text)
+  return SOFT_SIGNAL_WORDS.some(w => normalized.includes(w))
 }
 
 function timeAgo(dateStr) {
