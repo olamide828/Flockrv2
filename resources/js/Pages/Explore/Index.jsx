@@ -807,7 +807,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   <div style={{ position: 'absolute', bottom: 0, right: 0, width: 20, height: 20, borderRadius: '50%', background: seller.verification_type === 'subscription' ? '#3B82F6' : '#FF6B35', border: '2px solid #050505', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
     <RiVerifiedBadgeLine size={11} color="#fff" />
   </div>
-)}}
+)}
                             </div>
                             <div style={{ textAlign: 'center', width: '100%' }}>
                               <p style={{ color: '#fff', fontSize: 11, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seller.name}</p>
