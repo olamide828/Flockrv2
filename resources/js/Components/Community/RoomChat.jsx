@@ -10,6 +10,7 @@ import Av from './Av'
 import ShareRoomSheet from './ShareRoomSheet'
 import RoomInfoModal from './RoomInfoModal'
 import RoomMediaPlayer from './RoomMediaPlayer'
+import RoomMediaLightbox from './RoomMediaLightbox'
 import { fmtTime } from './Helpers'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast }) {
@@ -20,6 +21,7 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
   const [sending,   setSending]   = useState(false)
   const [replyTo,   setReplyTo]   = useState(null)
   const [msgAction, setMsgAction] = useState(null)
+  const [lightboxIndex, setLightboxIndex] = useState(null)
   const [pendingMedia, setPendingMedia] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null) // 0-100 while uploading, null otherwise
 
@@ -233,6 +235,12 @@ useEffect(() => {
   const isMine = msg => msg.user_id === auth?.user?.id
   const canDel  = msg => isMine(msg) || isOwner || auth?.user?.role === 'admin'
 
+  const mediaMessages = messages.filter(m => m.media_url && !m.is_deleted)
+  const openLightbox = (msg) => {
+    const i = mediaMessages.findIndex(m => m.id === msg.id)
+    if (i !== -1) setLightboxIndex(i)
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#050505' }}>
       {showShare && <ShareRoomSheet room={room} onClose={() => setShowShare(false)} />}
@@ -372,9 +380,30 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                       <div style={{ padding:'9px 14px', background:'rgba(255,255,255,0.04)', border:'1px dashed rgba(255,255,255,0.12)', borderRadius: mine ? '18px 5px 5px 18px' : '5px 18px 18px 5px', color:'rgba(255,255,255,0.35)', fontSize:13, fontStyle:'italic' }}>
                         This message was deleted
                       </div>
+                    ) : msg.media_url ? (
+                      <div style={{
+                        background: 'rgba(255,255,255,0.10)',
+                        backdropFilter: 'blur(20px) saturate(180%)',
+                        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                        border: '1px solid rgba(255,255,255,0.22)',
+                        borderRadius: mine
+                          ? `22px ${showName ? 22 : 8}px 8px 22px`
+                          : `${showName ? 22 : 8}px 22px 22px 8px`,
+                        boxShadow: '0 8px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)',
+                        overflow: 'hidden',
+                        color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word',
+                      }}>
+                        <div onClick={() => openLightbox(msg)} style={{ cursor: 'pointer' }}>
+                          {msg.media_type === 'video'
+                            ? <RoomMediaPlayer src={msg.media_url} maxHeight={220} />
+                            : <img src={msg.media_url} alt="" style={{ width:'100%', maxHeight:250, objectFit:'cover', display:'block' }} />
+                          }
+                        </div>
+                        {msg.body && <p style={{ margin: '8px 14px 10px' }}>{msg.body}</p>}
+                      </div>
                     ) : (
                       <div style={{
-                        padding: msg.media_url && !msg.body ? 0 : '9px 14px',
+                        padding: '9px 14px',
                         background: mine ? '#FF6B35' : 'rgba(255,255,255,0.09)',
                         borderRadius: mine
                           ? `18px ${showName ? 18 : 5}px 5px 18px`
@@ -383,15 +412,7 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                         overflow:'hidden',
                         boxShadow: mine ? '0 2px 12px rgba(255,107,53,0.3)' : 'none',
                       }}>
-                        {msg.media_url && (
-                          <div style={{ overflow:'hidden', borderRadius: msg.body ? '14px 14px 0 0' : 14 }}>
-                            {msg.media_type === 'video'
-                              ? <RoomMediaPlayer src={msg.media_url} maxHeight={220} />
-                              : <img src={msg.media_url} alt="" style={{ width:'100%', maxHeight:250, objectFit:'cover', display:'block' }} />
-                            }
-                          </div>
-                        )}
-                        {msg.body && <p style={{ margin: msg.media_url ? '8px 14px 10px' : 0, whiteSpace:'pre-wrap' }}>{msg.body}</p>}
+                        <p style={{ margin: 0, whiteSpace:'pre-wrap' }}>{msg.body}</p>
                       </div>
                     )}
 
@@ -450,6 +471,17 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
             </button>
           </div>
         </>
+      )}
+
+      {lightboxIndex !== null && (
+        <RoomMediaLightbox
+          mediaMessages={mediaMessages}
+          startIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onReply={(msg) => { setReplyTo(msg); inputRef.current?.focus() }}
+          onDelete={(msg) => deleteMsg(msg)}
+          canDeleteMsg={canDel}
+        />
       )}
 
       {replyTo && (
