@@ -684,7 +684,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     )}
                     <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
-                        <VerifiedBadge type={auth?.user?.verification_type} size={18} />
+                        <VerifiedBadge type={video.user?.verification_type} size={18} />
                     </button>
                     {video.created_at && (
                         <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{postedDate(video.created_at)}</span>
@@ -711,7 +711,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
-                            <VerifiedBadge type={auth?.user?.verification_type} size={18} />
+                            <VerifiedBadge type={video.user?.verification_type} size={18} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>@{video.user?.username}</p>

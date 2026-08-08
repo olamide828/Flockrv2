@@ -298,6 +298,8 @@ public function getTrackingEvents(Order $order): JsonResponse
                 $order->markAsPaid($reference, $data['id']);
                 $order->buyer->notify(new NewOrderNotification($order));
 
+                $this->awardPurchaseBadges($order->buyer_id);
+
                 // ── Multi-seller cart: mark sibling orders paid too ───────────
                 // When CartController creates multiple orders, it stores their IDs
                 // in the session. We retrieve them here and mark each one paid.
@@ -576,4 +578,25 @@ public function getTrackingEvents(Order $order): JsonResponse
             return response()->json(['message' => 'Something went wrong. Please try again.'], 503);
         }
     }
+
+    private function awardPurchaseBadges(int $buyerId): void
+{
+    $orderCount = Order::where('buyer_id', $buyerId)->paid()->count();
+
+    $badgeKey = match (true) {
+        $orderCount === 1 => 'first_purchase',
+        $orderCount === 5 => 'five_purchases',
+        default => null,
+    };
+
+    if (!$badgeKey) return;
+
+    $badge = \App\Models\Badge::where('key', $badgeKey)->first();
+    if ($badge) {
+        \App\Models\UserBadge::firstOrCreate(
+            ['user_id' => $buyerId, 'badge_id' => $badge->id],
+            ['awarded_at' => now()]
+        );
+    }
+}
 }

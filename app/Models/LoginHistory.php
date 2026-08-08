@@ -14,6 +14,10 @@ protected $fillable = [
     'browser', 'platform', 'city', 'region', 'country', 'created_at',
     'revoked_at', 'is_primary',
 ];
+
+protected $casts = [
+    'created_at' => 'datetime',
+];
     public function user()
     {
         return $this->belongsTo(User::class);
