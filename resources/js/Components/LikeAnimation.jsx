@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState } from 'react' // 1. Import useState here
 import { RiHeartFill } from 'react-icons/ri'
 
 export function useLikeAnimation(defaultTargetRef) {
@@ -31,11 +31,9 @@ export function useLikeAnimation(defaultTargetRef) {
   return { burst: burstState, trigger }
 }
 
-// Tiny local useState wrapper kept in this file so the hook above reads
-// cleanly — no behavior difference from calling useState directly.
+// 2. Use useState directly from the imported react package
 function useRefState(initial) {
-  const React = require('react')
-  return React.useState(initial)
+  return useState(initial)
 }
 
 export function LikeAnimationOverlay({ burst }) {
