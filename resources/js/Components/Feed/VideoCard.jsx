@@ -18,6 +18,7 @@ import VerifiedBadge from '@/Components/VerifiedBadge'
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { useVideoSeek } from '@/lib/useVideoSeek'
+import { ensurePlaying } from '@/lib/ensurePlaying'
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -208,6 +209,7 @@ export default function VideoCard({ video, isActive }) {
   const viewTimerRef    = useRef(null)
   const isSeeking       = useRef(false)
   const likeBtnRef      = useRef(null)
+  const userPausedRef = useRef(false)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
@@ -232,6 +234,7 @@ export default function VideoCard({ video, isActive }) {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
   }
+  
 
   const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
 
@@ -270,9 +273,10 @@ export default function VideoCard({ video, isActive }) {
     const el = videoRef.current
     if (!el) return
 
-    if (isActive) {
+   if (isActive) {
       unmuteUnsubRef.current?.()
       unmuteUnsubRef.current = null
+      userPausedRef.current = false
 
       if (hasUserInteracted()) {
         el.muted = false
@@ -381,7 +385,9 @@ export default function VideoCard({ video, isActive }) {
       lastTap.current = now
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = null
-        videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause()
+        const el = videoRef.current
+        if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}) }
+        else { userPausedRef.current = true; el?.pause() }
         setShowPP(true)
       }, 300)
     }
@@ -422,7 +428,14 @@ export default function VideoCard({ video, isActive }) {
         onLoadedMetadata={e => setDuration(e.target.duration)}
         onWaiting={() => { if (!videoRef.current?.ended) setLoading(true) }}
         onPlay={() => { setPlaying(true); setShowPP(false) }}
-        onPause={() => { if (!videoRef.current?.ended) setPlaying(false) }}
+        onPause={() => {
+          const el = videoRef.current
+          if (!el?.ended) {
+            setPlaying(false)
+            if (isActive && !userPausedRef.current) ensurePlaying(el)
+          }
+        }}
+        onStalled={() => { if (isActive) ensurePlaying(videoRef.current) }}
         onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
       />

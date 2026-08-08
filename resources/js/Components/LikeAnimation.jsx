@@ -1,79 +1,76 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useCallback } from 'react'
 import { RiHeartFill } from 'react-icons/ri'
 
-/**
- * A heart pops in exactly where the user tapped, holds a beat, then shrinks
- * smoothly toward the like counter and "lands" on it — no fade, just scale.
- * The counter itself gives a little bump the instant it arrives.
- *
- * trigger(clientX, clientY) uses the ref passed to the hook as the default
- * target. trigger(clientX, clientY, someOtherElement) overrides the target
- * for that call — needed by MediaLightbox, where the target changes per post.
- */
 export function useLikeAnimation(defaultTargetRef) {
-  const [burst, setBurst] = useState(null) // { id, x, y, phase, targetEl }
-  const timersRef = useRef([])
+  const [burstState, setBurstState] = useRefState(null)
+  const timerRef = useRef(null)
 
   const trigger = useCallback((x, y, targetEl) => {
-    timersRef.current.forEach(clearTimeout)
-    timersRef.current = []
-
-    const id = Date.now()
+    const id = `${Date.now()}-${Math.random()}`
     const resolvedTarget = targetEl ?? defaultTargetRef?.current ?? null
-    setBurst({ id, x, y, phase: 'pop', targetEl: resolvedTarget })
 
-    timersRef.current.push(setTimeout(() => {
-      setBurst(b => (b && b.id === id ? { ...b, phase: 'fly' } : b))
+    let dx = 0, dy = 0
+    if (resolvedTarget) {
+      const rect = resolvedTarget.getBoundingClientRect()
+      dx = (rect.left + rect.width / 2) - x
+      dy = (rect.top + rect.height / 2) - y
+    }
 
-      timersRef.current.push(setTimeout(() => {
-        setBurst(b => (b && b.id === id ? null : b))
-        if (resolvedTarget) {
-          resolvedTarget.classList.remove('like-anim-bump')
-          void resolvedTarget.offsetWidth // force reflow so rapid re-likes retrigger cleanly
-          resolvedTarget.classList.add('like-anim-bump')
-        }
-      }, 430))
-    }, 230))
+    setBurstState({ id, x, y, dx, dy })
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => {
+      setBurstState(null)
+      if (resolvedTarget) {
+        resolvedTarget.classList.remove('like-anim-bump')
+        void resolvedTarget.offsetWidth // force reflow so rapid re-likes retrigger cleanly
+        resolvedTarget.classList.add('like-anim-bump')
+      }
+    }, 1000)
   }, [defaultTargetRef])
 
-  return { burst, trigger }
+  return { burst: burstState, trigger }
+}
+
+// Tiny local useState wrapper kept in this file so the hook above reads
+// cleanly — no behavior difference from calling useState directly.
+function useRefState(initial) {
+  const React = require('react')
+  return React.useState(initial)
 }
 
 export function LikeAnimationOverlay({ burst }) {
   if (!burst) return null
 
-  let x = burst.x, y = burst.y
-  const flying = burst.phase === 'fly'
-  if (flying && burst.targetEl) {
-    const rect = burst.targetEl.getBoundingClientRect()
-    x = rect.left + rect.width / 2
-    y = rect.top + rect.height / 2
-  }
-
   return (
     <div
-      className={!flying ? 'like-anim-pop-in' : ''}
       style={{
         position: 'fixed',
-        left: x,
-        top: y,
-        transform: flying ? 'translate(-50%, -50%) scale(0.1)' : undefined,
-        transition: flying
-          ? 'left 0.42s cubic-bezier(0.55,0,0.1,1), top 0.42s cubic-bezier(0.55,0,0.1,1), transform 0.42s cubic-bezier(0.55,0,0.1,1)'
-          : undefined,
+        left: burst.x,
+        top: burst.y,
+        transform: 'translate(-50%, -50%)',
         pointerEvents: 'none',
         zIndex: 9999,
-        willChange: 'left, top, transform',
       }}
     >
-      <RiHeartFill size={68} color="#ff2d55" style={{ filter: 'drop-shadow(0 0 16px rgba(255,45,85,0.65))', display: 'block' }} />
+      <div
+        key={burst.id}
+        className="like-anim-heart"
+        style={{ '--dx': `${burst.dx}px`, '--dy': `${burst.dy}px`, filter: 'drop-shadow(0 0 20px rgba(255,45,85,0.6))' }}
+      >
+        <RiHeartFill size={104} color="#ff2d55" style={{ display: 'block' }} />
+      </div>
       <style>{`
-        @keyframes likeAnimPopIn {
-          0%   { transform: translate(-50%, -50%) scale(0); }
-          55%  { transform: translate(-50%, -50%) scale(1.35); }
-          100% { transform: translate(-50%, -50%) scale(1); }
+        @keyframes likeAnimHeart {
+          0%   { transform: scale(0); opacity: 1; }
+          20%  { transform: scale(1.5); opacity: 1; }
+          36%  { transform: scale(1.08); opacity: 1; }
+          70%  { transform: scale(1.08); opacity: 1; }
+          100% { transform: translate(var(--dx), var(--dy)) scale(0.12); opacity: 0.85; }
         }
-        .like-anim-pop-in { animation: likeAnimPopIn 0.22s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .like-anim-heart {
+          animation: likeAnimHeart 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          will-change: transform, opacity;
+        }
         @keyframes likeAnimBump {
           0%   { transform: scale(1); }
           40%  { transform: scale(1.35); }

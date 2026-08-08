@@ -45,6 +45,7 @@ class ProcessVideoJob implements ShouldQueue
 
             // ── Get duration ──────────────────────────────────────────────────
             $duration = $this->getDuration($videoSource);
+            $optimizedKey = $this->optimizeForStreaming($videoSource, $disk);
 
             // ── Activate video ────────────────────────────────────────────────
             $this->video->update(array_filter([
@@ -202,6 +203,49 @@ private function getDuration(string $videoSource): ?int
             'published_at' => now(),
         ]);
     }
+    
+    private function optimizeForStreaming(string $videoSource, string $disk): ?string
+{
+    $ffmpeg = '/var/www/bin/ffmpeg';
+
+    exec($ffmpeg . ' -version 2>&1', $out, $code);
+    if ($code !== 0) return null;
+
+    $tmpOut = sys_get_temp_dir() . '/' . Str::uuid() . '.mp4';
+
+    // -movflags +faststart moves metadata to the front of the file so
+    // playback can begin before the whole file has downloaded — this is
+    // the single biggest fix for the "video sits there buffering" problem.
+    // -crf 23 / scale caps bitrate and resolution so nothing oversized
+    // gets served untouched.
+    $cmd = sprintf(
+        '%s -i %s -c:v libx264 -preset veryfast -crf 23 -vf "scale=\'min(1280,iw)\':-2" -c:a aac -b:a 128k -movflags +faststart -y %s 2>&1',
+        $ffmpeg,
+        escapeshellarg($videoSource),
+        escapeshellarg($tmpOut)
+    );
+
+    exec($cmd, $output, $returnCode);
+
+    if ($returnCode !== 0 || !file_exists($tmpOut) || filesize($tmpOut) === 0) {
+        Log::warning('ProcessVideoJob: streaming optimization failed, keeping original', [
+            'output' => implode("\n", $output),
+        ]);
+        return null;
+    }
+
+    $key = 'videos/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.mp4';
+
+    Storage::disk($disk)->put(
+        $key,
+        file_get_contents($tmpOut),
+        ['ContentType' => 'video/mp4', 'visibility' => 'public']
+    );
+
+    @unlink($tmpOut);
+
+    return $key;
+}
 }
 
 

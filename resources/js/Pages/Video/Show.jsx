@@ -37,6 +37,7 @@ import VerifiedBadge from '@/Components/VerifiedBadge';
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay';
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
 import { useVideoSeek } from '@/lib/useVideoSeek';
+import { ensurePlaying } from '@/lib/ensurePlaying';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -365,6 +366,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const unmuteUnsubRef  = useRef(null);
     const likeBtnRef      = useRef(null);
     const lastTap         = useRef(0);
+    const userPausedRef   = useRef(false);
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);
@@ -405,6 +407,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         if (isActive) {
             unmuteUnsubRef.current?.()
             unmuteUnsubRef.current = null
+            userPausedRef.current = false
 
             if (hasUserInteracted()) {
                 el.muted = false
@@ -488,7 +491,9 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             lastTap.current = now;
             tapTimerRef.current = setTimeout(() => {
                 tapTimerRef.current = null;
-                videoRef.current?.paused ? videoRef.current.play().catch(() => {}) : videoRef.current?.pause();
+                const el = videoRef.current;
+                if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}); }
+                else { userPausedRef.current = true; el?.pause(); }
                 setShowPP(true);
             }, 300);
         }
@@ -549,7 +554,15 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload="metadata"
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
                     onPlaying={() => setLoading(false)}
-                    onPlay={() => { setPlaying(true); setShowPP(false) }} onPause={() => setPlaying(false)}
+               onPlay={() => { setPlaying(true); setShowPP(false) }}
+                    onPause={() => {
+                        const el = videoRef.current
+                        if (!el?.ended) {
+                            setPlaying(false)
+                            if (isActive && !userPausedRef.current) ensurePlaying(el)
+                        }
+                    }}
+                    onStalled={() => { if (isActive) ensurePlaying(videoRef.current) }}
                     onClick={handleVideoTap}
                     onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
                     onLoadedMetadata={e => setDuration(e.target.duration)}

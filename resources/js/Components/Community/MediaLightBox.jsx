@@ -13,6 +13,7 @@ import { timeAgo, fmtCount } from './Helpers'
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { useVideoSeek } from '@/lib/useVideoSeek'
+import { ensurePlaying } from '@/lib/ensurePlaying'
 
 const AUTO_ADVANCE_KEY = 'flockr_lightbox_autoadvance'
 
@@ -103,6 +104,7 @@ export default function MediaLightbox({
   const likeBtnRefs = useRef({})
   const lastTapRef = useRef(0)
   const tapTimerRef = useRef(null)
+  const userPausedRef = useRef(false)
 
   const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
 
@@ -166,6 +168,7 @@ export default function MediaLightbox({
   }, [])
 
   useEffect(() => {
+    userPausedRef.current = false
     Object.entries(videoRefs.current).forEach(([key, el]) => {
       if (!el) return
       if (key === activeVideoKey) { el.muted = muted; el.playbackRate = speed; el.play().catch(() => {}) }
@@ -228,7 +231,7 @@ export default function MediaLightbox({
     })
   }
 
-  const handleVideoTapClick = (e, post, mi) => {
+ const handleVideoTapClick = (e, post, mi) => {
     const v = e.currentTarget
     const clientX = e.clientX, clientY = e.clientY
     const now = Date.now()
@@ -243,7 +246,8 @@ export default function MediaLightbox({
       lastTapRef.current = now
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = null
-        v.paused ? v.play().catch(() => {}) : v.pause()
+        if (v.paused) { userPausedRef.current = false; v.play().catch(() => {}) }
+        else { userPausedRef.current = true; v.pause() }
         setShowPPIcon(true)
         setTimeout(() => setShowPPIcon(false), 500)
       }, 300)
@@ -315,7 +319,13 @@ export default function MediaLightbox({
                         autoPlay={isActiveSlide && mi === mIdx}
                         onEnded={() => handleVideoEnded(post, mi)}
                         onPlay={() => { if (isActiveSlide && mi === mIdx) setPlaying(true) }}
-                        onPause={() => { if (isActiveSlide && mi === mIdx) setPlaying(false) }}
+                        onPause={() => {
+                          if (isActiveSlide && mi === mIdx) {
+                            setPlaying(false)
+                            if (!userPausedRef.current) ensurePlaying(videoRefs.current[`${post.id}-${mi}`])
+                          }
+                        }}
+                        onStalled={() => { if (isActiveSlide && mi === mIdx) ensurePlaying(videoRefs.current[`${post.id}-${mi}`]) }}
                         onWaiting={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(true) }}
                         onCanPlay={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(false) }}
                         onPlaying={() => { if (isActiveSlide && mi === mIdx) setVideoLoading(false) }}
