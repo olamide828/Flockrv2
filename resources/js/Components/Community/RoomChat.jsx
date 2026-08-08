@@ -10,7 +10,7 @@ import Av from './Av'
 import ShareRoomSheet from './ShareRoomSheet'
 import RoomInfoModal from './RoomInfoModal'
 import RoomMediaPlayer from './RoomMediaPlayer'
-import RoomMediaLightbox from './RoomMediaLightbox';
+import RoomMediaLightbox from './RoomMediaLightBox';
 import { fmtTime } from './Helpers'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast }) {
