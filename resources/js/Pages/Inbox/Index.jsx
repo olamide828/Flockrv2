@@ -36,7 +36,7 @@ const OFF_PLATFORM_KEYWORDS = [
   'discount if direct', 'pay outside', 'pay off app', 'off the app', 'take it off',
   'reach me on', 'dm me on', 'ig dm', 'check instagram', 'my ig',
   'my instagram', 'hit me on', 'send ur details', 'send your details',
-  'send your account details', 'send ur account details',
+  'send your account details', 'send ur account details', 'send your account', 'send ur account'
 ]
 const OFF_PLATFORM_REGEX = new RegExp(
   '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
@@ -559,15 +559,17 @@ useEffect(() => {
     conv?.participants?.find(p => p.id !== auth?.user?.id),
   [auth?.user?.id])
 
-  // ── Off-platform payment safety handlers ──────────────────────────────────
-  const fetchSellerInfo = async (id) => {
-    try {
-      const { data } = await axios.get(`/api/safety/seller-info/${id}`)
-      // Merge, don't overwrite — keeps whatever we already showed instantly.
-      setSellerInfoCache(prev => ({ ...prev, [id]: { ...prev[id], ...data } }))
-      return data
-    } catch { return null }
+
+const fetchSellerInfo = async (id) => {
+  try {
+    const { data } = await axios.get(`/api/safety/seller-info/${id}`)
+    setSellerInfoCache(prev => ({ ...prev, [id]: { ...prev[id], ...data } }))
+    return data
+  } catch (err) {
+    console.error('[safety] Failed to fetch seller info — check that /api/safety/seller-info/{seller} is registered in routes/api.php', err.response?.status, err.response?.data ?? err.message)
+    return null
   }
+}
 
   const triggerOffPlatformWarning = (keyword) => {
     const other = otherUser(active)

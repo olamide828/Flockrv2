@@ -29,7 +29,11 @@ export default function OffPlatformWarningSheet({ seller, onContinue, onPayFlock
             <div style={{ minWidth: 0 }}>
               <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 14 }}>{seller.name}</p>
               <p style={{ margin: '1px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{seller.username}</p>
-              {seller.joined_at && <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Joined {fmtJoinDate(seller.joined_at)}</p>}
+    
+{seller.joined_at
+  ? <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Joined {fmtJoinDate(seller.joined_at)}</p>
+  : <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>Loading member info…</p>
+}
             </div>
           </div>
         )}

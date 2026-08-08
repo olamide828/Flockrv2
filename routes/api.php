@@ -455,8 +455,7 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::post('/api/safety/off-platform-warning', [SafetyController::class, 'recordWarning']);
     Route::get('/api/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
     Route::get('/api/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
-    Route::post('/api/safety/classify-message', [SafetyController::class, 'classifyMessage'])
-    ->middleware('throttle:30,1');
+    Route::post('/api/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
 
 
     // Seller endpoints
