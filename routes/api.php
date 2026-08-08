@@ -452,10 +452,10 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
     Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
-    Route::post('/api/safety/off-platform-warning', [SafetyController::class, 'recordWarning']);
-    Route::get('/api/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
-    Route::get('/api/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
-    Route::post('/api/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
+    Route::post('/safety/off-platform-warning', [SafetyController::class, 'recordWarning']);
+Route::get('/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
+Route::get('/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
+Route::post('/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
 
 
     // Seller endpoints

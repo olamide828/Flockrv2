@@ -36,7 +36,7 @@ const OFF_PLATFORM_KEYWORDS = [
   'discount if direct', 'pay outside', 'pay off app', 'off the app', 'take it off',
   'reach me on', 'dm me on', 'ig dm', 'check instagram', 'my ig',
   'my instagram', 'hit me on', 'send ur details', 'send your details',
-  'send your account details', 'send ur account details', 'send your account', 'send ur account'
+  'send your account details', 'send ur account details',
 ]
 const OFF_PLATFORM_REGEX = new RegExp(
   '\\b(' + OFF_PLATFORM_KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
@@ -48,9 +48,7 @@ function detectOffPlatformKeyword(text) {
   return match ? match[0] : null
 }
 
-// ── Layer 2 — soft signal gate for the AI classifier. A message only reaches
-// the AI if it survives keyword regex (no exact hit) AND looks payment-
-// adjacent — this keeps ordinary chat from ever touching the API call. ─────
+// ── Layer 2 — soft signal gate for the AI classifier. ─────────────────────────
 const SOFT_SIGNAL_WORDS = [
   'pay', 'payment', 'send', 'transfer', 'account', 'bank', 'whatsapp',
   'instagram', 'telegram', 'number', 'cash', 'fee', 'commission',
@@ -59,7 +57,7 @@ const SOFT_SIGNAL_WORDS = [
 function hasSoftSignal(text) {
   if (!text) return false
   const lower = text.toLowerCase()
-  if (/\d{6,}/.test(text)) return true // looks like it could be an account number
+  if (/\d{6,}/.test(text)) return true
   return SOFT_SIGNAL_WORDS.some(w => lower.includes(w))
 }
 
@@ -459,34 +457,60 @@ useEffect(() => {
       .catch(() => {})
   }, [active?.id])
 
-  // Scan the newest message for off-platform payment signals.
-  // Only warns the RECIPIENT — never the person who sent it — so you never
-  // get warned about your own message, and it doesn't fire twice per message.
+  const otherUser = useCallback((conv) =>
+    conv?.participants?.find(p => p.id !== auth?.user?.id),
+  [auth?.user?.id])
+
+  // ── Determine who the "buyer" is in this conversation, based on account
+  // role — not who sent/received a given message. The buyer is the party who
+  // stands to lose money if payment happens off-platform, so warnings should
+  // always be shown to the buyer regardless of who typed the risky message.
+  // Falls back to "current user" if roles can't be resolved (e.g. two seller
+  // accounts messaging each other) so the feature never silently does nothing.
+  const participantRoles = useCallback((conv) => {
+    const other = otherUser(conv)
+    const me = auth?.user
+    if (!other || !me) return { buyer: null, seller: null, isMeBuyer: false }
+
+    let buyer, seller
+    if (me.role === 'buyer' && other.role !== 'buyer') { buyer = me; seller = other }
+    else if (other.role === 'buyer' && me.role !== 'buyer') { buyer = other; seller = me }
+    else if (me.role === 'buyer') { buyer = me; seller = other }
+    else if (other.role === 'buyer') { buyer = other; seller = me }
+    else { buyer = me; seller = other } // ambiguous — default to warning the current viewer
+
+    return { buyer, seller, isMeBuyer: buyer.id === me.id }
+  }, [auth?.user, otherUser])
+
+  // Scan the newest message for off-platform payment signals. Only runs at
+  // all when the CURRENT viewer is the buyer in this conversation — the
+  // warning is about protecting the buyer, so it doesn't matter whether the
+  // buyer or the seller typed the risky message, only that the buyer sees it.
   useEffect(() => {
     if (!active || !messages.length) return
+    const { isMeBuyer, seller } = participantRoles(active)
+    if (!isMeBuyer || !seller) return
+
     const last = messages[messages.length - 1]
     if (!last?.body || String(last.id).startsWith('opt-') || scannedMsgIdsRef.current.has(last.id)) return
-    if (last.sender_id === auth?.user?.id) return // don't warn the sender about their own message
     scannedMsgIdsRef.current.add(last.id)
 
     const matched = detectOffPlatformKeyword(last.body)
     if (matched) {
-      triggerOffPlatformWarning(matched)
+      triggerOffPlatformWarning(matched, seller)
       return
     }
 
-    // No exact keyword hit — if the message still looks payment-adjacent,
-    // ask the AI classifier (catches obfuscation / indirect phrasing).
     if (hasSoftSignal(last.body)) {
       axios.post('/api/safety/classify-message', { message: last.body })
         .then(({ data }) => {
           if (data?.is_risky && (data.confidence ?? 0) >= 0.55) {
-            triggerOffPlatformWarning(data.reason ? `AI: ${data.reason}` : 'AI-detected risk')
+            triggerOffPlatformWarning(data.reason ? `AI: ${data.reason}` : 'AI-detected risk', seller)
           }
         })
         .catch(() => {})
     }
-  }, [messages, active])
+  }, [messages, active, participantRoles])
 
   useEffect(() => {
     if (!userSearch.trim()) { setUserResults([]); return }
@@ -554,49 +578,40 @@ useEffect(() => {
     }
   }
 
-
-  const otherUser = useCallback((conv) =>
-    conv?.participants?.find(p => p.id !== auth?.user?.id),
-  [auth?.user?.id])
-
-
-const fetchSellerInfo = async (id) => {
-  try {
-    const { data } = await axios.get(`/api/safety/seller-info/${id}`)
-    setSellerInfoCache(prev => ({ ...prev, [id]: { ...prev[id], ...data } }))
-    return data
-  } catch (err) {
-    console.error('[safety] Failed to fetch seller info — check that /api/safety/seller-info/{seller} is registered in routes/api.php', err.response?.status, err.response?.data ?? err.message)
-    return null
+  // ── Off-platform payment safety handlers ──────────────────────────────────
+  const fetchSellerInfo = async (id) => {
+    try {
+      const { data } = await axios.get(`/api/safety/seller-info/${id}`)
+      setSellerInfoCache(prev => ({ ...prev, [id]: { ...prev[id], ...data } }))
+      return data
+    } catch (err) {
+      console.error('[safety] Failed to fetch seller info', err.response?.status, err.response?.data ?? err.message)
+      return null
+    }
   }
-}
 
-  const triggerOffPlatformWarning = (keyword) => {
-    const other = otherUser(active)
-    if (!other || !active) return
+  const triggerOffPlatformWarning = (keyword, seller) => {
+    if (!seller || !active) return
 
-    // Show what we already have from the conversation participant data
-    // IMMEDIATELY — don't wait on a network round trip for the sheet to
-    // have something to display.
     setSellerInfoCache(prev => ({
       ...prev,
-      [other.id]: prev[other.id] ?? {
-        id: other.id,
-        name: other.name,
-        username: other.username,
-        avatar_url: other.avatar_url,
-        is_verified: other.is_verified,
+      [seller.id]: prev[seller.id] ?? {
+        id: seller.id,
+        name: seller.name,
+        username: seller.username,
+        avatar_url: seller.avatar_url,
+        is_verified: seller.is_verified,
         joined_at: null,
       },
     }))
 
     setWarningKeyword(keyword)
     setShowWarningSheet(true)
-    fetchSellerInfo(other.id) // enriches with joined_at once it resolves
+    fetchSellerInfo(seller.id)
 
     axios.post('/api/safety/off-platform-warning', {
       conversation_id: active.id,
-      seller_id: other.id,
+      seller_id: seller.id,
       action: 'shown',
       trigger_keyword: keyword,
     }).catch(() => {})
@@ -604,12 +619,12 @@ const fetchSellerInfo = async (id) => {
 
   const handleWarningContinue = async () => {
     setShowWarningSheet(false)
-    const other = otherUser(active)
-    if (!other || !active) return
+    const { seller } = participantRoles(active)
+    if (!seller || !active) return
     try {
       const { data } = await axios.post('/api/safety/off-platform-warning', {
         conversation_id: active.id,
-        seller_id: other.id,
+        seller_id: seller.id,
         action: 'continued',
         trigger_keyword: warningKeyword,
       })
@@ -622,17 +637,17 @@ const fetchSellerInfo = async (id) => {
 
   const handleWarningPayFlockr = async () => {
     setShowWarningSheet(false)
-    const other = otherUser(active)
+    const { seller } = participantRoles(active)
     if (!active) return
-    if (other) {
+    if (seller) {
       axios.post('/api/safety/off-platform-warning', {
         conversation_id: active.id,
-        seller_id: other.id,
+        seller_id: seller.id,
         action: 'paid_flockr',
         trigger_keyword: warningKeyword,
       }).catch(() => {})
     }
-    setPayFlockrSeller(other)
+    setPayFlockrSeller(seller)
     setShowPayFlockrSheet(true)
   }
 
@@ -673,7 +688,7 @@ const fetchSellerInfo = async (id) => {
 
       {showWarningSheet && active && (
         <OffPlatformWarningSheet
-          seller={sellerInfoCache[otherUser(active)?.id]}
+          seller={sellerInfoCache[participantRoles(active).seller?.id]}
           onContinue={handleWarningContinue}
           onPayFlockr={handleWarningPayFlockr}
           onClose={() => setShowWarningSheet(false)}
