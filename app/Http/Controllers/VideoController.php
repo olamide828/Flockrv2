@@ -526,13 +526,13 @@ return response()->json([
     }
 
     public function generateSummary(Video $video, Product $product): JsonResponse
-    {
-        try {
-            $hashtags = is_array($video->hashtags)
-                ? $video->hashtags
-                : json_decode($video->hashtags ?? '[]', true);
+{
+    try {
+        $hashtags = is_array($video->hashtags)
+            ? $video->hashtags
+            : json_decode($video->hashtags ?? '[]', true);
 
-            $prompt = "Create an engaging summary for this video not more than 50 words.
+        $prompt = "Create an engaging summary for this video not more than 50 words, based on the text details AND what you see in the attached thumbnail image.
 CRITICAL INSTRUCTION: Return ONLY the summary itself. No introductory phrases. If there is no video title, description or hashtags check for the product's title, price and description and give a summary on that.
 
 Product Name: {$product->name}
@@ -543,29 +543,42 @@ Title: {$video->title}
 Description: {$video->description}
 Hashtags: " . implode(', ', $hashtags);
 
+        $parts = [['text' => $prompt]];
 
-
-            $response = Http::timeout(60)->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
-                ['contents' => [['parts' => [['text' => $prompt]]]]]
-            );
-
-            if ($response->status() === 429) {
-                return response()->json(['message' => 'AI limit reached. Try again in a minute.'], 429);
+        $thumbnailUrl = $video->thumbnail_url_full;
+        if ($thumbnailUrl) {
+            $imageData = $this->fetchImageAsBase64($thumbnailUrl);
+            if ($imageData) {
+                $parts[] = [
+                    'inline_data' => [
+                        'mime_type' => $imageData['mime'],
+                        'data'      => $imageData['base64'],
+                    ],
+                ];
             }
-
-            $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
-
-            if (!$content) {
-                return response()->json(['message' => 'Gemini request failed.'], 500);
-            }
-
-            return response()->json(['summary' => trim($content)]);
-
-        } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 500);
         }
+
+        $response = Http::timeout(60)->post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+            ['contents' => [['parts' => $parts]]]
+        );
+
+        if ($response->status() === 429) {
+            return response()->json(['message' => 'AI limit reached. Try again in a minute.'], 429);
+        }
+
+        $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
+
+        if (!$content) {
+            return response()->json(['message' => 'Gemini request failed.'], 500);
+        }
+
+        return response()->json(['summary' => trim($content)]);
+
+    } catch (\Throwable $e) {
+        return response()->json(['message' => $e->getMessage()], 500);
     }
+}
 
     public function report(Request $request, Video $video): JsonResponse
 {

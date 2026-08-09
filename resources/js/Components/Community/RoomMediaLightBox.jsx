@@ -2,7 +2,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   RiCloseLine, RiMoreLine, RiReplyLine, RiDeleteBinLine, RiShareForwardLine,
   RiVolumeMuteLine, RiVolumeUpLine, RiCheckLine, RiWhatsappLine, RiTelegramLine, RiLink,
+  RiHeartLine, RiHeartFill,
 } from 'react-icons/ri'
+import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
 import { useVideoSeek } from '@/lib/useVideoSeek'
 import { ensurePlaying } from '@/lib/ensurePlaying'
@@ -96,12 +98,13 @@ function MoreSheet({ onClose, onReply, onDelete, canDelete, mediaUrl }) {
   )
 }
 
-export default function RoomMediaLightbox({ mediaMessages, startIndex, onClose, onReply, onDelete, canDeleteMsg }) {
+export default function RoomMediaLightbox({ mediaMessages, startIndex, onClose, onReply, onDelete, canDeleteMsg, onLike }) {
   const [index, setIndex] = useState(startIndex)
   const [muted, setMuted] = useState(() => !hasUserInteracted())
   const [progress, setProgress] = useState(0)
   const [showMore, setShowMore] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const outerRef = useRef(null)
   const slideRefs = useRef(new Map())
@@ -254,8 +257,16 @@ export default function RoomMediaLightbox({ mediaMessages, startIndex, onClose, 
             </div>
           </div>
         )}
-        <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{fmtTime(activeMsg.created_at)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{fmtTime(activeMsg.created_at)}</span>
+          <button onClick={(e) => { onLike?.(activeMsg); triggerLikeAnim(e.clientX, e.clientY) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 999, padding: '6px 12px', cursor: 'pointer', color: activeMsg.is_liked_by_me ? '#ff2d55' : '#fff' }}>
+            {activeMsg.is_liked_by_me ? <RiHeartFill size={16} /> : <RiHeartLine size={16} />}
+            {activeMsg.likes_count > 0 && <span style={{ fontSize: 12, fontWeight: 700 }}>{activeMsg.likes_count}</span>}
+          </button>
+        </div>
       </div>
+      <LikeAnimationOverlay burst={burst} />
     </div>
   )
 }

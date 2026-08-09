@@ -37,4 +37,9 @@ class RoomMessage extends Model
         return $this->belongsTo(RoomMessage::class, 'reply_to_id')
             ->with('user:id,name,username,avatar');
     }
+
+    public function likes()
+{
+    return $this->belongsToMany(\App\Models\User::class, 'room_message_likes')->withTimestamps();
+}
 }

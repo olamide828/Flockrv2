@@ -17,9 +17,14 @@ public function record(User $user, string $ip, ?string $userAgent, ?string $sess
     $agent->setUserAgent($userAgent ?? '');
 
     $location = $this->lookupLocation($ip);
+    $browser  = $agent->browser();
+    $platform = $agent->platform();
 
-    // The account's very first login ever — this row can never be revoked.
-    $isPrimary = !LoginHistory::where('user_id', $user->id)->exists();
+    // Has this user ever logged in from this browser+OS combo before?
+    $isNewDevice = !LoginHistory::where('user_id', $user->id)
+        ->where('browser', $browser)
+        ->where('platform', $platform)
+        ->exists();
 
     try {
         LoginHistory::create([
@@ -28,16 +33,35 @@ public function record(User $user, string $ip, ?string $userAgent, ?string $sess
             'ip_address'  => $ip,
             'user_agent'  => $userAgent,
             'device_type' => $agent->isMobile() ? 'mobile' : ($agent->isTablet() ? 'tablet' : 'desktop'),
-            'browser'     => $agent->browser(),
-            'platform'    => $agent->platform(),
+            'browser'     => $browser,
+            'platform'    => $platform,
             'city'        => $location['city'] ?? null,
             'region'      => $location['region'] ?? null,
             'country'     => $location['country'] ?? null,
             'created_at'  => now(),
-            'is_primary'  => $isPrimary,
         ]);
+
+        if ($isNewDevice) {
+            $this->sendNewDeviceAlert($user, $browser, $platform, $location);
+        }
     } catch (\Throwable $e) {
         Log::warning('Login tracking failed: ' . $e->getMessage());
+    }
+}
+
+private function sendNewDeviceAlert(User $user, ?string $browser, ?string $platform, array $location): void
+{
+    $locationStr = collect([$location['city'] ?? null, $location['region'] ?? null, $location['country'] ?? null])
+        ->filter()->implode(', ') ?: 'an unknown location';
+
+    try {
+        \Illuminate\Support\Facades\Mail::raw(
+            "Hi {$user->name}, we noticed a new login to your Flockr account from {$browser} on {$platform}, near {$locationStr}. " .
+            "If this was you, no action is needed. If you don't recognize this, please change your password immediately and review your logged-in devices in Settings.",
+            fn ($m) => $m->to($user->email)->subject('New login to your Flockr account')
+        );
+    } catch (\Throwable $e) {
+        Log::warning('New device alert email failed: ' . $e->getMessage());
     }
 }
     private function lookupLocation(?string $ip): array

@@ -16,6 +16,7 @@ use App\Http\Controllers\VideoController;
 use App\Http\Controllers\VideoDownloadController;
 use App\Models\Product;
 use App\Http\Controllers\AddressController;
+use App\Http\Controllers\BadgeController;
 use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\MediaUploadController;
 use App\Http\Controllers\TerminalWebhookController;
@@ -242,6 +243,10 @@ Route::get('/auth/check-username', function (\Illuminate\Http\Request $request) 
 
 // ── Authenticated API ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
+
+    //Badges 
+    Route::get('/badges/new', [BadgeController::class, 'newBadges']);
+
     // Videos
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/upload', [VideoController::class, 'store']);
@@ -294,6 +299,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
     Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
     Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
+    Route::post('/community/rooms/{room}/messages/{message}/like', [CommunityController::class, 'likeRoomMessage']);
 
     Route::post('/community/comments/{comment}/like', [CommunityController::class, 'likePostComment']);
 Route::post('/community/comments/{comment}/pin', [CommunityController::class, 'pinPostComment']);

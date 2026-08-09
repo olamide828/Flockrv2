@@ -159,9 +159,8 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
-  const likeBtnRef = useRef(null)
   const lastMediaTapRef = useRef(0)
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const isFollowingAuthor = post.is_following_author ?? false
   const isOwnPost = auth?.user?.id === post.user_id
@@ -417,7 +416,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
             <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, margin: '0 0 14px' }}>{timeAgo(post.created_at)}</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', marginLeft: -10 }}>
-              <button ref={likeBtnRef} onClick={handleLike} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
+              <button onClick={handleLike} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
                 {post.is_liked_by_me ? <RiHeartFill size={19} /> : <RiHeartLine size={19} />}
                 <span>{fmtCount(post.likes_count)}</span>
               </button>

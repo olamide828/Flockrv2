@@ -1,46 +1,32 @@
-import { useRef, useCallback, useState } from 'react' // 1. Import useState here
+import { useRef, useState, useCallback } from 'react'
 import { RiHeartFill } from 'react-icons/ri'
 
-export function useLikeAnimation(defaultTargetRef) {
-  const [burstState, setBurstState] = useRefState(null)
+export function useLikeAnimation() {
+  const [burst, setBurst] = useState(null)
   const timerRef = useRef(null)
 
-  const trigger = useCallback((x, y, targetEl) => {
+  const trigger = useCallback((x, y) => {
     const id = `${Date.now()}-${Math.random()}`
-    const resolvedTarget = targetEl ?? defaultTargetRef?.current ?? null
-
-    let dx = 0, dy = 0
-    if (resolvedTarget) {
-      const rect = resolvedTarget.getBoundingClientRect()
-      dx = (rect.left + rect.width / 2) - x
-      dy = (rect.top + rect.height / 2) - y
-    }
-
-    setBurstState({ id, x, y, dx, dy })
+    setBurst({ id, x, y })
     clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      setBurstState(null)
-      if (resolvedTarget) {
-        resolvedTarget.classList.remove('like-anim-bump')
-        void resolvedTarget.offsetWidth // force reflow so rapid re-likes retrigger cleanly
-        resolvedTarget.classList.add('like-anim-bump')
-      }
-    }, 1000)
-  }, [defaultTargetRef])
+    timerRef.current = setTimeout(() => setBurst(null), 950)
+  }, [])
 
-  return { burst: burstState, trigger }
-}
-
-// 2. Use useState directly from the imported react package
-function useRefState(initial) {
-  return useState(initial)
+  return { burst, trigger }
 }
 
 export function LikeAnimationOverlay({ burst }) {
   if (!burst) return null
 
+  const particles = Array.from({ length: 10 }, (_, i) => {
+    const angle = (i / 10) * 360 + (i % 2 === 0 ? -8 : 8)
+    const distance = 58 + (i % 3) * 14
+    return { angle, distance, delay: i * 22, size: 9 + (i % 3) * 4 }
+  })
+
   return (
     <div
+      key={burst.id}
       style={{
         position: 'fixed',
         left: burst.x,
@@ -50,31 +36,47 @@ export function LikeAnimationOverlay({ burst }) {
         zIndex: 9999,
       }}
     >
-      <div
-        key={burst.id}
-        className="like-anim-heart"
-        style={{ '--dx': `${burst.dx}px`, '--dy': `${burst.dy}px`, filter: 'drop-shadow(0 0 20px rgba(255,45,85,0.6))' }}
-      >
-        <RiHeartFill size={104} color="#ff2d55" style={{ display: 'block' }} />
+      <div className="like-anim-ring" />
+      {particles.map((p, i) => (
+        <span key={i} className="like-anim-particle"
+          style={{ '--angle': `${p.angle}deg`, '--dist': `${p.distance}px`, animationDelay: `${p.delay}ms`, fontSize: p.size }}>
+          ❤
+        </span>
+      ))}
+      <div className="like-anim-core">
+        <RiHeartFill size={104} color="#ff2d55" style={{ display: 'block', filter: 'drop-shadow(0 0 22px rgba(255,45,85,0.7))' }} />
       </div>
+
       <style>{`
-        @keyframes likeAnimHeart {
-          0%   { transform: scale(0); opacity: 1; }
-          20%  { transform: scale(1.5); opacity: 1; }
-          36%  { transform: scale(1.08); opacity: 1; }
-          70%  { transform: scale(1.08); opacity: 1; }
-          100% { transform: translate(var(--dx), var(--dy)) scale(0.12); opacity: 0.85; }
+        @keyframes likeAnimCore {
+          0%   { transform: scale(0) rotate(-18deg); opacity: 0; }
+          22%  { transform: scale(1.4) rotate(8deg);  opacity: 1; }
+          38%  { transform: scale(0.94) rotate(-4deg); opacity: 1; }
+          52%  { transform: scale(1.08) rotate(2deg);  opacity: 1; }
+          65%  { transform: scale(1) rotate(0deg);     opacity: 1; }
+          100% { transform: scale(1.15) rotate(0deg);  opacity: 0; }
         }
-        .like-anim-heart {
-          animation: likeAnimHeart 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-          will-change: transform, opacity;
+        .like-anim-core { animation: likeAnimCore 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+        @keyframes likeAnimRing {
+          0%   { width: 16px; height: 16px; opacity: 0.9; border-width: 4px; }
+          100% { width: 200px; height: 200px; opacity: 0; border-width: 0.5px; }
         }
-        @keyframes likeAnimBump {
-          0%   { transform: scale(1); }
-          40%  { transform: scale(1.35); }
-          100% { transform: scale(1); }
+        .like-anim-ring {
+          position: absolute; top: 0; left: 0; transform: translate(-50%, -50%);
+          border-radius: 50%; border: 4px solid rgba(255,107,53,0.75);
+          animation: likeAnimRing 0.75s cubic-bezier(0.16,1,0.3,1) forwards;
         }
-        .like-anim-bump { animation: likeAnimBump 0.32s cubic-bezier(0.34,1.56,0.64,1); }
+
+        @keyframes likeAnimParticle {
+          0%   { transform: rotate(var(--angle)) translateX(0) scale(0); opacity: 1; }
+          25%  { transform: rotate(var(--angle)) translateX(calc(var(--dist) * 0.35)) scale(1.15); opacity: 1; }
+          100% { transform: rotate(var(--angle)) translateX(var(--dist)) scale(0.25); opacity: 0; }
+        }
+        .like-anim-particle {
+          position: absolute; top: 0; left: 0; color: #ff6b35;
+          animation: likeAnimParticle 0.8s cubic-bezier(0.16,1,0.3,1) forwards;
+        }
       `}</style>
     </div>
   )

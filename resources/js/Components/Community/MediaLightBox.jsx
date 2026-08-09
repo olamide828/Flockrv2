@@ -241,7 +241,7 @@ export default function MediaLightbox({
       tapTimerRef.current = null
       lastTapRef.current = 0
       if (!post.is_liked_by_me) onLike(post)
-      triggerLikeAnim(clientX, clientY, likeBtnRefs.current[post.id])
+      triggerLikeAnim(clientX, clientY)
     } else {
       lastTapRef.current = now
       tapTimerRef.current = setTimeout(() => {
@@ -258,7 +258,7 @@ export default function MediaLightbox({
     const now = Date.now()
     if (now - lastTapRef.current < 300) {
       if (!post.is_liked_by_me) onLike(post)
-      triggerLikeAnim(e.clientX, e.clientY, likeBtnRefs.current[post.id])
+      triggerLikeAnim(clientX, clientY)
     }
     lastTapRef.current = now
   }

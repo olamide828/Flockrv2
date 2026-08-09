@@ -195,6 +195,21 @@ useEffect(() => {
     catch { /* already optimistic; a refresh will resync if this genuinely failed */ }
   }
 
+  const toggleLikeMsg = async (msg) => {
+    const wasLiked = msg.is_liked_by_me
+    setMessages(p => p.map(m => m.id === msg.id
+      ? { ...m, is_liked_by_me: !wasLiked, likes_count: (m.likes_count ?? 0) + (wasLiked ? -1 : 1) }
+      : m))
+    try {
+      const { data } = await axios.post(`/api/community/rooms/${room.id}/messages/${msg.id}/like`)
+      setMessages(p => p.map(m => m.id === msg.id ? { ...m, is_liked_by_me: data.liked, likes_count: data.likes_count } : m))
+    } catch {
+      setMessages(p => p.map(m => m.id === msg.id
+        ? { ...m, is_liked_by_me: wasLiked, likes_count: (m.likes_count ?? 0) + (wasLiked ? 1 : -1) }
+        : m))
+    }
+  }
+
   const onTouchStart = (e, msg) => { swipeRef.current = { startX: e.touches[0].clientX, msgId: msg.id, el: e.currentTarget } }
   const onTouchMove  = (e, msg) => {
     const dx = e.touches[0].clientX - (swipeRef.current.startX ?? 0)
@@ -393,10 +408,10 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                         overflow: 'hidden',
                         color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word',
                       }}>
-                        <div onClick={() => openLightbox(msg)} style={{ cursor: 'pointer' }}>
+                        <div onClick={() => openLightbox(msg)} style={{ cursor: 'pointer', width: 220, height: 220, overflow: 'hidden' }}>
                           {msg.media_type === 'video'
                             ? <RoomMediaPlayer src={msg.media_url} maxHeight={220} />
-                            : <img src={msg.media_url} alt="" style={{ width:'100%', maxHeight:250, objectFit:'cover', display:'block' }} />
+                            : <img src={msg.media_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
                           }
                         </div>
                         {msg.body && <p style={{ margin: '8px 14px 10px' }}>{msg.body}</p>}
@@ -481,6 +496,7 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
           onReply={(msg) => { setReplyTo(msg); inputRef.current?.focus() }}
           onDelete={(msg) => deleteMsg(msg)}
           canDeleteMsg={canDel}
+          onLike={toggleLikeMsg}
         />
       )}
 

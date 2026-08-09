@@ -496,8 +496,16 @@ class CommunityController extends Controller
             ->where('room_id', $room->id)->where('user_id', Auth::id())
             ->update(['last_read_at' => now()]);
 
+      $likedIds = DB::table('room_message_likes')
+            ->where('user_id', Auth::id())
+            ->whereIn('room_message_id', $messages->pluck('id'))
+            ->pluck('room_message_id')->flip();
+
         return response()->json([
-            'messages' => $messages->map(fn($m) => $this->serialiseMessage($m)),
+            'messages' => $messages->map(fn($m) => array_merge(
+                $this->serialiseMessage($m),
+                ['is_liked_by_me' => isset($likedIds[$m->id])]
+            )),
             'has_more' => RoomMessage::where('room_id', $room->id)
                 ->when($myMembership, fn($q) => $q->where('created_at', '>=', $myMembership->created_at))
                 ->when($messages->first(), fn($q) => $q->where('id', '<', $messages->first()['id']))
@@ -570,6 +578,31 @@ class CommunityController extends Controller
         try { broadcast(new RoomMessageDeleted($room->id, $message->id))->toOthers(); } catch (\Throwable) {}
 
         return response()->json(['message' => 'Deleted.']);
+    }
+
+    public function likeRoomMessage(Room $room, RoomMessage $message): JsonResponse
+    {
+        $this->assertMember($room);
+
+        $userId = Auth::id();
+        $liked = DB::table('room_message_likes')
+            ->where('room_message_id', $message->id)->where('user_id', $userId)->exists();
+
+        if ($liked) {
+            DB::table('room_message_likes')->where('room_message_id', $message->id)->where('user_id', $userId)->delete();
+            $message->decrement('likes_count');
+        } else {
+            DB::table('room_message_likes')->insert([
+                'room_message_id' => $message->id, 'user_id' => $userId,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $message->increment('likes_count');
+        }
+
+        return response()->json([
+            'liked'       => !$liked,
+            'likes_count' => max(0, $message->fresh()->likes_count),
+        ]);
     }
 
     // ── Rooms ─────────────────────────────────────────────────────────────────

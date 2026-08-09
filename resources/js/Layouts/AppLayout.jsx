@@ -4,6 +4,7 @@ import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import ProfileSheet from '@/Components/ProfileSheet';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
 import { useEffect, useState, useCallback } from 'react';
+import NewBadgeModal from '@/Components/NewBadgeModal';
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
     RiHome5Line,
@@ -34,6 +35,7 @@ export default function AppLayout({ children }) {
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [cartCount, setCartCount] = useState(0);
+    const [badgeQueue, setBadgeQueue] = useState([]);
 
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
@@ -59,6 +61,13 @@ export default function AppLayout({ children }) {
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, []);
+
+    useEffect(() => {
+    if (!auth?.user) return;
+    axios.get('/api/badges/new').then(r => {
+        if (r.data?.length) setBadgeQueue(r.data);
+    }).catch(() => {});
+}, [auth?.user]);
 
     // ── Navigation handling ─────────────────────────────────────────────────
     const [optimisticHref, setOptimisticHref] = useState(null);
@@ -656,6 +665,18 @@ export default function AppLayout({ children }) {
                 )}
             </main>
             </div>
+{/* 
+            {badgeQueue.length > 0 && (
+                <NewBadgeModal
+                    badge={badgeQueue[0]}
+                    onClose={() => setBadgeQueue(badgeQueue.slice(1))}
+                />
+            )} */}
+
+            {badgeQueue.length > 0 && (
+    <NewBadgeModal badge={badgeQueue[0]} onClose={() => setBadgeQueue(q => q.slice(1))} />
+)}
+
 
             {showUserMenu && auth?.user && (
                 <ProfileSheet

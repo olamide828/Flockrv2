@@ -465,15 +465,15 @@ public function update(Request $request, Product $product): JsonResponse
     }
 
     public function generateSummary(Request $request): JsonResponse
-    {
-        try {
-            $request->validate([
-                'product_id' => ['required', 'integer', 'exists:products,id'],
-            ]);
+{
+    try {
+        $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+        ]);
 
-            $product = Product::with('seller:id,name,username')->findOrFail($request->product_id);
+        $product = Product::with('seller:id,name,username')->findOrFail($request->product_id);
 
-            $prompt = "Create an engaging ecommerce product summary not more or less than 50 words.
+        $prompt = "Create an engaging ecommerce product summary not more or less than 50 words, based on both the text details AND what you see in the attached image(s).
 
 CRITICAL INSTRUCTION: Return ONLY the summary itself. Do NOT include any introductory phrases, conversational fillers, or meta-commentary. Start directly with the summary content.
 
@@ -481,27 +481,61 @@ Product Name: {$product->name}
 Description: {$product->description}
 Price: {$product->price}";
 
-            $response = Http::timeout(30)->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
-                ['contents' => [['parts' => [['text' => $prompt]]]]]
-            );
+        $parts = [['text' => $prompt]];
 
-            if ($response->status() === 429) {
-                return response()->json(['message' => 'AI summary limit reached. Please try again in a minute.'], 429);
+        // Attach up to 3 product images so Gemini can actually see the item
+        $images = is_array($product->images) ? array_slice($product->images, 0, 3) : [];
+        foreach ($images as $imageUrl) {
+            $imageData = $this->fetchImageAsBase64($imageUrl);
+            if ($imageData) {
+                $parts[] = [
+                    'inline_data' => [
+                        'mime_type' => $imageData['mime'],
+                        'data'      => $imageData['base64'],
+                    ],
+                ];
             }
-
-            $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
-
-            if (!$content) {
-                return response()->json(['message' => 'Gemini request failed.', 'response' => $response->json()], 500);
-            }
-
-            return response()->json(['summary' => trim($content)]);
-
-        } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 500);
         }
+
+        $response = Http::timeout(30)->post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+            ['contents' => [['parts' => $parts]]]
+        );
+
+        if ($response->status() === 429) {
+            return response()->json(['message' => 'AI summary limit reached. Please try again in a minute.'], 429);
+        }
+
+        $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
+
+        if (!$content) {
+            return response()->json(['message' => 'Gemini request failed.', 'response' => $response->json()], 500);
+        }
+
+        return response()->json(['summary' => trim($content)]);
+
+    } catch (\Throwable $e) {
+        return response()->json(['message' => $e->getMessage()], 500);
     }
+}
+
+private function fetchImageAsBase64(string $url): ?array
+{
+    try {
+        $response = Http::timeout(10)->get($url);
+        if ($response->failed()) return null;
+
+        $contentType = $response->header('Content-Type') ?? 'image/jpeg';
+        if (!str_starts_with($contentType, 'image/')) return null;
+
+        return [
+            'mime'   => $contentType,
+            'base64' => base64_encode($response->body()),
+        ];
+    } catch (\Throwable) {
+        return null;
+    }
+}
 
     public function getImages(Product $product): JsonResponse
 {
