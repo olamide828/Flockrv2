@@ -255,9 +255,9 @@ class CartController extends Controller
                     'total'                => max(0, $total),
                     'shipping_address'     => $address->toTerminalFormat(),
                     'delivery_address_id'  => $address->id,
-                    'courier_name'         => $validated['carrier'],
-                    'courier_fee'          => $thisOrderCourierFee,
-                    'terminal_rate_id'     => $validated['rate_id'],
+                    'courier_name'  => $validated['carrier'] ?? null,
+                    'courier_fee'   => $validated['courier_fee'] ?? 0,
+                    'terminal_rate_id' => $validated['rate_id'] ?? null,
                     'estimated_delivery' => $validated['delivery_date'] ?? null,
                 ]);
 
