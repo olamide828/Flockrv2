@@ -157,6 +157,12 @@ class TerminalService
             'estimated_days' => $r['delivery_time'] ?? '2-5 days',
             'pickup_eta'     => $r['pickup_time'] ?? null,
             'carrier_logo'   => $r['carrier_logo'] ?? null,
+            'delivery_date'  => isset($r['delivery_date'])
+                ? \Carbon\Carbon::parse($r['delivery_date'])->format('D, d M Y')
+                : null,
+            'pickup_date'    => isset($r['pickup_date'])
+                ? \Carbon\Carbon::parse($r['pickup_date'])->format('D, d M Y')
+                : null,
         ], $rates);
 
         // Sort cheapest to most expensive so the default selected rate is always the cheapest
@@ -181,13 +187,12 @@ class TerminalService
 
         $packagingId = $this->getDefaultPackagingId();
         $parcelId    = $this->createParcel($parcel, $packagingId);
-        $pickupId    = $this->createAddress($pickup);
-        $deliveryId  = $this->createAddress($delivery);
 
-        // Create draft shipment
+        // Use inline address objects for shipment creation
+        // Address IDs expire quickly and cannot be reused across API calls
         $shipmentResponse = $this->post('/shipments', [
-            'pickup_address'   => $pickupId,
-            'delivery_address' => $deliveryId,
+            'pickup_address'   => $this->buildAddressPayload($pickup),
+            'delivery_address' => $this->buildAddressPayload($delivery),
             'parcel'           => $parcelId,
             'metadata'         => [
                 'order_id'        => $order->id,
@@ -316,6 +321,22 @@ class TerminalService
         }
 
         return $addressId;
+    }
+
+    private function buildAddressPayload(array $addr): array
+    {
+        $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);
+        return [
+            'first_name'     => $nameParts[0],
+            'last_name'      => $nameParts[1] ?? $nameParts[0],
+            'line1'          => substr($addr['address'] ?? $addr['street'] ?? 'N/A', 0, 45),
+            'city'           => $addr['city']    ?? '',
+            'state'          => $addr['state']   ?? '',
+            'country'        => $addr['country'] ?? 'NG',
+            'phone'          => $this->formatPhone($addr['phone'] ?? null),
+            'zip'            => $addr['postal_code'] ?? '000000',
+            'is_residential' => true,
+        ];
     }
 
     private function formatPhone(?string $phone): string

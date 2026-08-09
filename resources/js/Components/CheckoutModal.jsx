@@ -553,7 +553,8 @@ export default function CheckoutModal({
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700 }}>{rate.carrier}</p>
                                             <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{rate.service} · {rate.estimated_days}</p>
-                                            {rate.pickup_eta && <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Pickup: {rate.pickup_eta}</p>}
+                                            {rate.delivery_date && <p style={{ margin: '2px 0 0', color: '#10B981', fontSize: 11, fontWeight: 600 }}>Est. delivery: {rate.delivery_date}</p>}
+                                            {rate.pickup_date && <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Pickup by: {rate.pickup_date}</p>}
                                         </div>
                                         <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                             <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 15 }}>₦{Number(rate.amount).toLocaleString()}</p>
@@ -592,7 +593,7 @@ export default function CheckoutModal({
                                         <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{selectedRate?.carrier} · {selectedRate?.service}</p>
                                         <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{selectedRate?.estimated_days}</p>
                                     </div>
-                                    <span style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14 }}>₦{Number(selectedRate?.amount ?? 0).toLocaleString()}</span>
+                                    <span style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14 }}>₦{selectedRate ? Number(selectedRate.amount || 0).toLocaleString() : '0'}</span>
                                 </div>
 
                                 {/* Coupon */}
@@ -621,7 +622,13 @@ export default function CheckoutModal({
                                 {/* Price breakdown */}
                                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                                     <Row label="Subtotal"            value={'₦' + subtotal.toLocaleString()} />
-                                    <Row label="Courier fee"         value={'₦' + courierFee.toLocaleString()} />
+                                    <Row label="Courier fee"         value={'₦' + (courierFee || 0).toLocaleString()} />
+                                    {selectedRate && selectedRate.delivery_date && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>Est. delivery</span>
+                                            <span style={{ color: '#10B981', fontSize: 12, fontWeight: 600 }}>{selectedRate.delivery_date}</span>
+                                        </div>
+                                    )}
                                     <Row label="Flockr delivery fee" value={'₦' + platformFee.toLocaleString()} hint="Covers logistics management" />
                                     {couponApplied && (
                                         <Row label={'Promo (' + couponApplied.code + ')'} value={'-₦' + discount.toLocaleString()} valueColor="#10B981" />

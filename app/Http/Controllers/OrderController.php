@@ -166,6 +166,7 @@ $platformFee = round($subtotal * $feePercent / 100, 2);
                 'platform_fee'     => $platformFee,
                 'total'            => $total,
                 'shipping_address' => $validated['shipping_address'] ?? null,
+                'estimated_delivery' => $validated['delivery_date'] ?? null,
             ]);
 
             OrderItem::create([

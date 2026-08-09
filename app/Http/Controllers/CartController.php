@@ -258,6 +258,7 @@ class CartController extends Controller
                     'courier_name'         => $validated['carrier'],
                     'courier_fee'          => $thisOrderCourierFee,
                     'terminal_rate_id'     => $validated['rate_id'],
+                    'estimated_delivery' => $validated['delivery_date'] ?? null,
                 ]);
 
                 foreach ($sellerItems as $item) {

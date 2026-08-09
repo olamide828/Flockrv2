@@ -18,4 +18,7 @@ export default defineConfig({
     esbuild: {
         jsx: 'automatic',
     },
+    build: {
+    target: 'es2015',
+    },
 });
