@@ -209,11 +209,21 @@ class AdminController extends Controller
         return response()->json(['message' => "Video {$action}."]);
     }
 
-    /** POST /api/admin/orders/{order}/refund */
+    /**
+     * POST /api/admin/orders/{order}/refund
+     *
+     * Now reverses the seller's wallet credit when the order had been paid —
+     * previously this only flipped the status, letting the seller keep funds
+     * for an order marked refunded. See Order::reverseSellerCredit().
+     */
     public function refundOrder(Order $order): JsonResponse
     {
-        $order->update(['status' => 'refunded']);
-        return response()->json(['message' => "Order {$order->reference} marked as refunded."]);
+        DB::transaction(function () use ($order) {
+            $order->update(['status' => 'refunded']);
+            $order->reverseSellerCredit("Order {$order->reference} refunded by admin");
+        });
+
+        return response()->json(['message' => "Order {$order->reference} marked as refunded and seller balance adjusted."]);
     }
 
     /** POST /api/admin/orders/{order}/resolve */
@@ -273,62 +283,6 @@ class AdminController extends Controller
 
         return response()->json(compact('revenueByDay', 'topSellers', 'topProducts', 'userGrowth'));
     }
-
-//     public function approvePayout(
-//         \App\Models\Payout $payout,
-//         \App\Services\PaystackService $paystack,
-//     ): JsonResponse {
-//         if ($payout->status !== 'pending') {
-//             return response()->json(['message' => 'This payout is not pending.'], 422);
-//         }
- 
-//         $seller = $payout->seller;
- 
-//         if (!$seller->paystack_recipient_code) {
-//             return response()->json(['message' => 'Seller has no Paystack recipient code. They need to reconnect their bank.'], 422);
-//         }
- 
-//         try {
-//             $transfer = $paystack->initiateTransfer(
-//                 recipientCode: $seller->paystack_recipient_code,
-//                 amount:        $payout->amount,
-//                 reason:        "Flockr payout to @{$seller->username}",
-//                 reference:     'FLK-PAY-' . $payout->id,
-//             );
- 
-//             $payout->update([
-//     'status'    => 'paid',
-//     'reference' => $transfer['reference'] ?? null,
-//     'paid_at'   => now(),
-// ]);
-
-// // Notify seller
-// $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
-
-//             return response()->json([
-//                 'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
-//                 'transfer' => $transfer,
-//             ]);
- 
-//         } catch (\Throwable $e) {
-//             // Re-credit wallet if transfer fails
-//             $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
-//             $balanceBefore = $lastTx?->balance_after ?? 0;
- 
-//             \App\Models\WalletTransaction::create([
-//                 'user_id'       => $seller->id,
-//                 'amount'        => $payout->amount,
-//                 'type'          => 'credit',
-//                 'source'        => 'payout_reversal',
-//                 'description'   => 'Payout failed — funds returned to wallet',
-//                 'balance_after' => $balanceBefore + $payout->amount,
-//             ]);
- 
-//             $payout->update(['status' => 'failed']);
- 
-//             return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
-//         }
-//     }
 
 public function approvePayout(
     \App\Models\Payout $payout,
@@ -514,6 +468,13 @@ public function updateOrderStatus(Request $request, Order $order): JsonResponse
     }
     
     $order->update($updates);
+
+    // If an admin manually flips a paid order to cancelled/refunded from here,
+    // reverse the seller credit the same way the dedicated refund endpoint does.
+    if (in_array($request->status, ['cancelled', 'refunded'])) {
+        $order->reverseSellerCredit("Order {$order->reference} marked {$request->status} by admin");
+    }
+
     return response()->json(['message' => "Order marked as {$request->status}.", 'status' => $order->status]);
 }
  

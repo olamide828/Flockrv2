@@ -421,26 +421,35 @@ public function getTrackingEvents(Order $order): JsonResponse
     /**
      * POST /api/orders/{order}/cancel
      */
-    public function cancel(Order $order, Request $request): JsonResponse
-    {
-        abort_unless($order->buyer_id === Auth::id(), 403);
+    // Replace the existing cancel() method with this:
+public function cancel(Order $order, Request $request): JsonResponse
+{
+    abort_unless($order->buyer_id === Auth::id(), 403);
 
-        if (!$order->canBeCancelled()) {
-            return response()->json(['message' => 'This order cannot be cancelled.'], 422);
-        }
+    if (!$order->canBeCancelled()) {
+        return response()->json(['message' => 'This order cannot be cancelled.'], 422);
+    }
 
+    DB::transaction(function () use ($order, $request) {
         $order->update([
             'status'              => 'cancelled',
             'cancellation_reason' => $request->input('reason', 'Cancelled by buyer'),
         ]);
 
-        Coupon::where('used_on_order_id', $order->id)
-            ->whereNull('used_at')
-            ->update(['used_on_order_id' => null]);
+        // If the order had already been paid (canBeCancelled() allows
+        // cancelling a 'paid' order, not just 'pending'), the seller's
+        // wallet was already credited via markAsPaid(). Reverse that now —
+        // previously this silently let the seller keep funds for an order
+        // the buyer just cancelled.
+        $order->reverseSellerCredit("Order {$order->reference} cancelled by buyer");
+    });
 
-        return response()->json(['message' => 'Order cancelled.']);
-    }
+    Coupon::where('used_on_order_id', $order->id)
+        ->whereNull('used_at')
+        ->update(['used_on_order_id' => null]);
 
+    return response()->json(['message' => 'Order cancelled.']);
+}
     public function apiShow(Order $order): JsonResponse
     {
         $userId = Auth::id();

@@ -26,7 +26,7 @@ class SafetyController extends Controller
         abort_unless($isParticipant, 403, 'Not a participant in this conversation.');
     }
 
-    /** POST /api/safety/off-platform-warning */
+    /** POST /safety/off-platform-warning */
     public function recordWarning(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -50,16 +50,22 @@ class SafetyController extends Controller
             ->where('action', 'continued')
             ->count();
 
-        if ($validated['action'] === 'shown') {
-            $shownCount = OffPlatformWarning::where('seller_id', $validated['seller_id'])
-                ->where('action', 'shown')
+        // Flag threshold is based on "continued" clicks — real evidence that a
+        // buyer stayed in a risky conversation after being warned — not just
+        // on how many times the sheet was shown. See recordWarning() for why:
+        // "shown" alone is too noisy (one buyer discussing bank-adjacent topics
+        // repeatedly, or the AI layer catching soft signals, would otherwise
+        // flag a seller nobody actually convinced to leave the platform).
+        if ($validated['action'] === 'continued') {
+            $totalContinuedForSeller = OffPlatformWarning::where('seller_id', $validated['seller_id'])
+                ->where('action', 'continued')
                 ->count();
 
-            if ($shownCount >= self::SELLER_FLAG_THRESHOLD) {
+            if ($totalContinuedForSeller >= self::SELLER_FLAG_THRESHOLD) {
                 $user = User::find($validated['seller_id']);
                 if ($user && !$user->is_flagged_for_review) {
                     $user->update(['is_flagged_for_review' => true, 'flagged_at' => now()]);
-                    Log::warning("User #{$user->id} flagged for review — {$shownCount} off-platform payment warnings triggered.");
+                    Log::warning("User #{$user->id} flagged for review — {$totalContinuedForSeller} off-platform warnings were continued past.");
                 }
             }
         }
@@ -70,7 +76,7 @@ class SafetyController extends Controller
         ]);
     }
 
-    /** GET /api/safety/conversations/{conversation}/status */
+    /** GET /safety/conversations/{conversation}/status */
     public function conversationStatus(int $conversationId): JsonResponse
     {
         $this->assertParticipant($conversationId);
@@ -85,7 +91,7 @@ class SafetyController extends Controller
         ]);
     }
 
-    /** GET /api/safety/seller-info/{seller} */
+    /** GET /safety/seller-info/{seller} */
     public function sellerInfo(int $seller): JsonResponse
     {
         $user = User::select('id', 'name', 'username', 'avatar', 'is_verified', 'created_at')
@@ -101,16 +107,7 @@ class SafetyController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/safety/classify-message
-     *
-     * Second-layer detection for off-platform payment solicitation that the
-     * keyword list doesn't literally match — obfuscated spelling, indirect
-     * phrasing, etc. Only called by the frontend when a message contains a
-     * "soft signal" (payment-adjacent words or a long digit run) but missed
-     * the keyword regex, so this stays cheap — most ordinary chat messages
-     * never reach this endpoint at all.
-     */
+    /** POST /safety/classify-message */
     public function classifyMessage(Request $request): JsonResponse
     {
         $validated = $request->validate([

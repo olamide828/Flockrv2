@@ -22,20 +22,23 @@ class SellerController extends Controller
         $seller = Auth::user();
         $period = 30; 
 
-        $stats = [
-            'revenue' => Order::forSeller($seller->id)->paid()
-                ->where('created_at', '>=', now()->subDays($period))
-                ->sum('total'),
-            'orders_count' => Order::forSeller($seller->id)->paid()
-                ->where('created_at', '>=', now()->subDays($period))
-                ->count(),
-            
-'views_count' => $seller->videos()->sum('views_count'),
-            'followers_count' => $seller->followers_count,
-            'revenue_change' => $this->changePercent($seller->id, 'revenue', $period),
-            'orders_change' => $this->changePercent($seller->id, 'orders', $period),
-        ];
+$stats = [
+    'revenue' => Order::forSeller($seller->id)
+        ->whereNotNull('paid_at')
+        ->where('status', '!=', 'refunded')
+        ->where('created_at', '>=', now()->subDays($period))
+        ->sum('total'),
+    'orders_count' => Order::forSeller($seller->id)
+        ->whereNotNull('paid_at')
+        ->where('status', '!=', 'refunded')
+        ->where('created_at', '>=', now()->subDays($period))
+        ->count(),
 
+    'views_count' => $seller->videos()->sum('views_count'),
+    'followers_count' => $seller->followers_count,
+    'revenue_change' => $this->changePercent($seller->id, 'revenue', $period),
+    'orders_change' => $this->changePercent($seller->id, 'orders', $period),
+];
 
 
 
@@ -493,21 +496,29 @@ return Inertia::render('Seller/Dashboard', compact(
         return collect($rows)->pluck('id');
     }
 
-    private function changePercent(int $sellerId, string $metric, int $days): float
-    {
-        $current = Order::forSeller($sellerId)->paid()->where('created_at', '>=', now()->subDays($days));
-        $previous = Order::forSeller($sellerId)->paid()
-            ->whereBetween('created_at', [now()->subDays($days * 2), now()->subDays($days)]);
+  
+private function changePercent(int $sellerId, string $metric, int $days): float
+{
+    $current = Order::forSeller($sellerId)
+        ->whereNotNull('paid_at')
+        ->where('status', '!=', 'refunded')
+        ->where('created_at', '>=', now()->subDays($days));
 
-        [$cur, $prev] = match ($metric) {
-            'revenue' => [$current->sum('total'), $previous->sum('total')],
-            default => [$current->count(), $previous->count()],
-        };
+    $previous = Order::forSeller($sellerId)
+        ->whereNotNull('paid_at')
+        ->where('status', '!=', 'refunded')
+        ->whereBetween('created_at', [now()->subDays($days * 2), now()->subDays($days)]);
 
-        if ($prev == 0)
-            return $cur > 0 ? 100 : 0;
-        return round((($cur - $prev) / $prev) * 100, 1);
-    }
+    [$cur, $prev] = match ($metric) {
+        'revenue' => [$current->sum('total'), $previous->sum('total')],
+        default => [$current->count(), $previous->count()],
+    };
+
+    if ($prev == 0)
+        return $cur > 0 ? 100 : 0;
+    return round((($cur - $prev) / $prev) * 100, 1);
+}
+
 
     public function requestPayout(Request $request): JsonResponse
     {

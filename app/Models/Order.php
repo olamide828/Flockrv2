@@ -219,4 +219,42 @@ class Order extends Model
     {
         return in_array($this->status, ['pending', 'paid', 'confirmed']);
     }
+
+    /**
+ * Reverse the wallet credit the seller received when this order was paid.
+ * Call this any time a PAID order transitions to a state where the seller
+ * should no longer keep the funds (refund, post-payment cancellation).
+ * Safe to call even if the order was never paid — it's a no-op then.
+ */
+public function reverseSellerCredit(string $reason): void
+{
+    if (!$this->paid_at) {
+        return; // never credited in the first place — nothing to reverse
+    }
+
+    // Guard against double-reversal if this is somehow called twice
+    $alreadyReversed = \App\Models\WalletTransaction::where('user_id', $this->seller_id)
+        ->where('order_id', $this->id)
+        ->where('source', 'refund')
+        ->exists();
+
+    if ($alreadyReversed) {
+        return;
+    }
+
+    $sellerAmount = $this->total - $this->platform_fee;
+    $lastTx = \App\Models\WalletTransaction::where('user_id', $this->seller_id)->latest('id')->first();
+    $balanceBefore = $lastTx?->balance_after ?? 0;
+
+    \App\Models\WalletTransaction::create([
+        'user_id'       => $this->seller_id,
+        'amount'        => $sellerAmount,
+        'type'          => 'debit',
+        'source'        => 'refund',
+        'order_id'      => $this->id,
+        'description'   => $reason,
+        'balance_after' => $balanceBefore - $sellerAmount,
+    ]);
+}
+
 }

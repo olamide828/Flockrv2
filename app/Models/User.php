@@ -185,9 +185,20 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     public function getWalletBalanceAttribute(): float
-    {
-        return (float) ($this->walletTransactions()->latest()->value('balance_after') ?? 0);
-    }
+{
+    // latest() alone only orders by created_at, which has second-level
+    // precision — ties (e.g. from multi-seller cart checkouts crediting
+    // several WalletTransaction rows in the same second) can resolve in
+    // either direction, sometimes surfacing an OLDER balance_after and
+    // making the displayed balance look like it dropped. id DESC as a
+    // tiebreaker guarantees true insertion order regardless of timestamp.
+    return (float) (
+        $this->walletTransactions()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->value('balance_after') ?? 0
+    );
+}
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
