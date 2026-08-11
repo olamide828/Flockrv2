@@ -227,6 +227,13 @@ class CartController extends Controller
             $remainingDiscount = $couponDiscount;
 
             foreach ($grouped as $sellerId => $sellerItems) {
+
+                 if ($sellerId === Auth::id()) {
+        return response()->json([
+            'message' => 'You cannot purchase your own products.',
+        ], 422);
+    }
+
                 $subtotal    = $sellerItems->sum(fn($i) => $i->product->price * $i->quantity);
                 $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
 

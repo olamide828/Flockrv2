@@ -115,6 +115,13 @@ class OrderController extends Controller
         ]);
 
         $product = Product::active()->inStock()->findOrFail($validated['product_id']);
+
+        if ($product->seller_id === Auth::id()) {
+    return response()->json([
+        'message' => 'You cannot purchase your own product.',
+    ], 422);
+}
+
         $qty     = $validated['quantity'];
 
         if ($product->stock_quantity < $qty) {
@@ -123,7 +130,7 @@ class OrderController extends Controller
 
         // Clean subtotal — no SKU reference
         $subtotal            = $product->price * $qty;
-        $courierFee          = (float) ($validated['courier_fee'] ?? 0);
+        $courierFee          = (float) ($validated['courier_fee'] ?? $product->shipping_fee ?? 0);
         $deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
         $feePercent = $product->seller->hasActiveSubscription()
     ? config('flockr.pro_platform_fee_percent', 3)
@@ -158,16 +165,22 @@ $platformFee = round($subtotal * $feePercent / 100, 2);
             $total, $coupon, $validated
         ) {
             $order = Order::create([
-                'buyer_id'         => Auth::id(),
-                'seller_id'        => $product->seller_id,
-                'video_id'         => $validated['video_id'] ?? null,
-                'subtotal'         => $subtotal,
-                'shipping_fee'     => $product->shipping_fee,
-                'platform_fee'     => $platformFee,
-                'total'            => $total,
-                'shipping_address' => $validated['shipping_address'] ?? null,
-                'estimated_delivery' => $validated['delivery_date'] ?? null,
-            ]);
+    'buyer_id'            => Auth::id(),
+    'seller_id'           => $product->seller_id,
+    'video_id'            => $validated['video_id'] ?? null,
+    'subtotal'            => $subtotal,
+    'shipping_fee'        => (float) ($validated['courier_fee'] ?? $product->shipping_fee ?? 0),
+    'courier_fee'         => (float) ($validated['courier_fee'] ?? 0),
+    'courier_name'        => $validated['carrier'] ?? null,
+    'terminal_rate_id'    => $validated['rate_id'] ?? null,
+    'delivery_address_id' => $validated['address_id'] ?? null,
+    'platform_fee'        => $platformFee,
+    'total'               => $total,
+    'shipping_address'    => $validated['address_id']
+        ? \App\Models\UserAddress::find($validated['address_id'])?->toTerminalFormat()
+        : ($validated['shipping_address'] ?? null),
+    'estimated_delivery'  => $validated['delivery_date'] ?? null,
+]);
 
             OrderItem::create([
                 'order_id'     => $order->id,

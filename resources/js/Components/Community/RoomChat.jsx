@@ -79,6 +79,13 @@ useEffect(() => {
         ? { ...m, is_deleted: true, body: null, media_url: null, media_type: null }
         : m))
     })
+
+    channel.listen('.RoomMessageLiked', (e) => {
+      setMessages(p => p.map(m => m.id === e.message_id
+        ? { ...m, likes_count: e.likes_count }
+        : m))
+    })
+
     channel.listenForWhisper('typing', (e) => {
       if (e.user_id === auth?.user?.id) return
       setTypingUsers(prev => ({ ...prev, [e.user_id]: e.name || 'Someone' }))
@@ -96,6 +103,7 @@ useEffect(() => {
       Object.values(typingTimersRef.current).forEach(clearTimeout)
       channel.stopListening('.RoomMessageSent')
       channel.stopListening('.RoomMessageDeleted')
+      channel.stopListening('.RoomMessageLiked')
       channel.stopListeningForWhisper('typing')
     }
   }, [room.id])

@@ -599,9 +599,15 @@ class CommunityController extends Controller
             $message->increment('likes_count');
         }
 
+        $freshCount = max(0, $message->fresh()->likes_count);
+
+        try {
+            broadcast(new \App\Events\RoomMessageLiked($room->id, $message->id, $freshCount))->toOthers();
+        } catch (\Throwable) {}
+
         return response()->json([
             'liked'       => !$liked,
-            'likes_count' => max(0, $message->fresh()->likes_count),
+            'likes_count' => $freshCount,
         ]);
     }
 

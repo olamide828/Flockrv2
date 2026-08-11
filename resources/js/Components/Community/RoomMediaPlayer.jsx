@@ -48,15 +48,21 @@ export default function RoomMediaPlayer({ src, maxHeight = 220 }) {
   }
 
   return (
-    <div ref={wrapRef} onClick={togglePlay} style={{ position:'relative', cursor:'pointer', background:'#000', width:'100%' }}>
+    <div ref={wrapRef} onClick={togglePlay} style={{ position:'relative', cursor:'pointer', background:'#000', width:'100%', height:'100%' }}>
       <video
         ref={videoRef}
         src={src}
         muted={muted}
         playsInline
         loop
-        style={{ width:'100%', maxHeight: isFullscreen ? '100vh' : maxHeight, objectFit: isFullscreen ? 'contain' : 'cover', display:'block' }}
-      />
+style={{
+          width: isFullscreen ? 'auto' : '100%',
+          height: isFullscreen ? 'auto' : '100%',
+          maxHeight: isFullscreen ? '100vh' : 'none',
+          maxWidth: '100%',
+          objectFit: isFullscreen ? 'contain' : 'cover',
+          display: 'block',
+        }}      />
 
       <div style={{ position:'absolute', top:8, right:8, display:'flex', gap:6, zIndex:2 }}>
         <button onClick={toggleMute} style={{ width:28, height:28, borderRadius:'50%', background:'rgba(0,0,0,0.55)', backdropFilter:'blur(6px)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>

@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
   RiHeartLine, RiHeartFill, RiChat1Line, RiMoreLine, RiDeleteBinLine,
   RiShareForwardLine, RiEyeLine, RiAlertLine,
-  RiProhibitedLine, RiInformationLine, RiFullscreenLine,
+  RiProhibitedLine, RiInformationLine, RiFullscreenLine, RiCloseLine,
 } from 'react-icons/ri'
 import Av from './Av'
 import FollowButton from './FollowButton'
@@ -16,8 +16,42 @@ import { timeAgo, fmtCount } from './Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 
+function PostMoreSheet({ onClose, canDelete, onDelete, notMine, onBlock, onReport, username }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 198, background: 'rgba(0,0,0,0.55)' }} />
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 199, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 14px' }}>
+          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Post Options</span>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <RiCloseLine size={18} />
+          </button>
+        </div>
+
+        {canDelete ? (
+          <button onClick={onDelete} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 700 }}>
+            <RiDeleteBinLine size={18} /> Delete post
+          </button>
+        ) : notMine && (
+          <>
+            <button onClick={onBlock} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <RiProhibitedLine size={18} /> Block @{username}
+            </button>
+            <button onClick={onReport} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600 }}>
+              <RiAlertLine size={18} color="rgba(255,255,255,0.5)" /> Report post
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function PostCard({
-  post, auth, onDelete, onLike, onDismiss, onBlockAuthor, onReport, showToast,
+  post, auth, onDelete, onLike, onBlockAuthor, onReport, showToast,
   isFollowingAuthor, onFollowChange, onViewed, onOpenLightbox,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -32,9 +66,8 @@ export default function PostCard({
 
   const cardRef = useRef(null)
   const viewedRef = useRef(false)
-  const likeBtnRef = useRef(null)
   const lastMediaTapRef = useRef(0)
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
+  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
 
   useEffect(() => {
     if (viewedRef.current || !cardRef.current) return
@@ -57,8 +90,8 @@ export default function PostCard({
   }, [post.id, onViewed])
 
   const handleLikeClick = (e) => { e.stopPropagation(); e.preventDefault(); onLike(post) }
-  const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(o => !o) }
-  const handleDelClick  = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); onDelete(post) }
+  const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(true) }
+  const handleDelClick  = () => { setMenuOpen(false); onDelete(post) }
   const handleShareClick = (e) => { e.stopPropagation(); e.preventDefault(); setShowShare(true) }
 
   const openViewers = (e) => {
@@ -85,6 +118,17 @@ export default function PostCard({
       style={{ display:'flex', gap:12, padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}>
       {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
       {showViewers && <PostViewersSheet postId={post.id} onClose={() => setShowViewers(false)} />}
+      {menuOpen && (
+        <PostMoreSheet
+          onClose={() => setMenuOpen(false)}
+          canDelete={canDelete}
+          onDelete={handleDelClick}
+          notMine={notMine}
+          username={post.user?.username}
+          onBlock={() => { setMenuOpen(false); onBlockAuthor(post) }}
+          onReport={() => { setMenuOpen(false); onReport(post) }}
+        />
+      )}
       <LikeAnimationOverlay burst={burst} />
 
       <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block', flexShrink:0 }}>
@@ -112,39 +156,9 @@ export default function PostCard({
           </div>
 
           {(canDelete || notMine) && (
-            <div style={{ position:'relative' }}>
-              <button onClick={handleMenuClick} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', padding:4, borderRadius:'50%', display:'flex' }}>
-                <RiMoreLine size={18} />
-              </button>
-              {menuOpen && (
-                <>
-                  <div onClick={e => { e.stopPropagation(); setMenuOpen(false) }} style={{ position:'fixed', inset:0, zIndex:98 }} />
-                  <div style={{ position:'absolute', top:28, right:0, zIndex:99, background:'#1a1a1a', border:'1px solid rgba(255,255,255,0.1)', borderRadius:14, overflow:'hidden', minWidth:170, boxShadow:'0 8px 32px rgba(0,0,0,0.7)' }}>
-                    {canDelete && (
-                      <button onClick={handleDelClick} style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:13, fontWeight:600 }}>
-                        <RiDeleteBinLine size={16} /> Delete post
-                      </button>
-                    )}
-                    {!canDelete && notMine && (
-                      <>
-                        <button onClick={e => { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); onDismiss(post) }}
-                          style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:600, borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-                          <RiEyeLine size={16} color="rgba(255,255,255,0.5)" /> Not interested
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); onBlockAuthor(post) }}
-                          style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:13, fontWeight:600, borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-                          <RiProhibitedLine size={16} /> Block @{post.user?.username}
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); onReport(post) }}
-                          style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:600 }}>
-                          <RiAlertLine size={16} color="rgba(255,255,255,0.5)" /> Report post
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+            <button onClick={handleMenuClick} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', padding:4, borderRadius:'50%', display:'flex' }}>
+              <RiMoreLine size={18} />
+            </button>
           )}
         </div>
 
@@ -186,7 +200,7 @@ export default function PostCard({
         )}
 
         <div style={{ display:'flex', alignItems:'center', gap:2, marginTop:4, marginLeft:-8 }}>
-          <button ref={likeBtnRef} onClick={handleLikeClick} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
+          <button onClick={handleLikeClick} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
             {post.is_liked_by_me ? <RiHeartFill size={20} /> : <RiHeartLine size={20} />}
             {post.likes_count > 0 && <span>{fmtCount(post.likes_count)}</span>}
           </button>
@@ -232,4 +246,4 @@ export default function PostCard({
       </div>
     </div>
   )
-}
+} 
