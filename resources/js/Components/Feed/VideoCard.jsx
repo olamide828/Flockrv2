@@ -15,9 +15,9 @@ import ReportVideoModal from '../../Pages/Video/ReportVideoModal'
 import CommentSheet from '../Video/CommentSheet'
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge'
+import VideoSeekBar from '@/Components/VideoSeekBar'
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
-import { useVideoSeek } from '@/lib/useVideoSeek'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 
 const fmt = (n) => {
@@ -214,7 +214,6 @@ export default function VideoCard({ video, isActive }) {
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
   const [duration, setDuration] = useState(0)
-  const seekBarRef = useRef(null)
   const [progress,      setProgress]      = useState(0)
   const [loading,       setLoading]       = useState(true)
   const [liked,         setLiked]         = useState(video.is_liked ?? false)
@@ -253,16 +252,7 @@ export default function VideoCard({ video, isActive }) {
     return () => { document.body.style.overflow = '' }
   }, [showReportVideo])
 
-  const { download, dlState } = useVideoDownload(video)
-  const { handleSeekDown, handleSeekMove, handleSeekUp } = useVideoSeek(
-    () => videoRef.current,
-    seekBarRef,
-    {
-      onSeeking: setProgress,
-      onSeekStart: () => { isSeeking.current = true; clearTimeout(window._seekTimer) },
-      onSeekEnd: () => { window._seekTimer = setTimeout(() => { isSeeking.current = false }, 1500) },
-    }
-  )
+  const { download, dlState } = useVideoDownload(video);
 
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
@@ -326,12 +316,6 @@ export default function VideoCard({ video, isActive }) {
     }
   }, [isActive])
 
-  useEffect(() => {
-    const el = videoRef.current; if (!el) return
-    const onTime = () => { if (el.duration) setProgress((el.currentTime / el.duration) * 100) }
-    el.addEventListener('timeupdate', onTime)
-    return () => el.removeEventListener('timeupdate', onTime)
-  }, [])
 
   useEffect(() => {
     const sheetOpen = showComments || showProducts || showShare || showMoreSheet
@@ -486,17 +470,13 @@ export default function VideoCard({ video, isActive }) {
         </div>
       )}
 
-      <div 
-        ref={seekBarRef}
-        onPointerDown={e => { e.stopPropagation(); handleSeekDown(e) }}
-        onPointerMove={e => { e.stopPropagation(); handleSeekMove(e) }}
-        onPointerUp={e => { e.stopPropagation(); handleSeekUp(e) }}
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 28, zIndex: 25, cursor: 'pointer', display: 'flex', alignItems: 'flex-end', touchAction: 'none' }}
-      >
-        <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.2)' }}>
-          <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.08s linear' }} />
-        </div>
-      </div>
+   <VideoSeekBar
+        videoRef={videoRef}
+        enabled={isActive}
+        onProgress={setProgress}
+        onSeekStart={() => { isSeeking.current = true; clearTimeout(window._seekTimer) }}
+        onSeekEnd={() => { window._seekTimer = setTimeout(() => { isSeeking.current = false }, 1500) }}
+      />
 
       <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }} onClick={e => e.stopPropagation()}>
         <div style={{ position: 'relative', marginBottom: 4 }}>

@@ -554,6 +554,27 @@ class CommunityController extends Controller
         return response()->json($this->serialiseMessage($msg), 201);
     }
 
+    public function showRoomMedia(string $roomSlug, string $username, int $messageId)
+    {
+        $room = Room::where('slug', $roomSlug)->firstOrFail();
+
+        $message = RoomMessage::with('user:id,name,username,avatar')
+            ->where('id', $messageId)
+            ->where('room_id', $room->id)
+            ->whereNotNull('media_url')
+            ->where('is_deleted', false)
+            ->firstOrFail();
+
+        abort_unless($message->user && $message->user->username === $username, 404);
+
+        return view('room-media-share', [
+            'room'      => $room,
+            'message'   => $message,
+            'shareUrl'  => url("/{$room->slug}/@{$username}/media/{$messageId}"),
+            'appUrl'    => url('/community'),
+        ]);
+    }
+
     /**
      * Soft-marks the message as deleted instead of removing the row, so every
      * client (including ones that already loaded it) can render a

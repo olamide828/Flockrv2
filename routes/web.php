@@ -67,6 +67,10 @@ Route::post('/email/verification-notification', [AuthController::class, 'sendVer
     return redirect('/community?invite=' . $code);
 })->name('community.room.invite');
 
+Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::class, 'showRoomMedia'])
+    ->where('messageId', '[0-9]+')
+    ->name('room.media.show');
+
     Route::get('/dashboard', [UserDashboardController::class, 'index'])
     ->middleware('role:buyer');
 

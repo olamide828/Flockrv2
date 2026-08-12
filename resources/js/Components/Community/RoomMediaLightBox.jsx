@@ -98,7 +98,7 @@ function MoreSheet({ onClose, onReply, onDelete, canDelete, mediaUrl }) {
   )
 }
 
-export default function RoomMediaLightbox({ mediaMessages, startIndex, onClose, onReply, onDelete, canDeleteMsg, onLike }) {
+export default function RoomMediaLightbox({ room, mediaMessages, startIndex, onClose, onReply, onDelete, canDeleteMsg, onLike }) {
   const [index, setIndex] = useState(startIndex)
   const [muted, setMuted] = useState(() => !hasUserInteracted())
   const [progress, setProgress] = useState(0)
@@ -195,10 +195,10 @@ export default function RoomMediaLightbox({ mediaMessages, startIndex, onClose, 
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: '#000', touchAction: 'manipulation' }}>
-      {showMore && (
+     {showMore && (
         <MoreSheet
           onClose={() => setShowMore(false)}
-          mediaUrl={activeMsg.media_url}
+          mediaUrl={`${window.location.origin}/${room.slug}/@${activeMsg.user?.username}/media/${activeMsg.id}`}
           canDelete={canDeleteMsg(activeMsg)}
           onReply={() => { setShowMore(false); onReply(activeMsg); onClose() }}
           onDelete={() => { setShowMore(false); onDelete(activeMsg); }}

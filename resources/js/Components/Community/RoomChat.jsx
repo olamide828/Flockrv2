@@ -498,6 +498,7 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
 
       {lightboxIndex !== null && (
         <RoomMediaLightbox
+          room={room}
           mediaMessages={mediaMessages}
           startIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}

@@ -19,14 +19,14 @@ import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimati
 function PostMoreSheet({ onClose, canDelete, onDelete, notMine, onBlock, onReport, username }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 198, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 199, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+      <div onClick={(e) => { e.stopPropagation(); onClose() }} style={{ position: 'fixed', inset: 0, zIndex: 198, background: 'rgba(0,0,0,0.55)' }} />
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 199, background: 'rgba(18,18,18,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 16px 14px' }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Post Options</span>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={(e) => { e.stopPropagation(); onClose() }} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RiCloseLine size={18} />
           </button>
         </div>
@@ -246,4 +246,4 @@ export default function PostCard({
       </div>
     </div>
   )
-} 
+}

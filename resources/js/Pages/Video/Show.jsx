@@ -34,6 +34,7 @@ import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import VideoSeekBar from '@/Components/VideoSeekBar'
 import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay';
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
 import { useVideoSeek } from '@/lib/useVideoSeek';
@@ -359,7 +360,6 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
 function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const { auth } = usePage().props;
     const videoRef        = useRef(null);
-    const progressBarRef  = useRef(null);
     const watchStartRef   = useRef(null);
     const viewTimerRef    = useRef(null);
     const tapTimerRef     = useRef(null);
@@ -447,12 +447,6 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         }
     }, [isActive])
 
-    useEffect(() => {
-        const el = videoRef.current; if (!el) return;
-        const onTime = () => { if (el.duration) setProgress((el.currentTime / el.duration) * 100); };
-        el.addEventListener('timeupdate', onTime);
-        return () => el.removeEventListener('timeupdate', onTime);
-    }, []);
 
     useEffect(() => {
         const handleKey = (e) => {
@@ -498,12 +492,6 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             }, 300);
         }
     }, [liked, mobileSheet, showSearch, triggerLikeAnim, handleLike]);
-
-    const { handleSeekDown, handleSeekMove, handleSeekUp } = useVideoSeek(
-        () => videoRef.current,
-        progressBarRef,
-        { onSeeking: setProgress }
-    );
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -634,29 +622,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     </div>
                 )}
 
-                <div
-                    ref={progressBarRef}
-                    onPointerDown={e => { e.stopPropagation(); handleSeekDown(e) }}
-                    onPointerMove={e => { e.stopPropagation(); handleSeekMove(e) }}
-                    onPointerUp={e => { e.stopPropagation(); handleSeekUp(e) }}
-                    style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: 24,
-                        zIndex: 40,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        paddingBottom: 4,
-                        touchAction: 'none',
-                    }}
-                >
-                    <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.15)' }}>
-                        <div style={{ height: '100%', background: '#FF6B35', width: `${progress}%`, transition: 'width 0.08s linear' }} />
-                    </div>
-                </div>
+              <VideoSeekBar videoRef={videoRef} enabled={isActive} onProgress={setProgress} />
 
                 {/* Right actions */}
                 <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
