@@ -257,6 +257,8 @@ $hashtags = $request->filled('hashtags')
             'published_at' => now(),
         ]);
 
+        
+
         if ($request->has('text_overlays')) {
     $decoded = json_decode($request->input('text_overlays', '[]'), true);
     if (is_array($decoded) && count($decoded) > 0) {
@@ -267,6 +269,10 @@ $hashtags = $request->filled('hashtags')
         if ($request->filled('duration_seconds')) {
         $video->update(['duration_seconds' => (int) $request->duration_seconds]);
         }
+
+        dispatch(function () use ($video) {
+    app(\App\Services\VideoCategoryTagger::class)->tag($video->fresh());
+});
 
         // After video is activated — notify followers
         $seller = Auth::user();
@@ -579,6 +585,25 @@ Hashtags: " . implode(', ', $hashtags);
         return response()->json(['message' => $e->getMessage()], 500);
     }
 }
+
+private function fetchImageAsBase64(string $url): ?array
+{
+    try {
+        $response = Http::timeout(10)->get($url);
+        if ($response->failed()) return null;
+
+        $contentType = $response->header('Content-Type') ?? 'image/jpeg';
+        if (!str_starts_with($contentType, 'image/')) return null;
+
+        return [
+            'mime'   => $contentType,
+            'base64' => base64_encode($response->body()),
+        ];
+    } catch (\Throwable) {
+        return null;
+    }
+}
+
 
     public function report(Request $request, Video $video): JsonResponse
 {

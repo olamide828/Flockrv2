@@ -173,35 +173,63 @@ class FeedService
     }
 
     private function fetchAffinityMatched($base, array $affinities, int $limit): Collection
-    {
-        if (empty($affinities['categories']) && empty($affinities['sellers'])) {
-            return (clone $base)->orderByDesc('likes_count')->limit($limit)->get();
-        }
+{
+    if (empty($affinities['categories']) && empty($affinities['sellers'])) {
+        return (clone $base)->orderByDesc('likes_count')->limit($limit)->get();
+    }
 
-        $q = clone $base;
+    $q = clone $base;
 
-        if (!empty($affinities['categories'])) {
-            $q->whereHas(
-                'products',
-                fn($pq) =>
-                $pq->whereIn('category_id', array_keys($affinities['categories']))
-            );
-        }
+    if (!empty($affinities['categories'])) {
+        $q->where(function ($inner) use ($affinities) {
+            $inner->whereHas('products', fn ($pq) => $pq->whereIn('category_id', array_keys($affinities['categories'])))
+                  ->orWhereIn('ai_category_id', array_keys($affinities['categories']));
+        });
+    }
 
-        $results = $q->orderByDesc('likes_count')->limit($limit)->get();
+    $results = $q->orderByDesc('likes_count')->limit($limit)->get();
 
-        if ($results->count() < $limit && !empty($affinities['sellers'])) {
-            $extra = (clone $base)
-                ->whereIn('user_id', array_keys($affinities['sellers']))
+    // Not enough direct matches — try adjacent categories before falling back to raw popularity
+    if ($results->count() < $limit && !empty($affinities['categories'])) {
+        $adjacentCatIds = $this->getAdjacentCategoryIds(array_keys($affinities['categories']));
+        if (!empty($adjacentCatIds)) {
+            $adjacent = (clone $base)
                 ->whereNotIn('id', $results->pluck('id'))
-                ->orderByDesc('published_at')
+                ->where(function ($inner) use ($adjacentCatIds) {
+                    $inner->whereHas('products', fn ($pq) => $pq->whereIn('category_id', $adjacentCatIds))
+                          ->orWhereIn('ai_category_id', $adjacentCatIds);
+                })
+                ->orderByDesc('likes_count')
                 ->limit($limit - $results->count())
                 ->get();
-            $results = $results->concat($extra);
+            $results = $results->concat($adjacent);
         }
-
-        return $results;
     }
+
+    if ($results->count() < $limit && !empty($affinities['sellers'])) {
+        $extra = (clone $base)
+            ->whereIn('user_id', array_keys($affinities['sellers']))
+            ->whereNotIn('id', $results->pluck('id'))
+            ->orderByDesc('published_at')
+            ->limit($limit - $results->count())
+            ->get();
+        $results = $results->concat($extra);
+    }
+
+    return $results;
+}
+
+private function getAdjacentCategoryIds(array $categoryIds): array
+{
+    $map = config('category_adjacency');
+    $names = \App\Models\Category::whereIn('id', $categoryIds)->pluck('name', 'id');
+
+    $adjacentNames = collect($categoryIds)
+        ->flatMap(fn ($id) => $map[$names[$id] ?? ''] ?? [])
+        ->unique();
+
+    return \App\Models\Category::whereIn('name', $adjacentNames)->pluck('id')->toArray();
+}
 
     // ── Ranking ───────────────────────────────────────────────────────────────
 
@@ -275,6 +303,11 @@ return $baseScore * $proBoost;
                 }
             }
         }
+
+        if ($video->ai_category_id && !empty($affinities['categories'][$video->ai_category_id])) {
+    $score += min(1.0, $affinities['categories'][$video->ai_category_id]);
+    $hits++;
+}
 
         $hashtags = is_array($video->hashtags) ? $video->hashtags : [];
         foreach ($hashtags as $tag) {
