@@ -179,17 +179,16 @@ export default function MediaLightbox({
   useEffect(() => { if (activeVideoEl) activeVideoEl.muted = muted }, [muted, activeVideoEl])
   useEffect(() => { if (activeVideoEl) activeVideoEl.playbackRate = speed }, [speed, activeVideoEl])
 
-  useEffect(() => {
-    const el = activeVideoEl
-    if (!el) { setProgress(0); return }
+useEffect(() => {
     let raf
     const tick = () => {
-      if (el.duration && !seekingRef.current) setProgress((el.currentTime / el.duration) * 100)
+      const el = videoRefs.current[activeVideoKey]
+      if (el?.duration && !seekingRef.current) setProgress((el.currentTime / el.duration) * 100)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [activeVideoEl, seekingRef])
+  }, [activeVideoKey])
 
   const scrollToPost = (i) => {
     if (i < 0 || i >= posts.length) return

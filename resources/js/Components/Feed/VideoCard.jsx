@@ -406,7 +406,7 @@ export default function VideoCard({ video, isActive }) {
 
       <video
         ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full ?? undefined}
-        muted playsInline preload="metadata"
+        muted playsInline preload={isActive ? 'auto' : 'none'}
         onCanPlay={() => setLoading(false)}
         onPlaying={() => setLoading(false)}
         onLoadedMetadata={e => setDuration(e.target.duration)}

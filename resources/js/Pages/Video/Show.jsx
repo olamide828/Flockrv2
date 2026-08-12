@@ -539,7 +539,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
-                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload="metadata"
+                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
                     onPlaying={() => setLoading(false)}
                onPlay={() => { setPlaying(true); setShowPP(false) }}

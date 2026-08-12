@@ -170,17 +170,16 @@ export default function RoomMediaLightbox({ room, mediaMessages, startIndex, onC
 
   useEffect(() => { if (activeVideoEl) activeVideoEl.muted = muted }, [muted, activeVideoEl])
 
-  useEffect(() => {
-    const el = activeVideoEl
-    if (!el) { setProgress(0); return }
+useEffect(() => {
     let raf
     const tick = () => {
-      if (el.duration && !seekingRef.current) setProgress((el.currentTime / el.duration) * 100)
+      const el = videoRefs.current[activeMsg?.id]
+      if (el?.duration && !seekingRef.current) setProgress((el.currentTime / el.duration) * 100)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [activeVideoEl, seekingRef])
+  }, [activeMsg?.id])
 
   const togglePlay = () => {
     const el = activeVideoEl
