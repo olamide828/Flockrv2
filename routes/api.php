@@ -394,8 +394,15 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
 Route::get('/settings/devices', function (\Illuminate\Http\Request $request) {
     $currentSessionId = $request->session()->getId();
 
-    return \App\Models\LoginHistory::where('user_id', Auth::id())
+    // One row per distinct device (browser+platform+type) — the latest
+    // login from each — instead of a row for every single login event.
+    $latestIds = \App\Models\LoginHistory::where('user_id', Auth::id())
         ->whereNull('revoked_at')
+        ->selectRaw('MAX(id) as id')
+        ->groupBy('browser', 'platform', 'device_type')
+        ->pluck('id');
+
+    return \App\Models\LoginHistory::whereIn('id', $latestIds)
         ->orderByDesc('created_at')
         ->get()
         ->map(fn ($h) => [
