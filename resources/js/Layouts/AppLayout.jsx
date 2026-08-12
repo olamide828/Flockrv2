@@ -5,6 +5,7 @@ import ProfileSheet from '@/Components/ProfileSheet';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
 import { useEffect, useState, useCallback } from 'react';
 import NewBadgeModal from '@/Components/NewBadgeModal';
+import MessageToast from '@/Components/MessageToast'
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
     RiHome5Line,
@@ -36,6 +37,7 @@ export default function AppLayout({ children }) {
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [cartCount, setCartCount] = useState(0);
     const [badgeQueue, setBadgeQueue] = useState([]);
+    const [messageToasts, setMessageToasts] = useState([])
 
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
@@ -61,6 +63,33 @@ export default function AppLayout({ children }) {
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, []);
+
+    useEffect(() => {
+    if (!window.Echo || !auth?.user) return
+
+    const channel = window.Echo.private(`App.Models.User.${auth.user.id}`)
+
+    channel.listen('.NewMessageToast', (e) => {
+        // Suppress if the user is currently viewing THIS conversation in
+        // Inbox.jsx — see the matching line added to Inbox.jsx below.
+        if (window.__flockrActiveConversationId === e.conversation_id) return
+
+        const toastId = `${e.message_id}-${Date.now()}`
+        setMessageToasts(prev => [...prev, { ...e, id: toastId }])
+
+        setTimeout(() => {
+            setMessageToasts(prev => prev.filter(t => t.id !== toastId))
+        }, 6000)
+    })
+
+    return () => channel.stopListening('.NewMessageToast')
+}, [auth?.user?.id])
+
+const dismissToast = (id) => setMessageToasts(prev => prev.filter(t => t.id !== id))
+const replyToToast = (toast) => {
+    dismissToast(toast.id)
+    router.visit(`/inbox?user=${toast.sender.id}`)
+}
 
     useEffect(() => {
     if (!auth?.user) return;
@@ -676,6 +705,12 @@ export default function AppLayout({ children }) {
             {badgeQueue.length > 0 && (
     <NewBadgeModal badge={badgeQueue[0]} onClose={() => setBadgeQueue(q => q.slice(1))} />
 )}
+
+<div style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 12, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
+    {messageToasts.map(t => (
+        <MessageToast key={t.id} toast={t} onReply={replyToToast} onDismiss={dismissToast} />
+    ))}
+</div>
 
 
             {showUserMenu && auth?.user && (

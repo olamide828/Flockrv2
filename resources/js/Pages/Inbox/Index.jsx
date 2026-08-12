@@ -468,6 +468,11 @@ useEffect(() => {
         })
 }, [active?.id])
 
+useEffect(() => {
+    window.__flockrActiveConversationId = active?.id ?? null
+    return () => { window.__flockrActiveConversationId = null }
+}, [active?.id])
+
   useEffect(() => {
     if (!msgSearch) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, msgSearch])
@@ -859,10 +864,19 @@ useEffect(() => {
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                      <p style={{ color: blocked ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 14, fontWeight: unread > 0 ? 700 : 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal' }}>{displayName}</p>
-                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, flexShrink: 0, margin: 0 }}>{timeAgo(conv.last_message?.created_at)}</p>
-                    </div>
+                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+  <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+    <p style={{ color: blocked ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 14, fontWeight: unread > 0 ? 700 : 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal' }}>
+      {displayName}
+    </p>
+    {conv.is_support && (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 7px', borderRadius: 999, background: 'rgba(255,107,53,0.15)', color: '#FF6B35', fontSize: 9, fontWeight: 800, marginLeft: 6, flexShrink: 0 }}>
+       Flockr AI 
+      </span>
+    )}
+  </div>
+  <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, flexShrink: 0, margin: 0 }}>{timeAgo(conv.last_message?.created_at)}</p>
+</div>
                    <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
     {iBlocked ? 'You blocked this user' 
         : blocked ? 'Message unavailable' 
