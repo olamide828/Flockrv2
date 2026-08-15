@@ -573,6 +573,19 @@ useEffect(() => {
         const found = updated.find(c => c.id === active.id)
         return [found, ...updated.filter(c => c.id !== active.id)]
       })
+      if (active?.is_support) {
+    const countAtSend = messages.length + 1
+    setTimeout(() => {
+        setMessages(curr => {
+            if (curr.length <= countAtSend) {
+                axios.get(`/api/conversations/${active.id}/messages`)
+                    .then(({ data }) => setMessages(Array.isArray(data) ? data : (data.data ?? [])))
+                    .catch(() => {})
+            }
+            return curr
+        })
+    }, 6000)
+}
     } catch {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id))
     } finally { setSending(false) }

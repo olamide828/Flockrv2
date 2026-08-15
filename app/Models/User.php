@@ -168,21 +168,26 @@ class User extends Authenticatable implements MustVerifyEmail
      * Is online — PERMANENTLY SAFE against partial selects.
      * Returns false (not null/crash) when last_seen_at was not selected.
      */
-    public function getIsOnlineAttribute(): bool
-    {
-        try {
-            // Use getAttributes() to avoid MissingAttributeException on partial selects
-            $attrs = $this->getAttributes();
-            if (!array_key_exists('last_seen_at', $attrs))
-                return false;
-            $lastSeen = $attrs['last_seen_at'];
-            if (!$lastSeen)
-                return false;
-            return \Carbon\Carbon::parse($lastSeen)->gt(now()->subMinutes(5));
-        } catch (\Throwable) {
-            return false;
+ 
+public function getIsOnlineAttribute(): bool
+{
+    try {
+        $attrs = $this->getAttributes();
+
+        if (array_key_exists('is_flockr_support', $attrs) && $attrs['is_flockr_support']) {
+            return true; // Flockr Support is always available
         }
+
+        if (!array_key_exists('last_seen_at', $attrs))
+            return false;
+        $lastSeen = $attrs['last_seen_at'];
+        if (!$lastSeen)
+            return false;
+        return \Carbon\Carbon::parse($lastSeen)->gt(now()->subMinutes(5));
+    } catch (\Throwable) {
+        return false;
     }
+}
 
     public function getWalletBalanceAttribute(): float
 {
