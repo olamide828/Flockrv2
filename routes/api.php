@@ -246,6 +246,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Badges 
     Route::get('/badges/new', [BadgeController::class, 'newBadges']);
+    Route::get('/badges/roadmap', [BadgeController::class, 'roadmap']);
 
     // Videos
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);

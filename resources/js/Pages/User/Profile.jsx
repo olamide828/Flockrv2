@@ -3,6 +3,7 @@ import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import ProPlansSheet from '@/Components/ProPlansSheet';
+import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import { useState } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -356,6 +357,7 @@ export default function UserProfile({
     const [showReport, setShowReport] = useState(false);
     const [showProSheet, setShowProSheet] = useState(false);
     const [showSubSuccess, setShowSubSuccess] = useState(!!flash?.subscription);
+    const [showBadgeRoadmap, setShowBadgeRoadmap] = useState(false);
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -523,13 +525,15 @@ export default function UserProfile({
         <>
             <Head title={`${profileUser.name} (@${profileUser.username})`} />
 
-            {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
+        {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
-{showSubSuccess && flash?.subscription && (
-    <SubscriptionSuccessSheet subscription={flash.subscription} onClose={() => setShowSubSuccess(false)} />
-)}
+        {showSubSuccess && flash?.subscription && (
+             <SubscriptionSuccessSheet subscription={flash.subscription} onClose={() => setShowSubSuccess(false)} />
+        )}
 
         {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
+
+        {showBadgeRoadmap && <BadgeRoadmapSheet onClose={() => setShowBadgeRoadmap(false)} />}
 
             {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
             <div
@@ -786,6 +790,11 @@ export default function UserProfile({
                                 </div>
                             )}
                             <BadgesDisplay badges={profileUser.badges} />
+                            {isOwnProfile && (
+                                    <button onClick={() => setShowBadgeRoadmap(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#FF6B35', fontSize: 12, fontWeight: 600, padding: 0 }}>
+                                 View all badges & progress →
+                                    </button>
+                            )}
                             <LevelStreakChip gamification={profileUser.gamification} />
                         </div>
                     </div>
@@ -923,6 +932,11 @@ export default function UserProfile({
                                 </div>
                             )}
                             <BadgesDisplay badges={profileUser.badges} />
+                            {isOwnProfile && (
+                                <button onClick={() => setShowBadgeRoadmap(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#FF6B35', fontSize: 12, fontWeight: 600, padding: 0 }}>
+                                    View all badges & progress →
+                                </button>
+                            )}
                             <LevelStreakChip gamification={profileUser.gamification} />
                         </div>
                     )}
