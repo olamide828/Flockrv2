@@ -25,14 +25,17 @@ class BadgeController extends Controller
         return response()->json($unseen->pluck('badge')->values());
     }
 
-    public function roadmap(): JsonResponse
+  public function roadmap(): JsonResponse
 {
     $user = Auth::user();
-    $audience = $user->role === 'seller' ? 'seller' : 'buyer';
+
+    // Show seller badges only to sellers (buyers can't earn them at all),
+    // but ALWAYS show buyer badges to everyone — a seller can still buy.
+    $audiences = $user->role === 'seller' ? ['seller', 'buyer', 'both'] : ['buyer', 'both'];
 
     $earnedIds = UserBadge::where('user_id', $user->id)->pluck('badge_id')->toArray();
 
-    $badges = \App\Models\Badge::whereIn('audience', [$audience, 'both'])->get();
+    $badges = \App\Models\Badge::whereIn('audience', $audiences)->get();
     $progressService = app(\App\Services\BadgeProgressService::class);
 
     return response()->json(

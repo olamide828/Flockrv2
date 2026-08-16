@@ -11,39 +11,43 @@ use Illuminate\Support\Facades\DB;
 class CheckBadges extends Command
 {
     protected $signature = 'badges:check';
-    protected $description = 'Award earned badges to sellers and buyers based on current stats';
+    protected $description = 'Award earned badges to all users, checking both seller and buyer milestones regardless of role';
 
     public function handle(): void
     {
         $badges = Badge::pluck('id', 'key');
+        $sellerAwarded = 0;
+        $buyerAwarded = 0;
 
-        User::where('role', 'seller')->chunk(100, function ($sellers) use ($badges) {
-            foreach ($sellers as $seller) {
-                $orders = Order::forSeller($seller->id)->paid()->count();
-                $viral  = $seller->videos()->where('views_count', '>=', 1000)->exists();
+        User::chunk(100, function ($users) use ($badges, &$sellerAwarded, &$buyerAwarded) {
+            foreach ($users as $user) {
+                // ── Seller-side checks — run for ANYONE with a seller role,
+                // since only sellers can have videos/products to earn these ──
+                if ($user->role === 'seller') {
+                    $orders = Order::forSeller($user->id)->paid()->count();
+                    $viral  = $user->videos()->where('views_count', '>=', 1000)->exists();
 
-                $this->award($seller->id, $badges['first_sale']        ?? null, $orders >= 1);
-                $this->award($seller->id, $badges['ten_sales']         ?? null, $orders >= 10);
-                $this->award($seller->id, $badges['viral_debut']       ?? null, $viral);
-                $this->award($seller->id, $badges['hundred_followers'] ?? null, $seller->followers_count >= 100);
-                $this->award($seller->id, $badges['pro_member']        ?? null, $seller->hasActiveSubscription());
+                    $sellerAwarded += (int) $this->award($user->id, $badges['first_sale']        ?? null, $orders >= 1);
+                    $sellerAwarded += (int) $this->award($user->id, $badges['ten_sales']         ?? null, $orders >= 10);
+                    $sellerAwarded += (int) $this->award($user->id, $badges['viral_debut']       ?? null, $viral);
+                    $sellerAwarded += (int) $this->award($user->id, $badges['hundred_followers'] ?? null, $user->followers_count >= 100);
+                    $sellerAwarded += (int) $this->award($user->id, $badges['pro_member']        ?? null, $user->hasActiveSubscription());
+                }
+
+                // ── Buyer-side checks — run for EVERY user, regardless of
+                // role, since a seller can also place orders as a buyer ──
+                $orderCount  = Order::where('buyer_id', $user->id)->paid()->count();
+                $hasSaved    = DB::table('product_saves')->where('user_id', $user->id)->exists();
+                $loginStreak = $this->consecutiveLoginDays($user->id);
+
+                $buyerAwarded += (int) $this->award($user->id, $badges['first_purchase']   ?? null, $orderCount >= 1);
+                $buyerAwarded += (int) $this->award($user->id, $badges['five_purchases']   ?? null, $orderCount >= 5);
+                $buyerAwarded += (int) $this->award($user->id, $badges['wishlist_starter'] ?? null, $hasSaved);
+                $buyerAwarded += (int) $this->award($user->id, $badges['loyal_shopper']    ?? null, $loginStreak >= 3);
             }
         });
 
-        User::where('role', 'buyer')->chunk(100, function ($buyers) use ($badges) {
-            foreach ($buyers as $buyer) {
-                $orderCount   = Order::where('buyer_id', $buyer->id)->paid()->count();
-                $hasSaved     = DB::table('product_saves')->where('user_id', $buyer->id)->exists();
-                $loginStreak  = $this->consecutiveLoginDays($buyer->id);
-
-                $this->award($buyer->id, $badges['first_purchase']   ?? null, $orderCount >= 1);
-                $this->award($buyer->id, $badges['five_purchases']   ?? null, $orderCount >= 5);
-                $this->award($buyer->id, $badges['wishlist_starter'] ?? null, $hasSaved);
-                $this->award($buyer->id, $badges['loyal_shopper']    ?? null, $loginStreak >= 3);
-            }
-        });
-
-        $this->info('Badge check complete.');
+        $this->info("Badge check complete. Seller badges newly awarded: {$sellerAwarded}. Buyer badges newly awarded: {$buyerAwarded}.");
     }
 
     private function consecutiveLoginDays(int $userId): int
@@ -68,9 +72,10 @@ class CheckBadges extends Command
         return $streak;
     }
 
-    private function award(int $userId, ?int $badgeId, bool $earned): void
+    private function award(int $userId, ?int $badgeId, bool $earned): bool
     {
-        if (!$badgeId || !$earned) return;
-        UserBadge::firstOrCreate(['user_id' => $userId, 'badge_id' => $badgeId], ['awarded_at' => now()]);
+        if (!$badgeId || !$earned) return false;
+        $result = UserBadge::firstOrCreate(['user_id' => $userId, 'badge_id' => $badgeId], ['awarded_at' => now()]);
+        return $result->wasRecentlyCreated;
     }
 }
