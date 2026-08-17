@@ -3,7 +3,7 @@ import axios from 'axios';
 import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import ProfileSheet from '@/Components/ProfileSheet';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import NewBadgeModal from '@/Components/NewBadgeModal';
 import MessageToast from '@/Components/MessageToast'
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
@@ -38,6 +38,8 @@ export default function AppLayout({ children }) {
     const [cartCount, setCartCount] = useState(0);
     const [badgeQueue, setBadgeQueue] = useState([]);
     const [messageToasts, setMessageToasts] = useState([])
+    const [activeToast, setActiveToast] = useState(null)
+const toastTimeoutRef = useRef(null)
 
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
@@ -66,8 +68,7 @@ export default function AppLayout({ children }) {
 
    // Replace the messageToasts array state + effect + render with this "single,
 // always-replaced" version — no more stacking/duplicating per message.
-const [activeToast, setActiveToast] = useState(null)
-const toastTimeoutRef = useRef(null)
+
 
 useEffect(() => {
     if (!window.Echo || !auth?.user) return
