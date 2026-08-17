@@ -74,24 +74,28 @@ class ReviewController extends Controller
             ]);
 
             // 1. Update Product stats — read from reviews joined to orders
-            if ($order->product_id) {
-                DB::statement("
-                    UPDATE products SET
-                        avg_rating = (
-                            SELECT COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0.00)
-                            FROM reviews r
-                            INNER JOIN orders o ON o.id = r.order_id
-                            WHERE o.product_id = ?
-                        ),
-                        total_reviews = (
-                            SELECT COUNT(*)
-                            FROM reviews r
-                            INNER JOIN orders o ON o.id = r.order_id
-                            WHERE o.product_id = ?
-                        )
-                    WHERE id = ?
-                ", [$order->product_id, $order->product_id, $order->product_id]);
-            }
+            // Instead of using $order->product_id directly:
+$orderItem = $order->items()->first();
+if ($orderItem && $orderItem->product_id) {
+    DB::statement("
+        UPDATE products SET
+            avg_rating = (
+                SELECT COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0.00)
+                FROM reviews r
+                INNER JOIN orders o ON o.id = r.order_id
+                INNER JOIN order_items oi ON oi.order_id = o.id
+                WHERE oi.product_id = ?
+            ),
+            total_reviews = (
+                SELECT COUNT(*)
+                FROM reviews r
+                INNER JOIN orders o ON o.id = r.order_id
+                INNER JOIN order_items oi ON oi.order_id = o.id
+                WHERE oi.product_id = ?
+            )
+        WHERE id = ?
+    ", [$orderItem->product_id, $orderItem->product_id, $orderItem->product_id]);
+}
 
             // 2. Update Seller stats — read DIRECTLY from reviews table
             // NEVER read from products.avg_rating (can be null → NOT NULL violation)

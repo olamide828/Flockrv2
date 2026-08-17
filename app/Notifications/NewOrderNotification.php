@@ -16,7 +16,8 @@ class NewOrderNotification extends Notification
             'type'    => 'new_order',
             'category' => 'shop',
             'title'   => 'New Order!',
-            'body'    => "You have a new order #{$this->order->reference}",
+            'body' => "New order #{$this->order->reference} from {$this->order->buyer->name}. 
+                        Deliver to: {$addr['city']}, {$addr['state']}.",
             'url'     => "/orders/{$this->order->id}",
             'image'   => null,
             'meta'    => ['order_id' => $this->order->id, 'reference' => $this->order->reference, 'total' => $this->order->total],
