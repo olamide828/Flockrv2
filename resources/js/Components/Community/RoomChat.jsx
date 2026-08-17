@@ -39,10 +39,15 @@ const typingTimersRef = useRef({})
   const lastTypingSentRef = useRef(0)
   const swipeRef   = useRef({})
   const pressTimer = useRef(null)
-  const isOwner    = auth?.user?.id === room.seller_id
-
+    const isOwner    = auth?.user?.id === room.seller_id
   // Everyone can share a public room. Only the seller can share a private one.
   const canShare = !room.is_private || isOwner
+
+  const mediaMessages = messages.filter(m => m.media_url && !m.is_deleted)
+  const openLightbox = (msg) => {
+    const i = mediaMessages.findIndex(m => m.id === msg.id)
+    if (i !== -1) setLightboxIndex(i)
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -266,12 +271,6 @@ useEffect(() => {
 
   const isMine = msg => msg.user_id === auth?.user?.id
   const canDel  = msg => isMine(msg) || isOwner || auth?.user?.role === 'admin'
-
-  const mediaMessages = messages.filter(m => m.media_url && !m.is_deleted)
-  const openLightbox = (msg) => {
-    const i = mediaMessages.findIndex(m => m.id === msg.id)
-    if (i !== -1) setLightboxIndex(i)
-  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#050505' }}>

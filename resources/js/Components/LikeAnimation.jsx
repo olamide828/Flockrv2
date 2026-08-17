@@ -2,41 +2,41 @@ import { useRef, useState, useCallback } from 'react'
 import { RiHeartFill } from 'react-icons/ri'
 
 export function useLikeAnimation() {
-  const [burst, setBurst] = useState(null)
-  const timerRef = useRef(null)
+  const [bursts, setBursts] = useState([])
+  const idRef = useRef(0)
 
   const trigger = useCallback((x, y) => {
-    const id = `${Date.now()}-${Math.random()}`
-    setBurst({ id, x, y })
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setBurst(null), 1050)
+    const id = ++idRef.current
+    const rotation = (Math.random() * 16) - 8
+    const scale = 0.9 + Math.random() * 0.25
+    setBursts(prev => [...prev, { id, x, y, rotation, scale }])
+    setTimeout(() => {
+      setBursts(prev => prev.filter(b => b.id !== id))
+    }, 1000)
   }, [])
 
-  return { burst, trigger }
+  // Backward-compatible: components that destructure `burst` (singular) still
+  // get the most recent one for any code that hasn't been touched.
+  return { burst: bursts[bursts.length - 1] ?? null, bursts, trigger }
 }
 
-const SPARK_COLORS = ['#ff2d55', '#ff6b35', '#ffd23f', '#ff8fab']
+const SPARK_COLORS = ['#ff2d55', '#ff6b35', '#ffd23f']
 
-export function LikeAnimationOverlay({ burst }) {
-  if (!burst) return null
-
-  const sparks = Array.from({ length: 12 }, (_, i) => {
-    const angle = (i / 12) * 360 + (i % 2 === 0 ? -6 : 6)
-    const distance = 62 + (i % 4) * 12
+function SingleBurst({ x, y, rotation, scale }) {
+  const sparks = Array.from({ length: 10 }, (_, i) => {
+    const angle = (i / 10) * 360 + (i % 2 === 0 ? -7 : 7)
+    const distance = 56 + (i % 3) * 14
     return {
       angle, distance,
-      delay: 60 + i * 20,
-      size: 8 + (i % 3) * 5,
+      delay: 40 + i * 18,
+      size: 7 + (i % 3) * 4,
       color: SPARK_COLORS[i % SPARK_COLORS.length],
     }
   })
 
   return (
-    <div
-      key={burst.id}
-      style={{ position: 'fixed', left: burst.x, top: burst.y, transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 9999, perspective: 500 }}
-    >
-      <div className="like-anim-flash" />
+    <div style={{ position: 'fixed', left: x, top: y, transform: `translate(-50%, -50%) rotate(${rotation}deg) scale(${scale})`, pointerEvents: 'none', zIndex: 9999 }}>
+      <div className="like-anim-ring" />
       {sparks.map((s, i) => (
         <span key={i} className="like-anim-spark"
           style={{ '--angle': `${s.angle}deg`, '--dist': `${s.distance}px`, animationDelay: `${s.delay}ms`, fontSize: s.size, color: s.color }}>
@@ -44,45 +44,50 @@ export function LikeAnimationOverlay({ burst }) {
         </span>
       ))}
       <div className="like-anim-heart">
-        <RiHeartFill size={100} color="#ff2d55" style={{ display: 'block', filter: 'drop-shadow(0 0 24px rgba(255,45,85,0.75))' }} />
+        <RiHeartFill size={92} color="#ff2d55" style={{ display: 'block', filter: 'drop-shadow(0 0 20px rgba(255,45,85,0.7))' }} />
       </div>
+    </div>
+  )
+}
 
+export function LikeAnimationOverlay({ burst, bursts }) {
+  // Accepts either the array form (preferred, stacks) or a single burst
+  // (older call sites) — either way it renders correctly.
+  const list = bursts && bursts.length ? bursts : (burst ? [burst] : [])
+  if (list.length === 0) return null
+
+  return (
+    <>
+      {list.map(b => <SingleBurst key={b.id} {...b} />)}
       <style>{`
-        @keyframes likeAnimFlash {
-          0%   { opacity: 0;   transform: scale(0.2); }
-          28%  { opacity: 0.85; transform: scale(1.3); }
-          100% { opacity: 0;   transform: scale(2.2); }
+        @keyframes likeAnimRing {
+          0%   { width: 14px; height: 14px; opacity: 0.9; border-width: 4px; }
+          100% { width: 190px; height: 190px; opacity: 0; border-width: 0.5px; }
         }
-        .like-anim-flash {
+        .like-anim-ring {
           position: absolute; top: 0; left: 0; transform: translate(-50%, -50%);
-          width: 90px; height: 90px; border-radius: 50%;
-          background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(255,107,53,0.4) 45%, transparent 75%);
-          animation: likeAnimFlash 0.55s ease-out forwards;
+          border-radius: 50%; border: 4px solid rgba(255,107,53,0.75);
+          animation: likeAnimRing 0.7s cubic-bezier(0.16,1,0.3,1) forwards;
         }
-
         @keyframes likeAnimHeart {
-          0%   { transform: scale(0) rotateY(180deg) rotate(-22deg); opacity: 0; }
-          38%  { transform: scale(1.35) rotateY(0deg) rotate(9deg);  opacity: 1; }
-          52%  { transform: scale(0.94) rotate(-4deg); }
-          66%  { transform: scale(1.06) rotate(1deg); }
-          80%  { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(-28px) scale(1.06) rotate(0deg); opacity: 0; }
+          0%   { transform: scale(0) rotate(-18deg); opacity: 0; }
+          32%  { transform: scale(1.4) rotate(8deg);  opacity: 1; }
+          48%  { transform: scale(0.94) rotate(-4deg); opacity: 1; }
+          62%  { transform: scale(1.07) rotate(2deg);  opacity: 1; }
+          78%  { transform: scale(1) rotate(0deg);     opacity: 1; }
+          100% { transform: scale(1.1) rotate(0deg);   opacity: 0; }
         }
-        .like-anim-heart {
-          animation: likeAnimHeart 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-          transform-style: preserve-3d;
-        }
-
+        .like-anim-heart { animation: likeAnimHeart 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
         @keyframes likeAnimSpark {
-          0%   { transform: rotate(var(--angle)) translateX(0) rotate(0deg) scale(0); opacity: 1; }
-          25%  { transform: rotate(var(--angle)) translateX(calc(var(--dist) * 0.35)) rotate(140deg) scale(1.3); opacity: 1; }
-          100% { transform: rotate(var(--angle)) translateX(var(--dist)) translateY(-16px) rotate(340deg) scale(0.2); opacity: 0; }
+          0%   { transform: rotate(var(--angle)) translateX(0) scale(0); opacity: 1; }
+          25%  { transform: rotate(var(--angle)) translateX(calc(var(--dist) * 0.35)) scale(1.25); opacity: 1; }
+          100% { transform: rotate(var(--angle)) translateX(var(--dist)) scale(0.2); opacity: 0; }
         }
         .like-anim-spark {
           position: absolute; top: 0; left: 0;
-          animation: likeAnimSpark 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: likeAnimSpark 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
-    </div>
+    </>
   )
 }

@@ -106,7 +106,7 @@ export default function MediaLightbox({
   const tapTimerRef = useRef(null)
   const userPausedRef = useRef(false)
 
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
+  const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const activePost = posts[postIndex]
   const activeMedia = activePost ? mediaFor(activePost) : []
@@ -424,7 +424,7 @@ useEffect(() => {
       {/* Lives once, outside the per-slide loop — the burst state carries its
           own screen coordinates so it renders correctly regardless of which
           slide triggered it. */}
-      <LikeAnimationOverlay burst={burst} />
+      <LikeAnimationOverlay bursts={likeBursts} />
 
       <style>{`@keyframes lb-spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -390,7 +390,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
 
-    const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef);
+    const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
     const { download, dlState } = useVideoDownload(video);
 
@@ -776,7 +776,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 </>
             )}
 
-            <LikeAnimationOverlay burst={burst} />
+            <LikeAnimationOverlay bursts={likeBursts} />
 
             {toast && (
                 <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>

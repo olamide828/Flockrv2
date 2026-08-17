@@ -160,7 +160,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
   const lastMediaTapRef = useRef(0)
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
+  const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const isFollowingAuthor = post.is_following_author ?? false
   const isOwnPost = auth?.user?.id === post.user_id
@@ -322,7 +322,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
           onBlockAuthor={!isOwnPost ? handleBlockAuthor : undefined}
         />
       )}
-      <LikeAnimationOverlay burst={burst} />
+      <LikeAnimationOverlay bursts={likeBursts} />
 
       <div style={{ minHeight: '100%', background: '#050505', color: '#fff', fontFamily: '"DM Sans", sans-serif' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>

@@ -67,7 +67,7 @@ export default function PostCard({
   const cardRef = useRef(null)
   const viewedRef = useRef(false)
   const lastMediaTapRef = useRef(0)
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
+  const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   useEffect(() => {
     if (viewedRef.current || !cardRef.current) return
@@ -129,7 +129,7 @@ export default function PostCard({
           onReport={() => { setMenuOpen(false); onReport(post) }}
         />
       )}
-      <LikeAnimationOverlay burst={burst} />
+      <LikeAnimationOverlay bursts={likeBursts} />
 
       <Link href={`/@${post.user?.username}`} onClick={e => e.stopPropagation()} style={{ display:'block', flexShrink:0 }}>
         <Av user={post.user} size={40} />

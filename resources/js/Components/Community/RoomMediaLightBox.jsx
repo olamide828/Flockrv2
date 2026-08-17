@@ -104,7 +104,7 @@ export default function RoomMediaLightbox({ room, mediaMessages, startIndex, onC
   const [progress, setProgress] = useState(0)
   const [showMore, setShowMore] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation()
+  const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const outerRef = useRef(null)
   const slideRefs = useRef(new Map())
@@ -267,7 +267,7 @@ useEffect(() => {
           </button>
         </div>
       </div>
-      <LikeAnimationOverlay burst={burst} />
+      <LikeAnimationOverlay bursts={likeBursts} />
     </div>
   )
 }

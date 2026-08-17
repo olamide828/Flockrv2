@@ -235,7 +235,7 @@ export default function VideoCard({ video, isActive }) {
   }
   
 
-  const { burst, trigger: triggerLikeAnim } = useLikeAnimation(likeBtnRef)
+  const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   useEffect(() => {
     if (showReportVideo) {
@@ -581,7 +581,7 @@ export default function VideoCard({ video, isActive }) {
         </BottomSheet>
       )}
 
-      <LikeAnimationOverlay burst={burst} />
+      <LikeAnimationOverlay bursts={likeBursts} />
 
       <style>{`
         @keyframes vc-spin    { to { transform: rotate(360deg); } }
