@@ -13,7 +13,7 @@ import RoomMediaPlayer from './RoomMediaPlayer'
 import RoomMediaLightbox from './RoomMediaLightBox';
 import { fmtTime } from './Helpers'
 
-export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast }) {
+export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast, initialMediaMessageId, onConsumedInitialMedia }) {
   const [messages,  setMessages]  = useState([])
   const [loading,   setLoading]   = useState(true)
   const [hasMore,   setHasMore]   = useState(false)
@@ -55,6 +55,15 @@ const typingTimersRef = useRef({})
   useEffect(() => {
     if (!loading) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior:'smooth' }), 60)
   }, [messages.length, loading])
+
+  useEffect(() => {
+    if (!initialMediaMessageId || loading) return
+    const idx = mediaMessages.findIndex(m => m.id === initialMediaMessageId)
+    if (idx !== -1) {
+      setLightboxIndex(idx)
+      onConsumedInitialMedia?.()
+    }
+  }, [initialMediaMessageId, loading, mediaMessages])
 
 useEffect(() => {
     if (!window.Echo) return

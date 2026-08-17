@@ -16,7 +16,7 @@ import CommentSheet from '../Video/CommentSheet'
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge'
 import VideoSeekBar from '@/Components/VideoSeekBar'
-import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
+import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 
@@ -356,6 +356,7 @@ export default function VideoCard({ video, isActive }) {
   // play/pause fires. This is what stops the two gestures from fighting.
   const handleVideoTap = useCallback((e) => {
     if (showComments || showProducts || showShare) return
+    markInteracted()
     const now = Date.now()
     const dt = now - lastTap.current
 
@@ -370,6 +371,7 @@ export default function VideoCard({ video, isActive }) {
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = null
         const el = videoRef.current
+        if (el?.muted) { el.muted = false; setMuted(false) }
         if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}) }
         else { userPausedRef.current = true; el?.pause() }
         setShowPP(true)

@@ -5,7 +5,7 @@ import {
   RiHeartLine, RiHeartFill,
 } from 'react-icons/ri'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
-import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
+import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { useVideoSeek } from '@/lib/useVideoSeek'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { fmtTime } from './Helpers'
@@ -184,6 +184,8 @@ useEffect(() => {
   const togglePlay = () => {
     const el = activeVideoEl
     if (!el) return
+    markInteracted()
+    if (el.muted) { el.muted = false; setMuted(false) }
     if (el.paused) { userPausedRef.current = false; setUserPaused(false); el.play().catch(() => {}) }
     else { userPausedRef.current = true; setUserPaused(true); el.pause() }
   }

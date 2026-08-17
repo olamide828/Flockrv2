@@ -567,11 +567,11 @@ class CommunityController extends Controller
 
         abort_unless($message->user && $message->user->username === $username, 404);
 
-        return view('room-media-share', [
+       return view('room-media-share', [
             'room'      => $room,
             'message'   => $message,
             'shareUrl'  => url("/{$room->slug}/@{$username}/media/{$messageId}"),
-            'appUrl'    => url('/community'),
+            'appUrl'    => url('/community') . '?room=' . $room->slug . '&media=' . $message->id,
         ]);
     }
 

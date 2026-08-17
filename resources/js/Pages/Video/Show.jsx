@@ -35,7 +35,7 @@ import CommentSheet from '../../Components/Video/CommentSheet';
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import VideoSeekBar from '@/Components/VideoSeekBar'
-import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay';
+import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay';
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
 import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
@@ -473,6 +473,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     // what stops play/pause and double-tap-like from fighting each other.
     const handleVideoTap = useCallback((e) => {
         if (mobileSheet || showSearch) return;
+        markInteracted();
         const now = Date.now();
         const dt = now - lastTap.current;
         if (dt > 0 && dt < 300) {
@@ -486,6 +487,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             tapTimerRef.current = setTimeout(() => {
                 tapTimerRef.current = null;
                 const el = videoRef.current;
+                if (el?.muted) { el.muted = false; setMuted(false); }
                 if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}); }
                 else { userPausedRef.current = true; el?.pause(); }
                 setShowPP(true);

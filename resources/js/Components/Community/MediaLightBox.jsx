@@ -10,7 +10,7 @@ import FollowButton from './FollowButton'
 import PostShareSheet from './PostShareSheet'
 import VerifiedBadge from '@/Components/VerifiedBadge'
 import { timeAgo, fmtCount } from './Helpers'
-import { hasUserInteracted, onFirstInteraction } from '@/lib/videoAutoplay'
+import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { useVideoSeek } from '@/lib/useVideoSeek'
 import { ensurePlaying } from '@/lib/ensurePlaying'
@@ -233,6 +233,7 @@ useEffect(() => {
  const handleVideoTapClick = (e, post, mi) => {
     const v = e.currentTarget
     const clientX = e.clientX, clientY = e.clientY
+    markInteracted()
     const now = Date.now()
     const dt = now - lastTapRef.current
     if (dt > 0 && dt < 300) {
@@ -245,6 +246,7 @@ useEffect(() => {
       lastTapRef.current = now
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = null
+        if (v.muted) { v.muted = false; setMuted(false) }
         if (v.paused) { userPausedRef.current = false; v.play().catch(() => {}) }
         else { userPausedRef.current = true; v.pause() }
         setShowPPIcon(true)

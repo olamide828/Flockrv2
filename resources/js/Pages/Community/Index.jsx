@@ -63,6 +63,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
   const [joinTarget,     setJoinTarget]     = useState(null)
   const [reportPost,     setReportPost]     = useState(null)
   const [trendingPosts, setTrendingPosts] = useState([])
+  const [pendingMediaId, setPendingMediaId] = useState(null)
 
 
   const cachedFeedRef = useRef(undefined)
@@ -107,6 +108,21 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     if (invite) {
       setInviteFromUrl(invite.toUpperCase())
       setShowDiscover(true)
+      window.history.replaceState({}, '', '/community')
+    }
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(pageUrl.split('?')[1] ?? '')
+    const roomSlug = params.get('room')
+    const mediaId = params.get('media')
+    if (roomSlug) {
+      const match = joinedRooms.find(r => r.slug === roomSlug)
+      if (match) {
+        setView('rooms')
+        setActiveRoomId(match.id)
+        if (mediaId) setPendingMediaId(Number(mediaId))
+      }
       window.history.replaceState({}, '', '/community')
     }
   }, [])
@@ -362,6 +378,8 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
             onOpenRules={() => setRulesRoom(activeRoom)}
             onOpenSettings={() => setSettingsRoom(activeRoom)}
             onLeaveRoom={handleLeaveRoom}
+            initialMediaMessageId={pendingMediaId}
+            onConsumedInitialMedia={() => setPendingMediaId(null)}
           />
         </div>
       </>
