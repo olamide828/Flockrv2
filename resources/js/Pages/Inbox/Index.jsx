@@ -1085,14 +1085,29 @@ useEffect(() => {
                   ) : (
                     <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '0 14px', gap: 8 }}>
-                        <input
+<textarea
     ref={inputRef}
     value={body}
     onChange={e => { setBody(e.target.value); broadcastTyping(); }}
-    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(e)}
+    onKeyDown={e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            sendMessage(e)
+        }
+    }}
     placeholder="Message..."
     maxLength={1000}
-    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '11px 0' }}
+    rows={1}
+    style={{
+        flex: 1, background: 'none', border: 'none', outline: 'none',
+        color: '#fff', fontSize: 14, padding: '11px 0',
+        resize: 'none', fontFamily: 'inherit', lineHeight: 1.4,
+        maxHeight: 120, overflowY: 'auto',
+    }}
+    onInput={e => {
+        e.target.style.height = 'auto'
+        e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+    }}
 />
                         {body.length > 800 && <span style={{ color: body.length >= 1000 ? '#ff3b5c' : 'rgba(255,255,255,0.25)', fontSize: 10, flexShrink: 0 }}>{1000 - body.length}</span>}
                       </div>

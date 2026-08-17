@@ -64,28 +64,38 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('focus', onFocus);
     }, []);
 
-    useEffect(() => {
+   // Replace the messageToasts array state + effect + render with this "single,
+// always-replaced" version — no more stacking/duplicating per message.
+const [activeToast, setActiveToast] = useState(null)
+const toastTimeoutRef = useRef(null)
+
+useEffect(() => {
     if (!window.Echo || !auth?.user) return
 
     const channel = window.Echo.private(`App.Models.User.${auth.user.id}`)
 
     channel.listen('.NewMessageToast', (e) => {
-        // Suppress if the user is currently viewing THIS conversation in
-        // Inbox.jsx — see the matching line added to Inbox.jsx below.
         if (window.__flockrActiveConversationId === e.conversation_id) return
 
-        const toastId = `${e.message_id}-${Date.now()}`
-        setMessageToasts(prev => [...prev, { ...e, id: toastId }])
+        clearTimeout(toastTimeoutRef.current)
+        setActiveToast(e) // replaces whatever was showing — never stacks
 
-        setTimeout(() => {
-            setMessageToasts(prev => prev.filter(t => t.id !== toastId))
-        }, 6000)
+        toastTimeoutRef.current = setTimeout(() => setActiveToast(null), 7000)
     })
 
     return () => channel.stopListening('.NewMessageToast')
 }, [auth?.user?.id])
 
-const dismissToast = (id) => setMessageToasts(prev => prev.filter(t => t.id !== id))
+const dismissToast = () => {
+    clearTimeout(toastTimeoutRef.current)
+    setActiveToast(null)
+}
+const openToast = (toast) => {
+    dismissToast()
+    router.visit(`/inbox?user=${toast.sender.id}`)
+}
+
+
 const replyToToast = (toast) => {
     dismissToast(toast.id)
     router.visit(`/inbox?user=${toast.sender.id}`)
@@ -707,9 +717,11 @@ const replyToToast = (toast) => {
 )}
 
 <div style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 12, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
-    {messageToasts.map(t => (
-        <MessageToast key={t.id} toast={t} onReply={replyToToast} onDismiss={dismissToast} />
-    ))}
+    {activeToast && (
+    <div style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 12, zIndex: 9999, pointerEvents: 'none' }}>
+        <MessageToast toast={activeToast} onOpen={openToast} onDismiss={dismissToast} />
+    </div>
+)}
 </div>
 
 
