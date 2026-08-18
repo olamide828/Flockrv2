@@ -919,9 +919,32 @@ export default function UserProfile({
     )
 )}
                             </div>
-                            <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 6px', cursor: 'pointer' }}>
-                                @{profileUser.username}
-                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
+    <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
+        @{profileUser.username}
+    </p>
+
+    {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
+        <button
+            onClick={() => setShowTrust(true)}
+            style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,107,53,0.1)',
+                border: '1px solid rgba(255,107,53,0.3)',
+                color: '#FF6B35',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+            }}
+        >
+            <RiShieldCheckLine size={12} /> Trust Score
+        </button>
+    )}
+</div>
                             {profileUser.bio && (
                                 <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>{profileUser.bio}</p>
                             )}
