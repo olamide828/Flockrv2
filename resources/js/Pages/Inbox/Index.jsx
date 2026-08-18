@@ -9,6 +9,7 @@ import {
 } from 'react-icons/ri'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
+import MentionAutocomplete from '@/Components/Chat/MentionAutocomplete'
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
@@ -279,6 +280,8 @@ const [latestNotif, setLatestNotif]   = useState(null)
 const typingTimeoutRef = useRef(null)
 const lastTypingSentRef = useRef(0)
 const [typingUsers, setTypingUsers] = useState({})
+const [mentionStart, setMentionStart] = useState(null)
+const [mentionQuery, setMentionQuery] = useState(null)
 
 // ── Off-platform payment safety ────────────────────────────────────────────
 const [showWarningSheet, setShowWarningSheet]   = useState(false)
@@ -590,6 +593,29 @@ useEffect(() => {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id))
     } finally { setSending(false) }
   }
+
+  const detectMention = (text, cursorPos) => {
+    if (!active?.is_support) { setMentionStart(null); setMentionQuery(null); return }
+    const before = text.slice(0, cursorPos)
+    const match = before.match(/(?:^|\s)@([a-zA-Z0-9_.]{0,20})$/)
+    if (match) {
+        setMentionStart(cursorPos - match[1].length - 1)
+        setMentionQuery(match[1])
+    } else {
+        setMentionStart(null)
+        setMentionQuery(null)
+    }
+}
+
+const selectMention = (user) => {
+    if (mentionStart === null) return
+    const before = body.slice(0, mentionStart)
+    const after = body.slice(mentionStart + 1 + (mentionQuery?.length ?? 0))
+    setBody(`${before}@${user.username} ${after}`)
+    setMentionStart(null)
+    setMentionQuery(null)
+    inputRef.current?.focus()
+}
 
   const startConversation = async (user) => {
     setUserSearch(''); setUserResults([])
@@ -1069,6 +1095,15 @@ useEffect(() => {
                 </div>
 
                 <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d' }}>
+                  
+                  {mentionQuery !== null && (
+        <MentionAutocomplete
+            initialQuery={mentionQuery}
+            onSelect={selectMention}
+            onClose={() => { setMentionStart(null); setMentionQuery(null) }}
+        />
+    )}
+                  
                   {iBlocked ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0' }}>
                       <RiProhibitedLine size={16} color="rgba(255,255,255,0.3)" />
@@ -1086,29 +1121,33 @@ useEffect(() => {
                     <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '0 14px', gap: 8 }}>
 <textarea
-    ref={inputRef}
-    value={body}
-    onChange={e => { setBody(e.target.value); broadcastTyping(); }}
-    onKeyDown={e => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            sendMessage(e)
-        }
-    }}
-    placeholder="Message..."
-    maxLength={1000}
+        ref={inputRef}
+        value={body}
+        onChange={e => {
+            setBody(e.target.value)
+            broadcastTyping()
+            detectMention(e.target.value, e.target.selectionStart)
+        }}
+        onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                sendMessage(e)
+            }
+        }}
+        placeholder="Message..."
+        maxLength={1000}
     rows={1}
-    style={{
-        flex: 1, background: 'none', border: 'none', outline: 'none',
-        color: '#fff', fontSize: 14, padding: '11px 0',
-        resize: 'none', fontFamily: 'inherit', lineHeight: 1.4,
-        maxHeight: 120, overflowY: 'auto',
-    }}
-    onInput={e => {
-        e.target.style.height = 'auto'
-        e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-    }}
-/>
+        style={{
+            flex: 1, background: 'none', border: 'none', outline: 'none',
+            color: '#fff', fontSize: 14, padding: '11px 0',
+            resize: 'none', fontFamily: 'inherit', lineHeight: 1.4,
+            maxHeight: 120, overflowY: 'auto',
+        }}
+        onInput={e => {
+            e.target.style.height = 'auto'
+            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+        }}
+    />
                         {body.length > 800 && <span style={{ color: body.length >= 1000 ? '#ff3b5c' : 'rgba(255,255,255,0.25)', fontSize: 10, flexShrink: 0 }}>{1000 - body.length}</span>}
                       </div>
                       <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>

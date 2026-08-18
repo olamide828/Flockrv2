@@ -24,8 +24,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
 
         $middleware->alias([
-            'role' => RoleMiddleware::class,
+        'active' => \App\Http\Middleware\EnsureAccountActive::class,
+        'role'   => RoleMiddleware::class,
         ]);
+
 
         $middleware->trustProxies(headers: \Illuminate\Http\Request::HEADER_X_FORWARDED_FOR |
             \Illuminate\Http\Request::HEADER_X_FORWARDED_HOST |

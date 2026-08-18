@@ -472,6 +472,13 @@ Route::get('/safety/conversations/{conversation}/status', [SafetyController::cla
 Route::get('/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
 Route::post('/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
 Route::get('/sellers/{seller}/trust', [SellerTrustController::class, 'show']);
+Route::get('/users/following', function () {
+    return Auth::user()->following()
+        ->where('is_active', true)
+        ->select('id', 'name', 'username', 'avatar', 'role')
+        ->limit(20)
+        ->get();
+});
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {

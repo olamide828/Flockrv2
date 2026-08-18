@@ -152,12 +152,26 @@ class AdminController extends Controller
     }
 
     /** POST /api/admin/users/{user}/suspend */
-    public function suspendUser(User $user): JsonResponse
-    {
-        $user->update(['is_active' => !$user->is_active]);
-        $action = $user->is_active ? 'unsuspended' : 'suspended';
-        return response()->json(['message' => "User @{$user->username} {$action}.", 'is_active' => $user->is_active]);
+// suspend, records it + a timestamp, and clears both on unsuspend:
+public function suspendUser(Request $request, User $user): JsonResponse
+{
+    if ($user->is_active) {
+        $request->validate(['reason' => 'nullable|string|max:500']);
+        $user->update([
+            'is_active'         => false,
+            'suspension_reason' => $request->input('reason'),
+            'suspended_at'      => now(),
+        ]);
+        return response()->json(['message' => "User @{$user->username} suspended.", 'is_active' => false]);
     }
+
+    $user->update([
+        'is_active'         => true,
+        'suspension_reason' => null,
+        'suspended_at'      => null,
+    ]);
+    return response()->json(['message' => "User @{$user->username} unsuspended.", 'is_active' => true]);
+}
 
     /** POST /api/admin/users/{user}/role */
     public function changeRole(Request $request, User $user): JsonResponse
@@ -429,6 +443,7 @@ public function reports(Request $request): Response
               ->whereNull('order_id')
               ->where('reason', 'not like', '[Video:%');
         }),
+        'appeal' => $query->where('reason', 'like', '[Suspension Appeal]%'),
         default => null,
     };
 
@@ -482,6 +497,15 @@ public function updateOrderStatus(Request $request, Order $order): JsonResponse
 public function actionReport(\App\Models\Report $report): JsonResponse
 {
     $report->update(['status' => 'actioned']);
+
+    if (str_starts_with($report->reason, '[Suspension Appeal]') && $report->reported_id) {
+        User::where('id', $report->reported_id)->update([
+            'is_active'         => true,
+            'suspension_reason' => null,
+            'suspended_at'      => null,
+        ]);
+    }
+
     return response()->json(['message' => 'Report marked as actioned.']);
 }
  

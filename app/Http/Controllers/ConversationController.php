@@ -237,8 +237,8 @@ public function sendMessage(Request $request, Conversation $conversation): JsonR
     $conv = Conversation::create();
     $conv->participants()->attach([$user->id, $support->id]);
     $conv->messages()->create([
-        'sender_id' => $support->id,
-        'body'      => "Hi {$user->name}! 👋 I'm Flockr Support. Ask me anything about your orders, payouts, or how Flockr works — or just say hi.",
+    'sender_id' => $support->id,
+    'body'      => "Hi {$user->name}! 👋 I'm Flockr Support. Ask me anything about your orders, payouts, or how Flockr works — or just say hi. You can also check if a seller is trustworthy by typing @ plus their name right here in chat.",
     ]);
 }
 }

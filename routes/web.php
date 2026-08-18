@@ -18,6 +18,7 @@ use App\Http\Controllers\UserDashboardController;
 use App\Http\Controllers\FollowController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\SuspensionController;
 
 // ── Public pages ──────────────────────────────────────────────────────────────
 Route::get('/', [VideoController::class, 'index'])->name('home');
@@ -50,7 +51,7 @@ Route::get('/auth/{provider}', [AuthController::class, 'redirectToProvider']);
 Route::get('/auth/{provider}/callback', [AuthController::class, 'handleProviderCallback']);
 
 // ── Authenticated pages ───────────────────────────────────────────────────────
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/verify-email', [AuthController::class, 'verifyNotice'])->name('verification.notice');
 Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verify'])
     ->middleware('signed')
@@ -58,6 +59,9 @@ Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verify'])
 Route::post('/email/verification-notification', [AuthController::class, 'sendVerification'])
     ->middleware('throttle:6,1')
     ->name('verification.send');
+
+    Route::get('/suspended', [SuspensionController::class, 'show'])->name('suspended');
+Route::post('/suspended/appeal', [SuspensionController::class, 'appeal'])->name('suspended.appeal');
 
     Route::get('/onboarding', [BuyerOnboardingController::class, 'show'])->name('buyer.onboarding');
     Route::post('/onboarding', [BuyerOnboardingController::class, 'store'])->name('buyer.onboarding.store');
