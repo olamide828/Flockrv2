@@ -9,13 +9,13 @@ use Illuminate\Support\Facades\Auth;
 class EnsureAccountActive
 {
     public function handle(Request $request, Closure $next)
-    {
-        $user = Auth::user();
+{
+    $user = Auth::user();
 
-        if ($user && !$user->is_active && !$request->routeIs('suspended', 'suspended.appeal')) {
-            return redirect()->route('suspended');
-        }
-
-        return $next($request);
+    if ($user && !$user->is_active && !$request->routeIs('suspended', 'suspended.appeal', 'logout')) {
+        return redirect()->route('suspended');
     }
+
+    return $next($request);
+}
 }

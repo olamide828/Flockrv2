@@ -19,12 +19,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             HandleInertiaRequests::class,
+            \App\Http\Middleware\EnsureAccountActive::class,
         ]);
 
         $middleware->statefulApi();
 
         $middleware->alias([
-        'active' => \App\Http\Middleware\EnsureAccountActive::class,
         'role'   => RoleMiddleware::class,
         ]);
 

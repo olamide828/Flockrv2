@@ -210,7 +210,7 @@ Route::get('/locations/cities', function (\Illuminate\Http\Request $request) {
 });
 
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
-Route::get('/users/{user}', [UserController::class, 'apiShow']);
+Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
 Route::middleware('auth:sanctum')->post('/feed/reset', function () {
     app(\App\Services\FeedService::class)->resetSeenVideos(Auth::id());
     return response()->json(['ok' => true]);
@@ -474,8 +474,8 @@ Route::post('/safety/classify-message', [SafetyController::class, 'classifyMessa
 Route::get('/sellers/{seller}/trust', [SellerTrustController::class, 'show']);
 Route::get('/users/following', function () {
     return Auth::user()->following()
-        ->where('is_active', true)
-        ->select('id', 'name', 'username', 'avatar', 'role')
+        ->where('users.is_active', true)
+        ->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.role')
         ->limit(20)
         ->get();
 });
@@ -528,6 +528,7 @@ Route::get('/users/following', function () {
         Route::get('/analytics', [AdminController::class, 'analytics']);
 
         Route::post('/payouts/{payout}/approve', [AdminController::class, 'approvePayout']);
+        Route::post('/users/{user}/clear-flag', [AdminController::class, 'clearFlag']);
 
         Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
         Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);

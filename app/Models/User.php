@@ -52,6 +52,8 @@ class User extends Authenticatable implements MustVerifyEmail
     'email_verified_at',
     'deleted_name',
     'deleted_email',
+    'suspension_reason',
+    'suspended_at',
 ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -327,6 +329,11 @@ public function scopeWithActiveSubscriptionFlag($query)
 public function badges(): BelongsToMany
 {
     return $this->belongsToMany(Badge::class, 'user_badges')->withPivot('awarded_at');
+}
+
+public function offPlatformWarningsReceived(): HasMany
+{
+    return $this->hasMany(\App\Models\OffPlatformWarning::class, 'seller_id');
 }
 
 }

@@ -51,7 +51,7 @@ Route::get('/auth/{provider}', [AuthController::class, 'redirectToProvider']);
 Route::get('/auth/{provider}/callback', [AuthController::class, 'handleProviderCallback']);
 
 // ── Authenticated pages ───────────────────────────────────────────────────────
-Route::middleware(['auth', 'active'])->group(function () {
+Route::middleware('auth')->group(function () {
     Route::get('/verify-email', [AuthController::class, 'verifyNotice'])->name('verification.notice');
 Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verify'])
     ->middleware('signed')
@@ -133,6 +133,7 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     Route::get('/payouts',    [AdminController::class, 'payouts'])->name('admin.payouts');
     Route::get('/reports',    [AdminController::class, 'reports'])->name('admin.reports');
     Route::get('/analytics',  [AdminController::class, 'analyticsPage'])->name('admin.analytics');
+Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name('flagged-sellers');
     });
 });
 

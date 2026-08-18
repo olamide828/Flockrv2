@@ -525,4 +525,26 @@ public function conversationMessages(\App\Models\Conversation $conversation): Js
  
     return response()->json($messages);
 }
+
+/** GET /admin/flagged-sellers */
+public function flaggedSellers(): Response
+{
+    $sellers = User::where('is_flagged_for_review', true)
+        ->withCount([
+            'offPlatformWarningsReceived as shown_count'     => fn($q) => $q->where('action', 'shown'),
+            'offPlatformWarningsReceived as continued_count' => fn($q) => $q->where('action', 'continued'),
+        ])
+        ->orderByDesc('flagged_at')
+        ->paginate(30);
+
+    return Inertia::render('Admin/FlaggedSellers', ['sellers' => $sellers]);
+}
+
+/** POST /api/admin/users/{user}/clear-flag */
+public function clearFlag(User $user): JsonResponse
+{
+    $user->update(['is_flagged_for_review' => false, 'flagged_at' => null]);
+    return response()->json(['message' => "Flag cleared for @{$user->username}."]);
+}
+
 }
