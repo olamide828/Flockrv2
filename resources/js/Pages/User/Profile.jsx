@@ -650,38 +650,32 @@ export default function UserProfile({
     )
 )}
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                        <h1
-                                            onClick={copyUsername}
-                                            style={{
-                                                color: 'rgba(255,255,255,0.5)',
-                                                fontSize: 14,
-                                                fontWeight: 700,
-                                                margin: 0,
-                                                cursor: 'pointer',
-                                                letterSpacing: '-0.3px',
-                                            }}
-                                        >
-                                            @{profileUser.username}
-                                        </h1>
-                                        {profileUser.role === 'seller' && (
-                                            <span
-                                                style={{
-                                                    fontSize: 11,
-                                                    fontWeight: 700,
-                                                    color: '#FF6B35',
-                                                    background: 'rgba(255,107,53,0.12)',
-                                                    border: '1px solid rgba(255,107,53,0.3)',
-                                                    borderRadius: 4,
-                                                    padding: '2px 8px',
-                                                    textTransform: 'uppercase',
-                                                    letterSpacing: '0.05em',
-                                                }}
-                                            >
-                                                Seller
-                                            </span>
-                                        )}
-                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
+    <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
+        @{profileUser.username}
+    </p>
+
+    {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
+        <button
+            onClick={() => setShowTrust(true)}
+            style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,107,53,0.1)',
+                border: '1px solid rgba(255,107,53,0.3)',
+                color: '#FF6B35',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+            }}
+        >
+            <RiShieldCheckLine size={12} /> Trust Score
+        </button>
+    )}
+</div>
                                 </div>
                             </div>
 
@@ -729,11 +723,7 @@ export default function UserProfile({
                                         <button onClick={handleShare} style={iconBtn}>
                                             <RiShareForwardLine size={16} color="#fff" />
                                         </button>
-                                        {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
-                                    <button onClick={() => setShowTrust(true)} style={{ ...outlineBtn, color: '#FF6B35', borderColor: 'rgba(255,107,53,0.3)' }}>
-                                    <RiShieldCheckLine size={14} /> Trust Score
-                                    </button>
-                                )}
+                                        
                                         {/* 3-dot menu with block + report */}
                                         {auth?.user && (
                                             <div style={{ position: 'relative' }}>
