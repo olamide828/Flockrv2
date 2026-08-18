@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SafetyController;
+use App\Http\Controllers\SellerTrustController;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
@@ -470,7 +471,7 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
 Route::get('/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
 Route::get('/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
 Route::post('/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
-
+Route::get('/sellers/{seller}/trust', [SellerTrustController::class, 'show']);
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {

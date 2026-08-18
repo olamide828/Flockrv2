@@ -4,6 +4,7 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import ProPlansSheet from '@/Components/ProPlansSheet';
 import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
+import TrustScoreModal from '@/Components/TrustScoreModal'
 import { useState } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -25,6 +26,7 @@ import {
     RiVideoLine,
     RiNewspaperLine,
     RiVipCrownLine,
+    RiShieldCheckLine
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -358,6 +360,7 @@ export default function UserProfile({
     const [showProSheet, setShowProSheet] = useState(false);
     const [showSubSuccess, setShowSubSuccess] = useState(!!flash?.subscription);
     const [showBadgeRoadmap, setShowBadgeRoadmap] = useState(false);
+    const [showTrust, setShowTrust] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -534,6 +537,8 @@ export default function UserProfile({
         {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
 
         {showBadgeRoadmap && <BadgeRoadmapSheet onClose={() => setShowBadgeRoadmap(false)} />}
+
+        {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
 
             {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
             <div
@@ -949,14 +954,19 @@ export default function UserProfile({
                                     Edit profile
                                 </Link>
                                 {isOwnProfile && profileUser.role === 'buyer' && (
-    <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
-        <RiStoreLine size={14} /> Start Selling
-    </Link>
-)}
+                                <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
+                                <RiStoreLine size={14} /> Start Selling
+                                </Link>
+                                )}
                                 {profileUser.role === 'seller' && (
                                     <Link href="/seller/upload" style={iconBtn}>
                                         <RiUploadCloud2Line size={16} color="#fff" />
                                     </Link>
+                                )}
+                                {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
+                                    <button onClick={() => setShowTrust(true)} style={{ ...outlineBtn, color: '#FF6B35', borderColor: 'rgba(255,107,53,0.3)' }}>
+                                    <RiShieldCheckLine size={14} /> Trust Score
+                                    </button>
                                 )}
                                 <Link href="/settings/profile" style={iconBtn}>
                                     <RiSettings4Line size={16} color="#fff" />

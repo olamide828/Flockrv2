@@ -1,6 +1,7 @@
 import ProductCard from '@/Components/Product/ProductCard';
 import AppLayout from '@/Layouts/AppLayout';
 import CheckoutModal from '@/Components/CheckoutModal';
+import TrustScoreModal from '@/Components/TrustScoreModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
@@ -501,6 +502,7 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
     const [showCheckout, setShowCheckout] = useState(false);
 const [addresses,    setAddresses]    = useState([]);
 const [addrLoading,  setAddrLoading]  = useState(false);
+const [showTrust, setShowTrust] = useState(false)
 
     const { showToast, ToastComponent } = useToast();
 
@@ -814,6 +816,14 @@ const [addrLoading,  setAddrLoading]  = useState(false);
                                 </div>
                                 <RiArrowRightLine size={16} className="text-flockr-muted transition-colors group-hover:text-white" />
                             </Link>
+                            {showTrust && <TrustScoreModal sellerId={product.seller?.id} onClose={() => setShowTrust(false)} />}   
+
+                            <button
+                                onClick={() => setShowTrust(true)}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', marginTop: -6, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 14, color: '#FF6B35', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+>
+    <RiShieldCheckLine size={14} /> Check Seller Trust
+</button>
                         </div>
                     </div>
 

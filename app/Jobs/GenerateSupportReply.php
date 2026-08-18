@@ -30,6 +30,25 @@ class GenerateSupportReply implements ShouldQueue
         public int $triggerMessageId,
     ) {}
 
+
+private function buildSellerMentionContext(string $messageBody): string
+{
+    if (!preg_match('/@([a-zA-Z0-9_.]+)/', $messageBody, $m)) return '';
+
+    $seller = \App\Models\User::where('username', $m[1])->where('role', 'seller')->first();
+    if (!$seller) return '';
+
+    $trust = app(\App\Services\SellerTrustService::class)->build($seller);
+
+    return "The user mentioned seller @{$trust['username']}. Their REAL trust data (never invent different numbers, only use these):\n"
+        . "- Trust score: {$trust['trust_score']}/10\n"
+        . "- On Flockr since: " . \Carbon\Carbon::parse($trust['joined_at'])->format('F Y') . "\n"
+        . "- Orders completed: {$trust['orders_completed']}\n"
+        . "- Rating: " . ($trust['total_reviews'] > 0 ? "{$trust['avg_rating']}/5 from {$trust['total_reviews']} buyers" : "no ratings yet") . "\n"
+        . "- Reports in last 30 days: {$trust['reports_30d']}\n"
+        . "- Risk flag: " . ($trust['high_risk'] ? 'HIGH RISK — mention this clearly and recommend caution, but never use the word \"scam\"' : 'no red flags') . "\n";
+}
+
     public function handle(): void
     {
         $conversation = Conversation::find($this->conversationId);
@@ -56,6 +75,7 @@ class GenerateSupportReply implements ShouldQueue
         // Lightweight order-context detection — only pulls the buyer's own
         // data, and only when the message plausibly needs it.
         $orderContext = $this->buildOrderContext($buyer, $triggerMessage->body);
+        $sellerContext = $this->buildSellerMentionContext($triggerMessage->body);
 
         $history = $recentMessages->map(function ($m) use ($support) {
             $speaker = $m->sender_id === $support->id ? 'Flockr Support' : 'User';
@@ -75,6 +95,7 @@ KNOWLEDGE BASE (always current):
 {$knowledgeBase}
 
 {$orderContext}
+{$sellerContext}
 
 Recent conversation:
 {$history}
