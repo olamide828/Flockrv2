@@ -729,6 +729,11 @@ export default function UserProfile({
                                         <button onClick={handleShare} style={iconBtn}>
                                             <RiShareForwardLine size={16} color="#fff" />
                                         </button>
+                                        {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
+                                    <button onClick={() => setShowTrust(true)} style={{ ...outlineBtn, color: '#FF6B35', borderColor: 'rgba(255,107,53,0.3)' }}>
+                                    <RiShieldCheckLine size={14} /> Trust Score
+                                    </button>
+                                )}
                                         {/* 3-dot menu with block + report */}
                                         {auth?.user && (
                                             <div style={{ position: 'relative' }}>
@@ -963,11 +968,7 @@ export default function UserProfile({
                                         <RiUploadCloud2Line size={16} color="#fff" />
                                     </Link>
                                 )}
-                                {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
-                                    <button onClick={() => setShowTrust(true)} style={{ ...outlineBtn, color: '#FF6B35', borderColor: 'rgba(255,107,53,0.3)' }}>
-                                    <RiShieldCheckLine size={14} /> Trust Score
-                                    </button>
-                                )}
+                                
                                 <Link href="/settings/profile" style={iconBtn}>
                                     <RiSettings4Line size={16} color="#fff" />
                                 </Link>
@@ -990,6 +991,11 @@ export default function UserProfile({
                                 <button onClick={handleShare} style={iconBtn}>
                                     <RiShareForwardLine size={16} color="#fff" />
                                 </button>
+                                {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
+                                    <button onClick={() => setShowTrust(true)} style={{ ...outlineBtn, color: '#FF6B35', borderColor: 'rgba(255,107,53,0.3)' }}>
+                                    <RiShieldCheckLine size={14} /> Trust Score
+                                    </button>
+                                )}
                                 {/* Mobile 3-dot menu */}
                                 {auth?.user && (
                                     <div style={{ position: 'relative' }}>
