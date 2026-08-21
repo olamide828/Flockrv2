@@ -45,6 +45,7 @@ class AddressController extends Controller
             'street'         => 'required|string|max:200',
             'city'           => 'required|string|max:100',
             'state'          => 'required|string|max:100',
+            'state_code' => 'nullable|string|max:10',
             'postal_code'    => 'nullable|string|max:20',
             'is_default'     => 'boolean',
         ]);
@@ -82,6 +83,7 @@ class AddressController extends Controller
             'street'         => 'sometimes|string|max:200',
             'city'           => 'sometimes|string|max:100',
             'state'          => 'sometimes|string|max:100',
+            'state_code' => 'nullable|string|max:10',
             'postal_code'    => 'nullable|string|max:20',
             'is_default'     => 'boolean',
         ]);
@@ -157,7 +159,7 @@ class AddressController extends Controller
         'phone'       => $seller->phone ?? '08000000000',
         'address'     => $seller->pickup_street,
         'city'        => $seller->pickup_city,
-        'state'       => $seller->pickup_state,
+        'state' => $seller->pickup_state_code ?: $seller->pickup_state,
         'country'     => 'NG',
         'postal_code' => $seller->pickup_postal_code ?? '000000',
     ];

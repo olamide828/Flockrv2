@@ -173,45 +173,42 @@ class PaystackService
      * Returns authorization_url, access_code, reference.
      */
     public function initializeTransaction(Order $order): array
-    {
-        $amountKobo  = (int) round($order->total * 100);
-        $callbackUrl = route('orders.callback');
+{
+    $amountKobo  = (int) round($order->total * 100);
+    $callbackUrl = route('orders.callback');
 
-        $payload = [
-            'email'     => $order->buyer->email,
-            'amount'    => $amountKobo,
-            'reference' => $order->reference,
-            'callback_url' => $callbackUrl,
-            'metadata'  => [
-                'order_id'   => $order->id,
-                'buyer_id'   => $order->buyer_id,
-                'seller_id'  => $order->seller_id,
-                'custom_fields' => [
-                    ['display_name' => 'Order Reference', 'variable_name' => 'order_reference', 'value' => $order->reference],
-                    ['display_name' => 'Seller',          'variable_name' => 'seller',          'value' => "@{$order->seller->username}"],
-                ],
+    $payload = [
+        'email'        => $order->buyer->email,
+        'amount'       => $amountKobo,
+        'reference'    => $order->reference,
+        'callback_url' => $callbackUrl,
+        'metadata'     => [
+            'order_id'  => $order->id,
+            'buyer_id'  => $order->buyer_id,
+            'seller_id' => $order->seller_id,
+            'custom_fields' => [
+                ['display_name' => 'Order Reference', 'variable_name' => 'order_reference', 'value' => $order->reference],
+                ['display_name' => 'Seller',          'variable_name' => 'seller',          'value' => "@{$order->seller->username}"],
             ],
-        ];
+        ],
+    ];
 
-        // If seller has a subaccount, split the payment automatically
-        if ($order->seller?->paystack_subaccount_code) {
-            $platformFeeKobo = (int) round($order->platform_fee * 100);
-            $payload['subaccount']   = $order->seller->paystack_subaccount_code;
-            $payload['bearer']       = 'account';          // platform bears Paystack fees
-            $payload['transaction_charge'] = $platformFeeKobo; // platform keeps this
-        }
+    // ESCROW: the full charge goes to Flockr's main Paystack balance.
+    // The seller's share is released later via Order::releaseEscrow(),
+    // which uses PaystackService::initiateTransfer(). Do NOT re-add
+    // 'subaccount' / 'bearer' / 'transaction_charge' here — that would
+    // auto-settle the seller before delivery is confirmed.
 
-        $response = Http::withHeaders($this->headers())
-            ->post("{$this->baseUrl}/transaction/initialize", $payload);
+    $response = Http::withHeaders($this->headers())
+        ->post("{$this->baseUrl}/transaction/initialize", $payload);
 
-        if ($response->failed()) {
-            $message = $response->json('message') ?? 'Failed to initialize payment.';
-            throw new \RuntimeException($message);
-        }
-
-        return $response->json('data');
+    if ($response->failed()) {
+        $message = $response->json('message') ?? 'Failed to initialize payment.';
+        throw new \RuntimeException($message);
     }
 
+    return $response->json('data');
+}
     public function initializeGenericTransaction(string $email, float $amountNaira, string $reference, string $callbackUrl, array $metadata = []): array
 {
     $response = Http::withHeaders($this->headers())
@@ -253,4 +250,23 @@ class PaystackService
         $expected = hash_hmac('sha512', $payload, $this->secretKey);
         return hash_equals($expected, $signature);
     }
+
+
+    public function refundTransaction(string $reference, ?float $amountNaira = null): array
+{
+    $payload = ['transaction' => $reference];
+    if ($amountNaira !== null) {
+        $payload['amount'] = (int) round($amountNaira * 100); // partial refund, optional
+    }
+
+    $response = Http::withHeaders($this->headers())
+        ->post("{$this->baseUrl}/refund", $payload);
+
+    if ($response->failed()) {
+        throw new \RuntimeException($response->json('message') ?? 'Refund failed.');
+    }
+
+    return $response->json('data');
+}
+
 }

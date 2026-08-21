@@ -344,6 +344,7 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::post('/orders/{order}/review', [ReviewController::class, 'store']);
     Route::get('/orders/{order}/status',   [OrderController::class, 'getStatus']);
     Route::get('/orders/{order}/tracking', [OrderController::class, 'getTrackingEvents']);
+    Route::post('/orders/{order}/confirm-receipt', [OrderController::class, 'confirmReceipt']);
     Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
         $total  = (float) $request->input('total', 0);
         $userId = Auth::id();
@@ -523,6 +524,7 @@ Route::get('/users/following', function () {
         Route::post('/orders/{order}/refund', [AdminController::class, 'refundOrder']);
         Route::post('/orders/{order}/resolve', [AdminController::class, 'resolveOrder']);
         Route::patch('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
+
 
         Route::get('/stats', [AdminController::class, 'stats']);
         Route::get('/analytics', [AdminController::class, 'analytics']);

@@ -31,16 +31,16 @@ class UserAddress extends Model
      * Format for Terminal Africa API.
      * Terminal uses: name, phone, address (=line1), city, state, country, postal_code
      */
-    public function toTerminalFormat(): array
-    {
-        return [
-            'name'         => $this->recipient_name,
-            'phone'        => $this->phone,
-            'address'      => $this->street,  // mapped to line1 inside TerminalService
-            'city'         => $this->city,
-            'state'        => $this->state,
-            'country'      => $this->country ?? 'NG',
-            'postal_code'  => $this->postal_code ?? '000000',
-        ];
-    }
+   public function toTerminalFormat(): array
+{
+    return [
+        'name'        => $this->recipient_name,
+        'phone'       => $this->phone,
+        'address'     => $this->street,
+        'city'        => $this->city,
+        'state'       => $this->state_code ?: $this->state,    
+        'country'     => $this->country ?? 'NG',
+        'postal_code' => $this->postal_code ?? '000000',
+    ];
+}
 }

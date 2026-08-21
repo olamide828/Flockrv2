@@ -17,13 +17,14 @@ class Order extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'reference', 'buyer_id', 'seller_id', 'video_id', 'status',
-        'subtotal', 'shipping_fee', 'platform_fee', 'total', 'currency',
-        'paystack_reference', 'paystack_transaction_id', 'paid_at',
-        'shipping_address', 'tracking_number', 'courier',
-        'shipped_at', 'delivered_at', 'last_rating_reminder_at',
-        'cancellation_reason', 'delivery_address_id', 'courier_name', 'courier_fee', 'terminal_rate_id',
-    ];
+    'reference', 'buyer_id', 'seller_id', 'video_id', 'status',
+    'subtotal', 'shipping_fee', 'platform_fee', 'total', 'currency',
+    'paystack_reference', 'paystack_transaction_id', 'paid_at',
+    'shipping_address', 'tracking_number', 'courier',
+    'shipped_at', 'delivered_at', 'last_rating_reminder_at',
+    'cancellation_reason', 'delivery_address_id', 'courier_name', 'courier_fee', 'terminal_rate_id',
+    'terminal_shipment_id', 'escrow_released_at', 'checkout_batch_id',
+];
 
     protected $casts = [
         'subtotal'                => 'decimal:2',
@@ -176,27 +177,8 @@ class Order extends Model
                 ]);
             }
 
-            // 5. Credit seller wallet (total minus platform fee)
-            $sellerAmount  = $this->total - $this->platform_fee;
-            $lastTx        = WalletTransaction::where('user_id', $this->seller_id)->latest()->first();
-            $balanceBefore = $lastTx?->balance_after ?? 0;
-
-            WalletTransaction::create([
-                'user_id'       => $this->seller_id,
-                'amount'        => $sellerAmount,
-                'type'          => 'credit',
-                'source'        => 'sale',
-                'order_id'      => $this->id,
-                'description'   => "Sale from order {$this->reference}",
-                'balance_after' => $balanceBefore + $sellerAmount,
-            ]);
-
             // 6. Update seller stats
             $this->seller->increment('total_sales');
-
-            if (in_array('revenue_total', $this->seller->getFillable())) {
-                $this->seller->increment('revenue_total', $sellerAmount);
-            }
 
             // 7. Mark coupon as used now that payment is confirmed
             Coupon::where('used_on_order_id', $this->id)
@@ -255,6 +237,41 @@ public function reverseSellerCredit(string $reason): void
         'description'   => $reason,
         'balance_after' => $balanceBefore - $sellerAmount,
     ]);
+}
+
+/**
+ * Release escrowed funds to the seller's wallet.
+ * Only fires for delivered orders that haven't already been released.
+ * A dispute changes order status away from 'delivered', which naturally
+ * excludes the order from the auto-release job — no extra check needed there.
+ */
+public function releaseEscrow(string $reason = 'Escrow window cleared'): void
+{
+    if ($this->status !== 'delivered' || $this->escrow_released_at) {
+        return;
+    }
+
+    DB::transaction(function () use ($reason) {
+        $sellerAmount  = $this->total - $this->platform_fee;
+        $lastTx        = WalletTransaction::where('user_id', $this->seller_id)->latest('id')->first();
+        $balanceBefore = $lastTx?->balance_after ?? 0;
+
+        WalletTransaction::create([
+            'user_id'       => $this->seller_id,
+            'amount'        => $sellerAmount,
+            'type'          => 'credit',
+            'source'        => 'sale',
+            'order_id'      => $this->id,
+            'description'   => "Sale from order {$this->reference} — {$reason}",
+            'balance_after' => $balanceBefore + $sellerAmount,
+        ]);
+
+        if (in_array('revenue_total', $this->seller->getFillable())) {
+            $this->seller->increment('revenue_total', $sellerAmount);
+        }
+
+        $this->update(['escrow_released_at' => now()]);
+    });
 }
 
 }

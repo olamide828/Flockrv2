@@ -23,7 +23,7 @@ class SellerController extends Controller
         $period = 30; 
 
 $stats = [
-    'revenue' => Order::forSeller($seller->id)
+    'revenue'          => Order::forSeller($seller->id)
         ->whereNotNull('paid_at')
         ->where('status', '!=', 'refunded')
         ->where('created_at', '>=', now()->subDays($period))
@@ -33,11 +33,17 @@ $stats = [
         ->where('status', '!=', 'refunded')
         ->where('created_at', '>=', now()->subDays($period))
         ->count(),
+    'views_count'      => $seller->videos()->sum('views_count'),
+    'followers_count'  => $seller->followers_count,
+    'revenue_change'   => $this->changePercent($seller->id, 'revenue', $period),
+    'orders_change'    => $this->changePercent($seller->id, 'orders', $period),
 
-    'views_count' => $seller->videos()->sum('views_count'),
-    'followers_count' => $seller->followers_count,
-    'revenue_change' => $this->changePercent($seller->id, 'revenue', $period),
-    'orders_change' => $this->changePercent($seller->id, 'orders', $period),
+    // ── Escrow additions ──────────────────────────────────────────────
+    'available_balance' => $seller->wallet_balance,
+    'pending_escrow'     => Order::forSeller($seller->id)
+        ->where('status', 'delivered')
+        ->whereNull('escrow_released_at')
+        ->sum(DB::raw('total - platform_fee')),
 ];
 
 
@@ -442,14 +448,18 @@ return Inertia::render('Seller/Dashboard', compact(
     }
 
     public function stats(): JsonResponse
-    {
-        $seller = Auth::user();
-        return response()->json([
-            'wallet_balance' => $seller->wallet_balance,
-            'total_sales' => $seller->total_sales,
-            'revenue_total' => $seller->revenue_total,
-        ]);
-    }
+{
+    $seller = Auth::user();
+    return response()->json([
+        'wallet_balance'     => $seller->wallet_balance,
+        'total_sales'        => $seller->total_sales,
+        'revenue_total'      => $seller->revenue_total,
+        'pending_escrow'     => Order::forSeller($seller->id)
+            ->where('status', 'delivered')
+            ->whereNull('escrow_released_at')
+            ->sum(DB::raw('total - platform_fee')),
+    ]);
+}
 
     public function payoutsApi(): JsonResponse
     {

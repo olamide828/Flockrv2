@@ -24,7 +24,6 @@ Schedule::command('flockr:process-payouts')
     ->withoutOverlapping()
     ->emailOutputOnFailure(config('mail.from.address'));
 
-// Send rating reminders at 24h, 72h, and 7d after delivery
 Schedule::command('flockr:send-rating-reminders')
     ->hourly()
     ->withoutOverlapping();
@@ -44,6 +43,10 @@ Schedule::command('users:purge-deleted')->daily();
 Schedule::command('badges:check')->hourly();
 
 Schedule::command('subscriptions:remind')->dailyAt('09:00');
+
+Schedule::command('orders:release-escrow')->hourly();
+
+Schedule::command('orders:expire-pending')->daily();
 
 Artisan::command('terminal:register-webhook', function() {
     $response = \Illuminate\Support\Facades\Http::withHeaders([

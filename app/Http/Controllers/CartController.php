@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -35,7 +36,7 @@ class CartController extends Controller
             ->values();
 
         // Load saved addresses for checkout modal
-        $addresses = \App\Models\UserAddress::where('user_id', Auth::id())
+        $addresses = UserAddress::where('user_id', Auth::id())
             ->orderByDesc('is_default')
             ->orderByDesc('updated_at')
             ->get();
@@ -148,175 +149,173 @@ class CartController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/cart/checkout
-     *
-     * Expects:
-     *   address_id   - buyer's saved delivery address ID
-     *   rate_id      - Terminal rate ID selected by buyer
-     *   carrier      - carrier name (for display)
-     *   courier_fee  - courier fee amount in NGN
-     *   coupon_code  - optional coupon code
-     */
-    public function checkout(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'address_id'           => 'required|integer|exists:user_addresses,id',
-            'rate_id'              => 'required|string',
-            'carrier'              => 'required|string|max:100',
-            'courier_fee'          => 'required|numeric|min:0',
-            'delivery_platform_fee'=> 'nullable|numeric|min:0',
-            'coupon_code'          => 'nullable|string',
-        ]);
+   /**
+ * POST /api/cart/checkout
+ *
+ * Expects:
+ *   address_id   - buyer's saved delivery address ID
+ *   rate_id      - Terminal rate ID selected by buyer
+ *   carrier      - carrier name (for display)
+ *   courier_fee  - courier fee amount in NGN
+ *   coupon_code  - optional coupon code
+ */
+public function checkout(Request $request): JsonResponse
+{
+    $validated = $request->validate([
+        'address_id'             => 'required|integer|exists:user_addresses,id',
+        'rate_id'                => 'required|string',
+        'carrier'                => 'required|string|max:100',
+        'courier_fee'            => 'required|numeric|min:0',
+        'delivery_platform_fee'  => 'nullable|numeric|min:0',
+        'coupon_code'            => 'nullable|string',
+    ]);
 
-        // Verify address belongs to buyer
-        $address = UserAddress::where('id', $validated['address_id'])
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
+    $address = UserAddress::where('id', $validated['address_id'])
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
 
-        $items = CartItem::where('user_id', Auth::id())
-            ->with('product')
-            ->get()
-            ->filter(fn($i) => $i->product && $i->product->status === 'active');
+    $items = CartItem::where('user_id', Auth::id())
+        ->with('product')
+        ->get()
+        ->filter(fn($i) => $i->product && $i->product->status === 'active');
 
-        if ($items->isEmpty()) {
-            return response()->json(['message' => 'Your cart is empty.'], 422);
-        }
+    if ($items->isEmpty()) {
+        return response()->json(['message' => 'Your cart is empty.'], 422);
+    }
 
-        // Validate stock
-        foreach ($items as $item) {
-            if ($item->product->stock_quantity < $item->quantity) {
-                return response()->json([
-                    'message' => "Not enough stock for \"{$item->product->name}\".",
-                ], 422);
-            }
-        }
-
-        // ── Coupon ────────────────────────────────────────────────────────────
-        $coupon         = null;
-        $couponDiscount = 0;
-
-        if (!empty($validated['coupon_code'])) {
-            $coupon = Coupon::where('code', strtoupper(trim($validated['coupon_code'])))
-                ->where('buyer_id', Auth::id())
-                ->whereNull('used_at')
-                ->where(function ($q) {
-                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                })
-                ->first();
-
-            if ($coupon) {
-                $subtotalCheck = $items->sum(fn($i) => $i->product->price * $i->quantity);
-                if ($subtotalCheck >= $coupon->min_order) {
-                    $couponDiscount = (float) $coupon->amount;
-                }
-            }
-        }
-
-        // ── Build orders (one per seller) ────────────────────────────────────
-        $grouped    = $items->groupBy(fn($i) => $i->product->seller_id);
-        $orders     = [];
-        $grandTotal = 0;
-        $courierFee = (float) $validated['courier_fee'];
-
-        DB::transaction(function () use (
-            $grouped, $address, $validated, $coupon,
-            $couponDiscount, $courierFee, &$orders, &$grandTotal
-        ) {
-            $isFirstOrder    = true;
-            $remainingDiscount = $couponDiscount;
-
-            foreach ($grouped as $sellerId => $sellerItems) {
-
-                 if ($sellerId === Auth::id()) {
+    // Self-purchase check — moved OUTSIDE the transaction. The old check
+    // used return response()->json(...) inside the DB::transaction() closure,
+    // which only exits the closure, not the method — it silently did nothing.
+    if ($items->contains(fn($i) => $i->product->seller_id === Auth::id())) {
         return response()->json([
-            'message' => 'You cannot purchase your own products.',
+            'message' => 'You cannot purchase your own products. Please remove them from your cart.',
         ], 422);
     }
 
-                $subtotal    = $sellerItems->sum(fn($i) => $i->product->price * $i->quantity);
-                $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
-
-                // Apply courier fee only on first order (one shipment per checkout)
-                $thisOrderCourierFee   = $isFirstOrder ? $courierFee : 0;
-                $thisDeliveryPlatformFee = $isFirstOrder ? ($validated['delivery_platform_fee'] ?? 200) : 0;
-
-                // Apply coupon discount — split 50/50 seller/Flockr
-                $discount = min($remainingDiscount, $subtotal);
-                if ($discount > 0) {
-                    $sellerShare  = round($discount / 2, 2);
-                    $flockrShare  = $discount - $sellerShare;
-                    $platformFee  = max(0, $platformFee - $flockrShare);
-                    $remainingDiscount -= $discount;
-                }
-
-                $total = $subtotal + $thisOrderCourierFee + $thisDeliveryPlatformFee - $discount;
-                $grandTotal += $total;
-
-                $order = Order::create([
-                    'buyer_id'             => Auth::id(),
-                    'seller_id'            => $sellerId,
-                    'subtotal'             => $subtotal,
-                    'shipping_fee'         => $thisOrderCourierFee,
-                    'platform_fee'         => $platformFee,
-                    'total'                => max(0, $total),
-                    'shipping_address'     => $address->toTerminalFormat(),
-                    'delivery_address_id'  => $address->id,
-                    'courier_name'  => $validated['carrier'] ?? null,
-                    'courier_fee'   => $validated['courier_fee'] ?? 0,
-                    'terminal_rate_id' => $validated['rate_id'] ?? null,
-                    'estimated_delivery' => $validated['delivery_date'] ?? null,
-                ]);
-
-                foreach ($sellerItems as $item) {
-                    OrderItem::create([
-                        'order_id'     => $order->id,
-                        'product_id'   => $item->product_id,
-                        'product_name' => $item->product->name,
-                        'unit_price'   => $item->product->price,
-                        'quantity'     => $item->quantity,
-                        'total'        => $item->product->price * $item->quantity,
-                    ]);
-                }
-
-                // Reserve coupon
-                if ($coupon && $isFirstOrder) {
-                    $coupon->update(['used_on_order_id' => $order->id]);
-                }
-
-                $orders[]     = $order;
-                $isFirstOrder = false;
-            }
-        });
-
-        // Use first order as primary Paystack transaction
-        $primaryOrder = $orders[0];
-        if (count($orders) > 1) {
-            $primaryOrder->update(['total' => $grandTotal]);
+    foreach ($items as $item) {
+        if ($item->product->stock_quantity < $item->quantity) {
+            return response()->json([
+                'message' => "Not enough stock for \"{$item->product->name}\".",
+            ], 422);
         }
-
-        session(['cart_order_ids' => collect($orders)->pluck('id')->toArray()]);
-
-        try {
-            $payment = $this->paystack->initializeTransaction(
-                $primaryOrder->load(['buyer', 'seller'])
-            );
-        } catch (\Throwable $e) {
-            foreach ($orders as $order) $order->forceDelete();
-            if ($coupon) $coupon->update(['used_on_order_id' => null]);
-            Log::error('Cart checkout Paystack failed', ['error' => $e->getMessage()]);
-            return response()->json(['message' => 'Payment initialization failed. Please try again.'], 503);
-        }
-
-        CartItem::where('user_id', Auth::id())->delete();
-
-        return response()->json([
-            'authorization_url' => $payment['authorization_url'],
-            'reference'         => $primaryOrder->reference,
-            'coupon_applied'    => $coupon ? [
-                'code'     => $coupon->code,
-                'discount' => $couponDiscount,
-            ] : null,
-        ]);
     }
+
+    $coupon         = null;
+    $couponDiscount = 0;
+
+    if (!empty($validated['coupon_code'])) {
+        $coupon = Coupon::where('code', strtoupper(trim($validated['coupon_code'])))
+            ->where('buyer_id', Auth::id())
+            ->whereNull('used_at')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->first();
+
+        if ($coupon) {
+            $subtotalCheck = $items->sum(fn($i) => $i->product->price * $i->quantity);
+            if ($subtotalCheck >= $coupon->min_order) {
+                $couponDiscount = (float) $coupon->amount;
+            }
+        }
+    }
+
+    $grouped    = $items->groupBy(fn($i) => $i->product->seller_id);
+    $orders     = [];
+    $grandTotal = 0;
+    $courierFee = (float) $validated['courier_fee'];
+
+    $batchId = (string) Str::uuid();
+
+    DB::transaction(function () use (
+    $grouped, $address, $validated, $coupon,
+    $couponDiscount, $courierFee, $batchId, &$orders, &$grandTotal
+    ) {
+        $isFirstOrder      = true;
+        $remainingDiscount = $couponDiscount;
+
+        foreach ($grouped as $sellerId => $sellerItems) {
+
+            $subtotal    = $sellerItems->sum(fn($i) => $i->product->price * $i->quantity);
+            $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
+
+            $thisOrderCourierFee     = $isFirstOrder ? $courierFee : 0;
+            $thisDeliveryPlatformFee = $isFirstOrder ? ($validated['delivery_platform_fee'] ?? 200) : 0;
+
+            $discount = min($remainingDiscount, $subtotal);
+            if ($discount > 0) {
+                $sellerShare = round($discount / 2, 2);
+                $flockrShare = $discount - $sellerShare;
+                $platformFee = max(0, $platformFee - $flockrShare);
+                $remainingDiscount -= $discount;
+            }
+
+            $total = $subtotal + $thisOrderCourierFee + $thisDeliveryPlatformFee - $discount;
+            $grandTotal += $total;
+
+            $order = Order::create([
+                'buyer_id'            => Auth::id(),
+                'seller_id'           => $sellerId,
+                'subtotal'            => $subtotal,
+                'shipping_fee'        => $thisOrderCourierFee,
+                'platform_fee'        => $platformFee,
+                'total'               => max(0, $total),
+                'shipping_address'    => $address->toTerminalFormat(),
+                'delivery_address_id' => $address->id,
+                'courier_name'        => $validated['carrier'] ?? null,
+                'checkout_batch_id'   => $batchId,
+                // Fixed: only the order that actually carries the shipment
+                // should show a courier fee.
+                'courier_fee'         => $isFirstOrder ? ($validated['courier_fee'] ?? 0) : 0,
+                'terminal_rate_id'    => $validated['rate_id'] ?? null,
+                'estimated_delivery'  => $validated['delivery_date'] ?? null,
+            ]);
+
+            foreach ($sellerItems as $item) {
+                OrderItem::create([
+                    'order_id'     => $order->id,
+                    'product_id'   => $item->product_id,
+                    'product_name' => $item->product->name,
+                    'unit_price'   => $item->product->price,
+                    'quantity'     => $item->quantity,
+                    'total'        => $item->product->price * $item->quantity,
+                ]);
+            }
+
+            if ($coupon && $isFirstOrder) {
+                $coupon->update(['used_on_order_id' => $order->id]);
+            }
+
+            $orders[]     = $order;
+            $isFirstOrder = false;
+        }
+    });
+
+    $primaryOrder = $orders[0];
+    if (count($orders) > 1) {
+        $primaryOrder->update(['total' => $grandTotal]);
+    }
+
+    try {
+        $payment = $this->paystack->initializeTransaction(
+            $primaryOrder->load(['buyer', 'seller'])
+        );
+    } catch (\Throwable $e) {
+        foreach ($orders as $order) $order->forceDelete();
+        if ($coupon) $coupon->update(['used_on_order_id' => null]);
+        Log::error('Cart checkout Paystack failed', ['error' => $e->getMessage()]);
+        return response()->json(['message' => 'Payment initialization failed. Please try again.'], 503);
+    }
+
+    CartItem::where('user_id', Auth::id())->delete();
+
+    return response()->json([
+        'authorization_url' => $payment['authorization_url'],
+        'reference'          => $primaryOrder->reference,
+        'coupon_applied'     => $coupon ? [
+            'code'     => $coupon->code,
+            'discount' => $couponDiscount,
+        ] : null,
+    ]);
+}
 } 

@@ -315,29 +315,19 @@ public function getTrackingEvents(Order $order): JsonResponse
                 $this->awardPurchaseBadges($order->buyer_id);
 
                 // ── Multi-seller cart: mark sibling orders paid too ───────────
-                // When CartController creates multiple orders, it stores their IDs
-                // in the session. We retrieve them here and mark each one paid.
-                $cartOrderIds = session('cart_order_ids', []);
+               if ($order->checkout_batch_id) {
+    $siblingOrders = Order::where('checkout_batch_id', $order->checkout_batch_id)
+        ->where('id', '!=', $order->id)
+        ->where('status', 'pending')
+        ->get();
 
-                if (!empty($cartOrderIds)) {
-                    $siblingOrders = Order::whereIn('id', $cartOrderIds)
-                        ->where('id', '!=', $order->id)  // exclude primary (already done)
-                        ->where('status', 'pending')
-                        ->get();
-
-                    foreach ($siblingOrders as $sibling) {
-                        // Use the same Paystack reference and transaction ID —
-                        // one payment covered all orders in this cart checkout
-                        $sibling->markAsPaid($reference, $data['id']);
-
-                        try {
-                            $sibling->buyer->notify(new NewOrderNotification($sibling));
-                        } catch (\Throwable) {}
-                    }
-
-                    // Clear session after processing
-                    session()->forget('cart_order_ids');
-                }
+    foreach ($siblingOrders as $sibling) {
+        $sibling->markAsPaid($reference, $data['id']);
+        try {
+            $sibling->buyer->notify(new NewOrderNotification($sibling));
+        } catch (\Throwable) {}
+    }
+}
             }
 
             return redirect()->route('orders.success', ['reference' => $reference]);
@@ -369,28 +359,23 @@ public function getTrackingEvents(Order $order): JsonResponse
             $primaryOrder = Order::where('reference', $data['reference'])->first();
 
             if ($primaryOrder && $primaryOrder->status === 'pending') {
-                $primaryOrder->markAsPaid($data['reference'], $data['id']);
+    $primaryOrder->markAsPaid($data['reference'], $data['id']);
 
-                // ── Multi-seller: find sibling orders by buyer + time window ──
-                // The session is not available in webhook context, so we identify
-                // siblings as: same buyer, status=pending, created within 60s of
-                // the primary order, different seller.
-                $siblingOrders = Order::where('buyer_id', $primaryOrder->buyer_id)
-                    ->where('id', '!=', $primaryOrder->id)
-                    ->where('status', 'pending')
-                    ->where('created_at', '>=', $primaryOrder->created_at->subSeconds(60))
-                    ->where('created_at', '<=', $primaryOrder->created_at->addSeconds(60))
-                    ->get();
+    if ($primaryOrder->checkout_batch_id) {
+        $siblingOrders = Order::where('checkout_batch_id', $primaryOrder->checkout_batch_id)
+            ->where('id', '!=', $primaryOrder->id)
+            ->where('status', 'pending')
+            ->get();
 
-                foreach ($siblingOrders as $sibling) {
-                    $sibling->markAsPaid($data['reference'], $data['id']);
-
-                    try {
-                        $sibling->buyer->notify(new NewOrderNotification($sibling));
+        foreach ($siblingOrders as $sibling) {
+            $sibling->markAsPaid($data['reference'], $data['id']);
+            try {
+                $sibling->buyer->notify(new NewOrderNotification($sibling));
                     } catch (\Throwable) {}
                 }
             }
         }
+    }
 
         if ($event === 'transfer.success') {
             \App\Models\Payout::where('reference', $data['reference'])
@@ -506,22 +491,46 @@ public function cancel(Order $order, Request $request): JsonResponse
         ]);
     }
 
+    public function confirmReceipt(Order $order): JsonResponse
+{
+    if ($order->buyer_id !== Auth::id()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    if ($order->status !== 'delivered') {
+        return response()->json(['message' => 'This order has not been marked delivered yet.'], 422);
+    }
+
+    $order->releaseEscrow('Buyer confirmed receipt early');
+
+    return response()->json(['message' => 'Thanks! The seller has been paid.']);
+}
+
     public function openDispute(Request $request, Order $order): JsonResponse
     {
         if ($order->buyer_id !== Auth::id()) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
-        }
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
 
-        $eligible = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
-        if (!in_array($order->status, $eligible)) {
-            return response()->json([
-                'message' => 'You can only dispute a paid or in-progress order.',
-            ], 422);
-        }
+    $eligible = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
+    if (!in_array($order->status, $eligible)) {
+        return response()->json([
+            'message' => 'You can only dispute a paid or in-progress order.',
+        ], 422);
+    }
 
-        if ($order->status === 'disputed') {
-            return response()->json(['message' => 'A dispute is already open for this order.'], 422);
-        }
+    if ($order->status === 'disputed') {
+        return response()->json(['message' => 'A dispute is already open for this order.'], 422);
+    }
+
+    // ESCROW: give a generous buffer beyond the 3-day auto-release window
+    // (so buyers who confirm late aren't locked out) but close disputes
+    // eventually — past this point funds are considered final.
+    if ($order->delivered_at && $order->delivered_at->diffInDays(now()) > 7) {
+        return response()->json([
+            'message' => 'The dispute window for this order has closed (7 days after delivery). Please contact support directly.',
+        ], 422);
+    }
 
         $validated = $request->validate([
             'reason'      => 'required|string|max:200',
