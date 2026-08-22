@@ -5,7 +5,7 @@ import axios from 'axios';
 import ProPlansSheet from '@/Components/ProPlansSheet';
 import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
     RiAlertLine,
