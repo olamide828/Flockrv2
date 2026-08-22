@@ -39,7 +39,7 @@ export default function AppLayout({ children }) {
     const [badgeQueue, setBadgeQueue] = useState([]);
     const [messageToasts, setMessageToasts] = useState([])
     const [activeToast, setActiveToast] = useState(null)
-const toastTimeoutRef = useRef(null)
+    const toastTimeoutRef = useRef(null)
 
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
@@ -69,6 +69,20 @@ const toastTimeoutRef = useRef(null)
    // Replace the messageToasts array state + effect + render with this "single,
 // always-replaced" version — no more stacking/duplicating per message.
 
+// AppLayout.jsx — add this helper function anywhere in the component:
+const playMessageChime = () => {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)()
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.frequency.value = 880
+        gain.gain.setValueAtTime(0.12, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25)
+        osc.start(); osc.stop(ctx.currentTime + 0.25)
+    } catch {}
+}
+
 
 useEffect(() => {
     if (!window.Echo || !auth?.user) return
@@ -80,6 +94,7 @@ useEffect(() => {
 
         clearTimeout(toastTimeoutRef.current)
         setActiveToast(e) // replaces whatever was showing — never stacks
+        playMessageChime()
 
         toastTimeoutRef.current = setTimeout(() => setActiveToast(null), 7000)
     })
@@ -96,6 +111,12 @@ const openToast = (toast) => {
     router.visit(`/inbox?user=${toast.sender.id}`)
 }
 
+
+const pauseToastTimer = () => clearTimeout(toastTimeoutRef.current)
+const resumeToastTimer = () => {
+    clearTimeout(toastTimeoutRef.current)
+    toastTimeoutRef.current = setTimeout(() => setActiveToast(null), 7000)
+}
 
 const replyToToast = (toast) => {
     dismissToast(toast.id)
@@ -720,7 +741,7 @@ const replyToToast = (toast) => {
 <div style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 12, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
     {activeToast && (
     <div style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 12, zIndex: 9999, pointerEvents: 'none' }}>
-        <MessageToast toast={activeToast} onOpen={openToast} onDismiss={dismissToast} />
+        <MessageToast toast={activeToast} onOpen={openToast} onDismiss={dismissToast} onFocusInput={pauseToastTimer} onBlurInput={resumeToastTimer} />
     </div>
 )}
 </div>

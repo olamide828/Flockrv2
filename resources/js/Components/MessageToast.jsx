@@ -3,7 +3,7 @@ import { RiCloseLine, RiSendPlaneFill } from 'react-icons/ri'
 import { AvatarImage } from '@/Layouts/AppLayout'
 import axios from 'axios'
 
-export default function MessageToast({ toast, onOpen, onDismiss }) {
+export default function MessageToast({ toast, onOpen, onDismiss, onFocusInput, onBlurInput }) {
     const [reply, setReply] = useState('')
     const [sending, setSending] = useState(false)
     const [sent, setSent] = useState(false)
@@ -47,13 +47,15 @@ export default function MessageToast({ toast, onOpen, onDismiss }) {
             {!sent && (
                 <form className="mt-toast-reply-row" onClick={(e) => e.stopPropagation()} onSubmit={handleSend}>
                     <input
-                        ref={inputRef}
-                        value={reply}
-                        onChange={(e) => setReply(e.target.value)}
-                        placeholder="Reply..."
-                        disabled={sending}
-                        className="mt-toast-input"
-                    />
+    ref={inputRef}
+    value={reply}
+    onChange={(e) => setReply(e.target.value)}
+    onFocus={() => onFocusInput?.()}
+    onBlur={() => onBlurInput?.()}
+    placeholder="Reply..."
+    disabled={sending}
+    className="mt-toast-input"
+/>
                     <button type="submit" disabled={!reply.trim() || sending} className="mt-toast-send" aria-label="Send reply">
                         <RiSendPlaneFill size={14} />
                     </button>

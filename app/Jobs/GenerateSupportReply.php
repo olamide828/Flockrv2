@@ -63,7 +63,7 @@ private function buildSellerMentionContext(string $messageBody): string
         $recentMessages = $conversation->messages()
             ->with('sender:id,name')
             ->orderByDesc('created_at')
-            ->limit(10)
+            ->limit(50)
             ->get()
             ->reverse()
             ->values();

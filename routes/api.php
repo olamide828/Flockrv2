@@ -128,7 +128,7 @@ Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
 
 // GET /api/search/discover — rotating placeholder suggestions, no query needed
 Route::get('/search/discover', function () {
-    return \Illuminate\Support\Facades\Cache::remember('search_discover', 600, function () {
+    return Cache::remember('search_discover', 600, function () {
         $hints = collect();
 
         // Top products by views (pick 4 random from top 20)
@@ -465,6 +465,7 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::post('/conversations', [ConversationController::class, 'store']);
     Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
+    Route::post('/conversations/{conversation}/mark-read', [ConversationController::class, 'markRead']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
     Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
@@ -473,12 +474,37 @@ Route::get('/safety/conversations/{conversation}/status', [SafetyController::cla
 Route::get('/safety/seller-info/{seller}', [SafetyController::class, 'sellerInfo']);
 Route::post('/safety/classify-message', [SafetyController::class, 'classifyMessage'])->middleware('throttle:30,1');
 Route::get('/sellers/{seller}/trust', [SellerTrustController::class, 'show']);
-Route::get('/users/following', function () {
-    return Auth::user()->following()
-        ->where('users.is_active', true)
-        ->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.role')
-        ->limit(20)
+Route::get('/users/suggested', function () {
+    $userId = Auth::id();
+
+    $recentPartnerIds = \App\Models\Conversation::whereHas('participants', fn($q) => $q->where('user_id', $userId))
+        ->with(['participants' => fn($q) => $q->where('user_id', '!=', $userId)])
+        ->latest('updated_at')
+        ->limit(15)
+        ->get()
+        ->pluck('participants')
+        ->flatten()
+        ->pluck('id')
+        ->unique()
+        ->reject(fn($id) => \App\Models\User::where('id', $id)->value('is_flockr_support'))
+        ->values();
+
+    $users = \App\Models\User::whereIn('id', $recentPartnerIds)
+        ->where('is_active', true)
+        ->select('id', 'name', 'username', 'avatar', 'role')
         ->get();
+
+    return response()->json($users->sortBy(fn($u) => $recentPartnerIds->search($u->id))->values());
+});
+
+Route::get('/users/{user}/relationship', function (\App\Models\User $user) {
+    $me = Auth::id();
+    return response()->json([
+        'i_follow_them' => DB::table('follows')->where('follower_id', $me)->where('following_id', $user->id)->exists(),
+        'they_follow_me' => DB::table('follows')->where('follower_id', $user->id)->where('following_id', $me)->exists(),
+        'followers_count' => $user->followers_count ?? 0,
+        'following_count' => $user->following_count ?? 0,
+    ]);
 });
 
     // Seller endpoints

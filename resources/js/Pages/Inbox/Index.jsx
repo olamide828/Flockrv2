@@ -10,6 +10,8 @@ import {
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 import MentionAutocomplete from '@/Components/Chat/MentionAutocomplete'
+import MessageRequestSheet from '@/Components/Chat/MessageRequestSheet'
+import ConversationStartCard from '@/Components/Chat/ConversationStartCard'
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
@@ -282,6 +284,7 @@ const lastTypingSentRef = useRef(0)
 const [typingUsers, setTypingUsers] = useState({})
 const [mentionStart, setMentionStart] = useState(null)
 const [mentionQuery, setMentionQuery] = useState(null)
+const [showRequestSheet, setShowRequestSheet] = useState(false)
 
 // ── Off-platform payment safety ────────────────────────────────────────────
 const [showWarningSheet, setShowWarningSheet]   = useState(false)
@@ -294,7 +297,11 @@ const [payFlockrSeller, setPayFlockrSeller]         = useState(null)
 const scannedMsgIdsRef = useRef(new Set())
 
 
-
+const handleFollowFromChat = async () => {
+    const other = otherUser(active)
+    if (!other) return
+    try { await axios.post(`/api/users/${other.id}/follow`) } catch {}
+}
 
 const broadcastTyping = () => {
     if (!active || !window.Echo) return
@@ -406,6 +413,7 @@ useEffect(() => {
 
                     return [...prev, e.message]
                 })
+                axios.post(`/api/conversations/${conv.id}/mark-read`).catch(() => {})
             }
         })
 
@@ -589,13 +597,18 @@ useEffect(() => {
         })
     }, 6000)
 }
-    } catch {
-      setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+    } catch (err) {
+    setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+    if (err.response?.status === 403 && err.response.data?.request_limit_reached) {
+        showToast?.(err.response.data.message, 'error')
+    }
     } finally { setSending(false) }
   }
 
-  const detectMention = (text, cursorPos) => {
-    if (!active?.is_support) { setMentionStart(null); setMentionQuery(null); return }
+
+const detectMention = (text, cursorPos) => {
+    const other = otherUser(active)
+    if (!other?.is_flockr_support) { setMentionStart(null); setMentionQuery(null); return }
     const before = text.slice(0, cursorPos)
     const match = before.match(/(?:^|\s)@([a-zA-Z0-9_.]{0,20})$/)
     if (match) {
@@ -627,6 +640,22 @@ const selectMention = (user) => {
     } catch {}
     finally { setStarting(false) }
   }
+
+  useEffect(() => {
+    if (!active) return
+    const other = otherUser(active)
+    if (!other || other.is_flockr_support) return
+    const iSentAny = messages.some(m => m.sender_id === auth?.user?.id)
+    const seenKey = `flockr_seen_request_${active.id}`
+    if (!other.i_follow_them && !iSentAny && !localStorage.getItem(seenKey)) {
+        setShowRequestSheet(true)
+    }
+}, [active?.id, messages.length])
+
+const dismissRequestSheet = () => {
+    if (active) localStorage.setItem(`flockr_seen_request_${active.id}`, '1')
+    setShowRequestSheet(false)
+}
 
   const handleBlock = async () => {
     const other = otherUser(active)
@@ -767,6 +796,16 @@ const selectMention = (user) => {
         />
       )}
 
+      {showRequestSheet && active && (
+    <MessageRequestSheet
+        sender={otherUser(active)}
+        onContinue={dismissRequestSheet}
+        onReport={() => { dismissRequestSheet(); setReportTarget(active) }}
+        onBlock={async () => { dismissRequestSheet(); await handleBlock() }}
+        onClose={dismissRequestSheet}
+    />
+)}
+
       {showPayFlockrSheet && payFlockrSeller && (
         <PayWithFlockrSheet
           seller={payFlockrSeller}
@@ -785,12 +824,19 @@ const selectMention = (user) => {
         .conv-item-active { background: rgba(255,255,255,0.06) !important; }
         .search-inp { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; color: #fff; font-size: 13px; outline: none; padding: 9px 14px 9px 36px; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
         .search-inp:focus { border-color: rgba(255,92,0,0.5) !important; }
+        .chat-ambient-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.chat-blob { position: absolute; border-radius: 50%; background: #FF6B35; filter: blur(90px); opacity: 0.05; }
+.chat-blob-a { width: 320px; height: 320px; top: -80px; left: -60px; animation: chatDrift1 22s ease-in-out infinite; }
+.chat-blob-b { width: 260px; height: 260px; bottom: -60px; right: -40px; animation: chatDrift2 26s ease-in-out infinite; }
+@keyframes chatDrift1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(40px, 30px); } }
+@keyframes chatDrift2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-30px, -25px); } }
         @keyframes spin { to { transform: rotate(360deg); } }
         ::-webkit-scrollbar { display: none; }
       `}</style>
 
-      <div style={{ height: '100%', display: 'flex', background: '#0a0a0a', overflow: 'hidden' }}>
+      <div style={{ height: '100%', display: 'flex', background: '#0a0a0a', overflow: 'hidden', position: 'relative' }}>
 
+        
         {/* ══ SIDEBAR ══ */}
         <div
           style={{ display: 'flex', flexDirection: 'column', width: '100%', borderRight: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, background: '#0d0d0d', ...(active ? { display: 'none' } : {}) }}
@@ -942,8 +988,14 @@ const selectMention = (user) => {
 
         {/* ══ CHAT PANEL ══ */}
         <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', display: active ? 'flex' : 'none' }} className="chat-panel">
-          {!active ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
+          
+          <div className="chat-ambient-bg" aria-hidden="true">
+      <span className="chat-blob chat-blob-a" />
+      <span className="chat-blob chat-blob-b" />
+  </div>
+
+            {!active ? (
+  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, position: 'relative', zIndex: 1 }}>
               <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiChat1Line size={32} color="rgba(255,255,255,0.2)" /></div>
               <p style={{ color: '#fff', fontWeight: 700, fontSize: 18, margin: 0 }}>Your messages</p>
               <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, margin: 0 }}>Select a conversation or search for someone.</p>
@@ -957,7 +1009,7 @@ const selectMention = (user) => {
 
             return (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
                   <button onClick={() => setActive(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex', padding: 6, borderRadius: 8 }}>
                     <RiArrowLeftLine size={20} />
                   </button>
@@ -1007,7 +1059,7 @@ const selectMention = (user) => {
                 )}
 
                 {msgSearchOpen && (
-                  <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', flexShrink: 0 }}>
+                  <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', flexShrink: 0, position: 'relative', zIndex: 1 }}>
                     <div style={{ position: 'relative' }}>
                       <RiSearchLine size={14} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                       <input autoFocus value={msgSearch} onChange={e => setMsgSearch(e.target.value)} placeholder="Search in conversation..." className="search-inp" />
@@ -1021,11 +1073,17 @@ const selectMention = (user) => {
                   </div>
                 )}
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 2, position: 'relative', zIndex: 1 }}>
                   {loadingMsgs && <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
                   {!loadingMsgs && filteredMsgs.length === 0 && (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
-                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>{msgSearch ? `No messages matching "${msgSearch}"` : <img src="/images/No-Messages-Blank-State.png" alt="no-messages-blank-state" /> }</p>
+                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>{msgSearch ? `No messages matching "${msgSearch}"` : {!loadingMsgs && filteredMsgs.length === 0 && !msgSearch && (
+    <ConversationStartCard
+        other={otherUser(active)}
+        following={otherUser(active)?.i_follow_them}
+        onFollow={handleFollowFromChat}
+    />
+)} }</p>
                     </div>
                   )}
                   {filteredMsgs.map((msg, i) => {
@@ -1094,9 +1152,9 @@ const selectMention = (user) => {
                   <div ref={bottomRef} />
                 </div>
 
-                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d' }}>
+                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', position: 'relative', zIndex: 1 }}>
                   
-                  {mentionQuery !== null && (
+                {mentionQuery !== null && (
         <MentionAutocomplete
             initialQuery={mentionQuery}
             onSelect={selectMention}
@@ -1119,37 +1177,19 @@ const selectMention = (user) => {
                     </div>
                   ) : (
                     <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '0 14px', gap: 8 }}>
-<textarea
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '6px 14px', gap: 8, maxHeight: 132, overflow: 'hidden' }}>
+    <textarea
         ref={inputRef}
         value={body}
-        onChange={e => {
-            setBody(e.target.value)
-            broadcastTyping()
-            detectMention(e.target.value, e.target.selectionStart)
-        }}
-        onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                sendMessage(e)
-            }
-        }}
+        onChange={e => { setBody(e.target.value); broadcastTyping(); detectMention(e.target.value, e.target.selectionStart) }}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e) } }}
         placeholder="Message..."
         maxLength={1000}
-    rows={1}
-        style={{
-            flex: 1, background: 'none', border: 'none', outline: 'none',
-            color: '#fff', fontSize: 14, padding: '11px 0',
-            resize: 'none', fontFamily: 'inherit', lineHeight: 1.4,
-            maxHeight: 120, overflowY: 'auto',
-        }}
-        onInput={e => {
-            e.target.style.height = 'auto'
-            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
-        }}
+        rows={1}
+        style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '6px 0', resize: 'none', fontFamily: 'inherit', lineHeight: 1.4, maxHeight: 108, overflowY: 'auto' }}
+        onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }}
     />
-                        {body.length > 800 && <span style={{ color: body.length >= 1000 ? '#ff3b5c' : 'rgba(255,255,255,0.25)', fontSize: 10, flexShrink: 0 }}>{1000 - body.length}</span>}
-                      </div>
+</div>
                       <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
                         <RiSendPlaneFill size={17} color={body.trim() ? '#fff' : 'rgba(255,255,255,0.25)'} />
                       </button>

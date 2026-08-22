@@ -11,7 +11,7 @@ export default function MentionAutocomplete({ initialQuery, onSelect, onClose })
     const [searching, setSearching] = useState(false)
 
     useEffect(() => {
-        axios.get('/api/users/following')
+        axios.get('/api/users/suggested')
             .then(({ data }) => setFollowing(data))
             .catch(() => setFollowing([]))
             .finally(() => setLoadingFollowing(false))

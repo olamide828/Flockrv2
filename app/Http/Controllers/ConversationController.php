@@ -10,6 +10,7 @@ use App\Events\NewMessageToast;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,46 +20,52 @@ class ConversationController extends Controller
     private const SENDER_FIELDS      = 'id,name,username,avatar,last_seen_at';
 
    public function index(): Response
-{
-    $user = Auth::user();
+    {
+        $user = Auth::user();
 
-    $this->ensureSupportConversation($user);
+        $this->ensureSupportConversation($user);
 
-    $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
-    $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
+        $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
+        $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
 
-    $conversations = $user
-        ->conversations()
-        ->with([
-            'participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support',
-            'lastMessage.sender:' . self::SENDER_FIELDS,
-        ])
-        ->withCount(['messages as unread_count' => function ($q) {
-            $q->whereNull('read_at')->where('sender_id', '!=', Auth::id());
-        }])
-        ->latest('updated_at')
-        ->get()
-        ->map(function ($conv) use ($blockedIds, $blockedByIds) {
-            $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds) {
-                $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
-                $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
-            });
-            $conv->setAttribute(
-                'is_support',
-                $conv->participants->contains(fn($p) => $p->is_flockr_support)
-            );
-            return $conv;
-        })
-        // Support conversation always first, everything else by recency.
-        ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
-        ->values();
+        // Query follow relationships ONCE outside the loop to prevent N+1 queries
+        $whoFollowsMe = DB::table('follows')->where('following_id', $user->id)->pluck('follower_id')->toArray();
+        $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
 
-    return Inertia::render('Inbox/Index', [
-        'conversations'     => $conversations,
-        'blockedByMeIds'    => $blockedIds,
-        'blockedByOtherIds' => $blockedByIds,
-    ]);
-}
+        $conversations = $user
+            ->conversations()
+            ->with([
+                'participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support',
+                'lastMessage.sender:' . self::SENDER_FIELDS,
+            ])
+            ->withCount(['messages as unread_count' => function ($q) {
+                $q->whereNull('read_at')->where('sender_id', '!=', Auth::id());
+            }])
+            ->latest('updated_at')
+            ->get()
+            ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
+                $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
+                    $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
+                    $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
+                    $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
+                    $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
+                });
+                $conv->setAttribute(
+                    'is_support',
+                    $conv->participants->contains(fn($p) => $p->is_flockr_support)
+                );
+                return $conv;
+            })
+            // Support conversation always first, everything else by recency.
+            ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
+            ->values();
+
+        return Inertia::render('Inbox/Index', [
+            'conversations'     => $conversations,
+            'blockedByMeIds'    => $blockedIds,
+            'blockedByOtherIds' => $blockedByIds,
+        ]);
+    }
 
 
 
@@ -149,6 +156,21 @@ public function sendMessage(Request $request, Conversation $conversation): JsonR
             return response()->json(['message' => 'Cannot send message to this user.'], 403);
         }
     }
+
+
+if ($otherParticipant) {
+    $theyFollowMe = DB::table('follows')->where('follower_id', $otherParticipant->id)->where('following_id', Auth::id())->exists();
+
+    if (!$theyFollowMe && !$otherParticipant->is_flockr_support) {
+        $mySentCount = $conversation->messages()->where('sender_id', Auth::id())->count();
+        if ($mySentCount >= 3) {
+            return response()->json([
+                'message' => "You've reached the message request limit. When @{$otherParticipant->username} follows you back, you'll be able to keep chatting.",
+                'request_limit_reached' => true,
+            ], 403);
+        }
+    }
+}
 
     $validated = $request->validate(['body' => 'required|string|max:1000']);
 
@@ -241,4 +263,15 @@ public function sendMessage(Request $request, Conversation $conversation): JsonR
     'body'      => "Hi {$user->name}! 👋 I'm Flockr Support. Ask me anything about your orders, payouts, or how Flockr works — or just say hi. You can also check if a seller is trustworthy by typing @ plus their name right here in chat.",
     ]);
 }
+
+
+public function markRead(Conversation $conversation): JsonResponse
+{
+    if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+    $conversation->messages()->where('sender_id', '!=', Auth::id())->whereNull('read_at')->update(['read_at' => now()]);
+    return response()->json(['ok' => true]);
+}
+
 }

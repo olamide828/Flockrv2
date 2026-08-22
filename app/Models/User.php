@@ -67,6 +67,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'preferences' => 'array',
         'last_seen_at' => 'datetime',
         'deletion_scheduled_at' => 'datetime',
+        'is_flockr_support' => 'boolean',
 
     ];
 
