@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\SafetyController;
 use App\Http\Controllers\SellerTrustController;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
@@ -466,6 +467,7 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::post('/conversations/{conversation}/mark-read', [ConversationController::class, 'markRead']);
+    Route::post('/conversations/{conversation}/dismiss-request', [ConversationController::class, 'dismissRequest']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
     Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);

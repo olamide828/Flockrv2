@@ -244,7 +244,7 @@ function ChatMenu({ isBlocked, onBlock, onReport, onClose }) {
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
-      <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 99, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+      <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
         <button onClick={onReport} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <RiAlertLine size={16} color="rgba(255,255,255,0.5)" /> Report
         </button>
@@ -300,7 +300,14 @@ const scannedMsgIdsRef = useRef(new Set())
 const handleFollowFromChat = async () => {
     const other = otherUser(active)
     if (!other) return
-    try { await axios.post(`/api/users/${other.id}/follow`) } catch {}
+    setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === other.id ? { ...p, i_follow_them: true } : p) }))
+    setConversations(prev => prev.map(c => c.id === active.id ? { ...c, participants: c.participants.map(p => p.id === other.id ? { ...p, i_follow_them: true } : p) } : c))
+    try {
+        await axios.post(`/api/users/${other.id}/follow`)
+    } catch {
+        setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === other.id ? { ...p, i_follow_them: false } : p) }))
+        showToast('Failed to follow. Try again.', 'error')
+    }
 }
 
 const broadcastTyping = () => {
@@ -646,14 +653,19 @@ const selectMention = (user) => {
     const other = otherUser(active)
     if (!other || other.is_flockr_support) return
     const iSentAny = messages.some(m => m.sender_id === auth?.user?.id)
-    const seenKey = `flockr_seen_request_${active.id}`
-    if (!other.i_follow_them && !iSentAny && !localStorage.getItem(seenKey)) {
+    const otherSentAny = messages.some(m => m.sender_id === other.id)
+    
+    if (!other.i_follow_them && otherSentAny && !iSentAny && !active.request_dismissed) {
         setShowRequestSheet(true)
     }
 }, [active?.id, messages.length])
 
 const dismissRequestSheet = () => {
-    if (active) localStorage.setItem(`flockr_seen_request_${active.id}`, '1')
+    if (active) {
+        axios.post(`/api/conversations/${active.id}/dismiss-request`).catch(() => {})
+        setActive(prev => ({ ...prev, request_dismissed: true }))
+        setConversations(prev => prev.map(c => c.id === active.id ? { ...c, request_dismissed: true } : c))
+    }
     setShowRequestSheet(false)
 }
 
@@ -824,12 +836,30 @@ const dismissRequestSheet = () => {
         .conv-item-active { background: rgba(255,255,255,0.06) !important; }
         .search-inp { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; color: #fff; font-size: 13px; outline: none; padding: 9px 14px 9px 36px; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
         .search-inp:focus { border-color: rgba(255,92,0,0.5) !important; }
-        .chat-ambient-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
-.chat-blob { position: absolute; border-radius: 50%; background: #FF6B35; filter: blur(90px); opacity: 0.05; }
-.chat-blob-a { width: 320px; height: 320px; top: -80px; left: -60px; animation: chatDrift1 22s ease-in-out infinite; }
-.chat-blob-b { width: 260px; height: 260px; bottom: -60px; right: -40px; animation: chatDrift2 26s ease-in-out infinite; }
-@keyframes chatDrift1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(40px, 30px); } }
-@keyframes chatDrift2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-30px, -25px); } }
+       .chat-ambient-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.chat-bubble {
+    position: absolute; bottom: -20px; border-radius: 50%;
+    background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.12);
+    animation-name: bubbleFloat; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
+}
+.chat-spark {
+    position: absolute; bottom: -20px; width: 10px; height: 10px;
+    background: rgba(255,107,53,0.16);
+    clip-path: polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%);
+    animation-name: sparkFloat; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
+}
+@keyframes bubbleFloat {
+    0%   { transform: translateY(0) translateX(0); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 0.6; }
+    100% { transform: translateY(-115vh) translateX(18px); opacity: 0; }
+}
+@keyframes sparkFloat {
+    0%   { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0; }
+    12%  { opacity: 0.9; }
+    88%  { opacity: 0.4; }
+    100% { transform: translateY(-115vh) translateX(-26px) rotate(180deg); opacity: 0; }
+}
         @keyframes spin { to { transform: rotate(360deg); } }
         ::-webkit-scrollbar { display: none; }
       `}</style>
@@ -989,10 +1019,24 @@ const dismissRequestSheet = () => {
         {/* ══ CHAT PANEL ══ */}
         <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', display: active ? 'flex' : 'none' }} className="chat-panel">
           
-          <div className="chat-ambient-bg" aria-hidden="true">
-      <span className="chat-blob chat-blob-a" />
-      <span className="chat-blob chat-blob-b" />
-  </div>
+         <div className="chat-ambient-bg" aria-hidden="true">
+    {[...Array(9)].map((_, i) => (
+        <span key={`b${i}`} className="chat-bubble" style={{
+            left: `${(i * 11 + 4) % 100}%`,
+            width: 6 + (i % 4) * 4,
+            height: 6 + (i % 4) * 4,
+            animationDuration: `${14 + (i % 5) * 4}s`,
+            animationDelay: `${i * -1.7}s`,
+        }} />
+    ))}
+    {[...Array(4)].map((_, i) => (
+        <span key={`s${i}`} className="chat-spark" style={{
+            left: `${(i * 27 + 15) % 100}%`,
+            animationDuration: `${18 + i * 3}s`,
+            animationDelay: `${i * -4}s`,
+        }} />
+    ))}
+</div>
 
             {!active ? (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, position: 'relative', zIndex: 1 }}>
@@ -1009,7 +1053,7 @@ const dismissRequestSheet = () => {
 
             return (
               <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative', zIndex: 5 }}>
                   <button onClick={() => setActive(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex', padding: 6, borderRadius: 8 }}>
                     <RiArrowLeftLine size={20} />
                   </button>

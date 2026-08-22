@@ -361,6 +361,7 @@ export default function UserProfile({
     const [showSubSuccess, setShowSubSuccess] = useState(!!flash?.subscription);
     const [showBadgeRoadmap, setShowBadgeRoadmap] = useState(false);
     const [showTrust, setShowTrust] = useState(false)
+    const [followsMe, setFollowsMe] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -523,6 +524,14 @@ export default function UserProfile({
     const totalLikes = videos?.reduce((sum, v) => sum + (v.likes_count ?? 0), 0) ?? 0;
     const avatarSrc =
         profileUser.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(profileUser.name)}&background=222&color=fff&size=200`;
+
+
+    useEffect(() => {
+    if (isOwnProfile || !auth?.user) return
+    axios.get(`/api/users/${profileUser.id}/relationship`)
+        .then(({ data }) => setFollowsMe(data.they_follow_me))
+        .catch(() => {})
+}, [profileUser.id])
 
     return (
         <>
@@ -704,16 +713,14 @@ export default function UserProfile({
                                     <>
                                         {!anyBlock && auth?.user?.role !== 'admin' && (
                                             <button onClick={handleFollow} style={following ? followingBtn : primaryBtn}>
-                                                {following ? (
-                                                    <>
-                                                        <RiUserFollowLine size={14} /> Following
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <RiUserAddLine size={14} /> Follow
-                                                    </>
-                                                )}
-                                            </button>
+    {following ? (
+        <><RiUserFollowLine size={14} /> Following</>
+    ) : followsMe ? (
+        <><RiUserFollowLine size={14} /> Follow Back</>
+    ) : (
+        <><RiUserAddLine size={14} /> Follow</>
+    )}
+</button>
                                         )}
                                         {!anyBlock && (
                                             <Link href={`/inbox?user=${profileUser.id}`} style={outlineBtn}>
@@ -989,12 +996,10 @@ export default function UserProfile({
                         ) : (
                             <>
                                 {!anyBlock && (
-                                    <button
-                                        onClick={handleFollow}
-                                        style={{ ...(following ? followingBtn : primaryBtn), flex: 1, justifyContent: 'center' }}
-                                    >
-                                        {following ? 'Following' : 'Follow'}
-                                    </button>
+                                  
+<button onClick={handleFollow} style={{ ...(following ? followingBtn : primaryBtn), flex: 1, justifyContent: 'center' }}>
+    {following ? 'Following' : followsMe ? 'Follow Back' : 'Follow'}
+</button>
                                 )}
                                 {!anyBlock && (
                                     <Link href={`/inbox?user=${profileUser.id}`} style={{ ...outlineBtn, flex: 1, justifyContent: 'center' }}>

@@ -28,9 +28,13 @@ class ConversationController extends Controller
         $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
         $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
 
-        // Query follow relationships ONCE outside the loop to prevent N+1 queries
+        // Query relationships ONCE outside the loop to prevent N+1 queries
         $whoFollowsMe = DB::table('follows')->where('following_id', $user->id)->pluck('follower_id')->toArray();
         $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
+        $dismissedIds = DB::table('conversation_request_dismissals')
+            ->where('user_id', $user->id)
+            ->pluck('conversation_id')
+            ->toArray();
 
         $conversations = $user
             ->conversations()
@@ -43,13 +47,18 @@ class ConversationController extends Controller
             }])
             ->latest('updated_at')
             ->get()
-            ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
+            // ADDED $dismissedIds TO THE use() LIST BELOW
+            ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds) {
                 $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
                     $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
                     $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
                     $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
                     $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
                 });
+
+                // Set on the conversation itself (OUTSIDE the participants loop)
+                $conv->setAttribute('request_dismissed', in_array($conv->id, $dismissedIds));
+
                 $conv->setAttribute(
                     'is_support',
                     $conv->participants->contains(fn($p) => $p->is_flockr_support)
@@ -243,6 +252,20 @@ if ($otherParticipant) {
 
     return response()->json(['message' => 'Report submitted.']);
 
+}
+
+public function dismissRequest(Conversation $conversation): JsonResponse
+{
+    if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+
+    DB::table('conversation_request_dismissals')->updateOrInsert(
+        ['user_id' => Auth::id(), 'conversation_id' => $conversation->id],
+        ['dismissed_at' => now(), 'created_at' => now(), 'updated_at' => now()]
+    );
+
+    return response()->json(['ok' => true]);
 }
 
     private function ensureSupportConversation(User $user): void
