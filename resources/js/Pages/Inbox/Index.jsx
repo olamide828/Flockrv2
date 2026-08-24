@@ -257,6 +257,16 @@ function ChatMenu({ isBlocked, onBlock, onReport, onClose }) {
   )
 }
 
+
+function renderMessageBody(text) {
+    const parts = text.split(/(@[a-zA-Z0-9_.]+)/g)
+    return parts.map((part, i) =>
+        part.startsWith('@')
+            ? <span key={i} style={{ color: '#FF6B35', fontWeight: 700 }}>{part}</span>
+            : part
+    )
+}
+
 // ── Main Inbox ────────────────────────────────────────────────────────────────
 export default function Inbox({ conversations: initialConvs = [], blockedByMeIds = [], blockedByOtherIds = [] }) {
   const { auth } = usePage().props
@@ -583,6 +593,7 @@ useEffect(() => {
     const optimistic = { id: `opt-${Date.now()}`, sender_id: auth.user.id, body: body.trim(), created_at: new Date().toISOString(), _optimistic: true, sender: auth.user }
     setMessages(prev => [...prev, optimistic])
     setBody('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
     try {
       const { data } = await axios.post(`/api/conversations/${active.id}/messages`, { body: optimistic.body })
       setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
@@ -1169,7 +1180,7 @@ const dismissRequestSheet = () => {
                 )}
                 <div className="msg-bubble" style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }}>
                     <div style={{ padding: '9px 14px', background: mine ? (highlight ? '#e85200' : '#ff5c00') : (highlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'), border: mine ? 'none' : '1px solid rgba(255,255,255,0.08)', borderRadius: br, color: '#fff', fontSize: 14, lineHeight: 1.5, opacity: msg._optimistic ? 0.6 : 1, boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.2)' : 'none' }}>
-                        {msg.body}
+                        {renderMessageBody(msg.body)}
                     </div>
                     {last && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>

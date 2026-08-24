@@ -5,6 +5,7 @@ import axios from 'axios';
 import ProPlansSheet from '@/Components/ProPlansSheet';
 import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
+import MutualFriendsRow from '@/Components/MutualFriendsRow'
 import { useState, useEffect } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -33,6 +34,7 @@ import BadgesDisplay from '@/Components/BadgesDisplay';
 import LevelStreakChip from '@/Components/LevelStreakChip';
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import SubscriptionSuccessSheet from '@/Components/SubscriptionSuccessSheet';
+import ConfirmModal from '@/Components/ConfirmModal'
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -362,6 +364,8 @@ export default function UserProfile({
     const [showBadgeRoadmap, setShowBadgeRoadmap] = useState(false);
     const [showTrust, setShowTrust] = useState(false)
     const [followsMe, setFollowsMe] = useState(false)
+    const [showUnfollowConfirm, setShowUnfollowConfirm] = useState(false)
+const [showUnblockConfirm, setShowUnblockConfirm] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -369,6 +373,7 @@ export default function UserProfile({
     const [communityLoaded, setCommunityLoaded] = useState(false);
     const [communityPage, setCommunityPage] = useState(1);
     const [communityHasMore, setCommunityHasMore] = useState(true);
+    
 
     // ── Fixed toast — position:fixed so it doesn't shift layout ──────────────
     const [toast, setToast] = useState(false);
@@ -396,6 +401,19 @@ export default function UserProfile({
             setFollowersCount((c) => c + (next ? -1 : 1));
         });
     };
+
+    const handleFollowClick = () => {
+    if (!auth?.user) { router.visit('/login'); return }
+    if (anyBlock) return
+    if (following) { setShowUnfollowConfirm(true); return }
+    handleFollow()
+}
+
+const requestBlockToggle = () => {
+    setShowMenu(false)
+    if (iBlockedThem) setShowUnblockConfirm(true)
+    else handleBlock()
+}
 
     // Passed into PostCard so following/unfollowing from a post in the
     // community tab stays in sync with the main profile Follow button —
@@ -548,6 +566,29 @@ export default function UserProfile({
         {showBadgeRoadmap && <BadgeRoadmapSheet onClose={() => setShowBadgeRoadmap(false)} />}
 
         {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
+
+        // Render alongside your other conditional sheets:
+{showUnfollowConfirm && (
+    <ConfirmModal
+        title={`Unfollow @${profileUser.username}?`}
+        message="You'll stop seeing their videos and posts in your feed. And you won't be able to purchase or send them messages."
+        confirmLabel="Unfollow"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => { setShowUnfollowConfirm(false); handleFollow() }}
+        onClose={() => setShowUnfollowConfirm(false)}
+    />
+)}
+{showUnblockConfirm && (
+    <ConfirmModal
+        title={`Unblock @${profileUser.username}?`}
+        message="They'll be able to see your profile, follow you, and message you again."
+        confirmLabel="Unblock"
+        cancelLabel="Cancel"
+        onConfirm={() => { setShowUnblockConfirm(false); handleBlock() }}
+        onClose={() => setShowUnblockConfirm(false)}
+    />
+)}
 
             {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
             <div
@@ -712,14 +753,16 @@ export default function UserProfile({
                                 ) : (
                                     <>
                                         {!anyBlock && auth?.user?.role !== 'admin' && (
-                                            <button onClick={handleFollow} style={following ? followingBtn : primaryBtn}>
+                                            <button onClick={handleFollowClick} style={following ? followingBtn : primaryBtn}>
     {following ? (
-        <><RiUserFollowLine size={14} /> Following</>
-    ) : followsMe ? (
-        <><RiUserFollowLine size={14} /> Follow Back</>
-    ) : (
-        <><RiUserAddLine size={14} /> Follow</>
-    )}
+    followsMe
+        ? <><RiUserFollowLine size={14} /> Flock Mate</>
+        : <><RiUserFollowLine size={14} /> Following</>
+) : followsMe ? (
+    <><RiUserFollowLine size={14} /> Follow Back</>
+) : (
+    <><RiUserAddLine size={14} /> Follow</>
+)}
 </button>
                                         )}
                                         {!anyBlock && (
@@ -740,7 +783,7 @@ export default function UserProfile({
                                                 {showMenu && (
                                                     <ProfileMenu
                                                         iBlocked={iBlockedThem}
-                                                        onBlock={handleBlock}
+                                                        onBlock={requestBlockToggle}
                                                         onReport={() => {
                                                             setShowMenu(false);
                                                             setShowReport(true);
@@ -796,6 +839,7 @@ export default function UserProfile({
                                     <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{profileUser.location}</span>
                                 </div>
                             )}
+                            {!isOwnProfile && !anyBlock && <MutualFriendsRow profileUserId={profileUser.id} />}
                             <BadgesDisplay badges={profileUser.badges} />
                             {isOwnProfile && (
                                     <button onClick={() => setShowBadgeRoadmap(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#FF6B35', fontSize: 12, fontWeight: 600, padding: 0 }}>
@@ -961,6 +1005,7 @@ export default function UserProfile({
                                     <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{profileUser.location}</span>
                                 </div>
                             )}
+                            {!isOwnProfile && !anyBlock && <MutualFriendsRow profileUserId={profileUser.id} />}
                             <BadgesDisplay badges={profileUser.badges} />
                             {isOwnProfile && (
                                 <button onClick={() => setShowBadgeRoadmap(true)} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#FF6B35', fontSize: 12, fontWeight: 600, padding: 0 }}>
@@ -997,8 +1042,8 @@ export default function UserProfile({
                             <>
                                 {!anyBlock && (
                                   
-<button onClick={handleFollow} style={{ ...(following ? followingBtn : primaryBtn), flex: 1, justifyContent: 'center' }}>
-    {following ? 'Following' : followsMe ? 'Follow Back' : 'Follow'}
+<button onClick={handleFollowClick} style={{ ...(following ? followingBtn : primaryBtn), flex: 1, justifyContent: 'center' }}>
+    {following ? (followsMe ? 'Flock Mate' : 'Following') : followsMe ? 'Follow Back' : 'Follow'}
 </button>
                                 )}
                                 {!anyBlock && (
@@ -1019,7 +1064,7 @@ export default function UserProfile({
                                         {showMenu && (
                                             <ProfileMenu
                                                 iBlocked={iBlockedThem}
-                                                onBlock={handleBlock}
+                                                onBlock={requestBlockToggle}
                                                 onReport={() => {
                                                     setShowMenu(false);
                                                     setShowReport(true);
@@ -1035,7 +1080,7 @@ export default function UserProfile({
                 </div>
 
                 {/* ═══ BLOCKED STATE BANNER ══════════════════════════════════ */}
-                <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={handleBlock} />
+                <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />
 
                 {/* ═══ TABS (only show when not blocked) ════════════════════ */}
                 {!anyBlock && (

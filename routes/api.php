@@ -509,6 +509,25 @@ Route::get('/users/{user}/relationship', function (\App\Models\User $user) {
     ]);
 });
 
+
+Route::get('/users/{user}/mutual-follows', function (\App\Models\User $user) {
+    $me = Auth::id();
+    if (!$me || $me === $user->id) return response()->json(['count' => 0, 'users' => []]);
+
+    $mutualIds = DB::table('follows as f1')
+        ->join('follows as f2', 'f1.following_id', '=', 'f2.follower_id')
+        ->where('f1.follower_id', $me)
+        ->where('f2.following_id', $user->id)
+        ->pluck('f2.follower_id');
+
+    $users = \App\Models\User::whereIn('id', $mutualIds)
+        ->select('id', 'name', 'username', 'avatar')
+        ->limit(30)
+        ->get();
+
+    return response()->json(['count' => $users->count(), 'users' => $users]);
+});
+
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {
         Route::get('/stats', [SellerController::class, 'stats']);
