@@ -34,7 +34,7 @@ import BadgesDisplay from '@/Components/BadgesDisplay';
 import LevelStreakChip from '@/Components/LevelStreakChip';
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import SubscriptionSuccessSheet from '@/Components/SubscriptionSuccessSheet';
-import ConfirmModal from '@/Components/ConfirmModal'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
 function ReportModal({ user, onClose, onSubmit }) {
@@ -567,7 +567,7 @@ const requestBlockToggle = () => {
 
         {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
 
-        // Render alongside your other conditional sheets:
+ 
 {showUnfollowConfirm && (
     <ConfirmModal
         title={`Unfollow @${profileUser.username}?`}
