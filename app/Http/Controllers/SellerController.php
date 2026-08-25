@@ -23,11 +23,11 @@ class SellerController extends Controller
         $period = 30; 
 
 $stats = [
-    'revenue'          => Order::forSeller($seller->id)
-        ->whereNotNull('paid_at')
-        ->where('status', '!=', 'refunded')
-        ->where('created_at', '>=', now()->subDays($period))
-        ->sum('total'),
+    'revenue' => Order::forSeller($seller->id)
+    ->whereNotNull('paid_at')
+    ->where('status', '!=', 'refunded')
+    ->where('created_at', '>=', now()->subDays($period))
+    ->sum(DB::raw('total - platform_fee')),
     'orders_count' => Order::forSeller($seller->id)
         ->whereNotNull('paid_at')
         ->where('status', '!=', 'refunded')
@@ -37,13 +37,11 @@ $stats = [
     'followers_count'  => $seller->followers_count,
     'revenue_change'   => $this->changePercent($seller->id, 'revenue', $period),
     'orders_change'    => $this->changePercent($seller->id, 'orders', $period),
-
-    // ── Escrow additions ──────────────────────────────────────────────
     'available_balance' => $seller->wallet_balance,
-    'pending_escrow'     => Order::forSeller($seller->id)
-        ->where('status', 'delivered')
-        ->whereNull('escrow_released_at')
-        ->sum(DB::raw('total - platform_fee')),
+    'pending_escrow' => Order::forSeller($seller->id)
+    ->where('status', 'delivered')
+    ->whereNull('escrow_released_at')
+    ->sum(DB::raw('total - platform_fee')),
 ];
 
 
@@ -237,6 +235,11 @@ return Inertia::render('Seller/Dashboard', compact(
             'new_followers_change'   => $pctChange($followersNow, $followersPrev),
             'total_followers'        => $seller->followers_count,
             'views_to_orders_rate'   => $viewsNow > 0 ? round(($ordersNow / $viewsNow) * 100, 2) : 0,
+            'pending_escrow' => Order::forSeller($sellerId)
+                ->where('status', 'delivered')
+                ->whereNull('escrow_released_at')
+                ->sum(DB::raw('total - platform_fee')),
+
         ];
 
         // ── Revenue trend (daily) ───────────────────────────────────────────
@@ -520,9 +523,9 @@ private function changePercent(int $sellerId, string $metric, int $days): float
         ->whereBetween('created_at', [now()->subDays($days * 2), now()->subDays($days)]);
 
     [$cur, $prev] = match ($metric) {
-        'revenue' => [$current->sum('total'), $previous->sum('total')],
-        default => [$current->count(), $previous->count()],
-    };
+    'revenue' => [$current->sum(DB::raw('total - platform_fee')), $previous->sum(DB::raw('total - platform_fee'))],
+    default => [$current->count(), $previous->count()],
+};
 
     if ($prev == 0)
         return $cur > 0 ? 100 : 0;
