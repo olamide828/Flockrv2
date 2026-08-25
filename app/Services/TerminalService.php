@@ -176,7 +176,7 @@ class TerminalService
      *
      * @throws \RuntimeException on API failure
      */
-       public function createShipment(
+    public function createShipment(
         Order  $order,
         string $rateId,
         array  $pickup,
@@ -264,72 +264,82 @@ class TerminalService
         return $id;
     }
 
-private function createParcel(array $parcel, string $packagingId): string
-{
-    $items = $parcel['items'] ?? [[
-        'name'        => 'Product',
-        'description' => 'Flockr marketplace item',
-        'currency'    => 'NGN',
-        'value'       => 1000,
-        'quantity'    => max(1, (int) ($parcel['items_count'] ?? 1)),
-        'weight'      => max(0.1, (float) ($parcel['weight'] ?? 0.5)),
-    ]];
+    private function createParcel(array $parcel, string $packagingId): string
+    {
+        $items = $parcel['items'] ?? [[
+            'name'        => 'Product',
+            'description' => 'Flockr marketplace item',
+            'currency'    => 'NGN',
+            'value'       => 1000,
+            'quantity'    => max(1, (int) ($parcel['items_count'] ?? 1)),
+            'weight'      => max(0.1, (float) ($parcel['weight'] ?? 0.5)),
+        ]];
 
-    $payload = [
-        'description' => $parcel['description'] ?? 'Flockr order package',
-        'weight_unit' => 'kg',
-        'items'       => $items,
-    ];
+        $payload = [
+            'description' => $parcel['description'] ?? 'Flockr order package',
+            'weight_unit' => 'kg',
+            'items'       => $items,
+        ];
 
-    if ($packagingId) {
-        $payload['packaging'] = $packagingId;
+        if ($packagingId) {
+            $payload['packaging'] = $packagingId;
+        }
+
+        $response = $this->post('/parcels', $payload);
+
+        $parcelId = $response['data']['parcel_id'] ?? $response['data']['_id'] ?? null;
+
+        if (!$parcelId) {
+            throw new \RuntimeException(
+                'Failed to create parcel: ' . ($response['message'] ?? 'Unknown error')
+            );
+        }
+
+        return $parcelId;
     }
 
-    $response = $this->post('/parcels', $payload);
+    private function createAddress(array $addr): string
+    {
+        $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);
 
-    $parcelId = $response['data']['parcel_id'] ?? $response['data']['_id'] ?? null;
+        $response = $this->post('/addresses', [
+            'first_name'     => $nameParts[0],
+            'last_name'      => $nameParts[1] ?? $nameParts[0],
+            'line1'          => $addr['address'] ?? $addr['street'] ?? 'N/A',
+            'city'           => $addr['city']    ?? '',
+            'state'          => $addr['state']   ?? '',
+            'country'        => $addr['country'] ?? 'NG',
+            'phone'          => $this->formatPhone($addr['phone'] ?? null),
+            'zip'            => $addr['postal_code'] ?? '000000',
+            'is_residential' => true,
+        ]);
 
-    if (!$parcelId) {
-        throw new \RuntimeException(
-            'Failed to create parcel: ' . ($response['message'] ?? 'Unknown error')
-        );
+        $addressId = $response['data']['address_id'] ?? $response['data']['_id'] ?? null;
+
+        if (!$addressId) {
+            throw new \RuntimeException(
+                'Failed to create address: ' . ($response['message'] ?? 'Unknown error')
+            );
+        }
+
+        return $addressId;
     }
 
-    return $parcelId;
-}
-
-/**
- * Create a fresh address record on Terminal Africa and return its ID.
- */
-protected function createAddress(array $addressData): string
-{
-    $response = $this->post('/addresses', [
-        'first_name' => $addressData['first_name'] ?? $addressData['name'] ?? 'Customer',
-        'last_name'  => $addressData['last_name']  ?? '',
-        'email'      => $addressData['email']      ?? '',
-        'phone'      => $addressData['phone']      ?? '',
-        'line1'      => $addressData['line1']      ?? $addressData['street'] ?? '',
-        'line2'      => $addressData['line2']      ?? null,
-        'city'       => $addressData['city']       ?? '',
-        'state'      => $addressData['state']      ?? '',
-        'country'    => $addressData['country']    ?? 'NG',
-        'zip'        => $addressData['zip']        ?? '100001',
-        'is_residential' => true,
-    ]);
-
-    $addressId = $response['data']['address_id'] 
-              ?? $response['data']['_id'] 
-              ?? null;
-
-    if (!$addressId) {
-        Log::error('Terminal: address creation failed', ['response' => $response]);
-        throw new \RuntimeException('Failed to create address on Terminal Africa.');
+    private function buildAddressPayload(array $addr): array
+    {
+        $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);
+        return [
+            'first_name'     => $nameParts[0],
+            'last_name'      => $nameParts[1] ?? $nameParts[0],
+            'line1'          => substr($addr['address'] ?? $addr['street'] ?? 'N/A', 0, 45),
+            'city'           => $addr['city']    ?? '',
+            'state'          => $addr['state']   ?? '',
+            'country'        => $addr['country'] ?? 'NG',
+            'phone'          => $this->formatPhone($addr['phone'] ?? null),
+            'zip'            => $addr['postal_code'] ?? '000000',
+            'is_residential' => true,
+        ];
     }
-
-    return $addressId;
-}
-
- 
 
     private function formatPhone(?string $phone): string
     {
