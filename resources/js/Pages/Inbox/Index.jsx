@@ -12,6 +12,9 @@ import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 import MentionAutocomplete from '@/Components/Chat/MentionAutocomplete'
 import MessageRequestSheet from '@/Components/Chat/MessageRequestSheet'
 import ConversationStartCard from '@/Components/Chat/ConversationStartCard'
+import ChatBackgroundAnimation from '@/Components/Chat/ChatBackgroundAnimation'
+import ThemePickerModal from '@/Components/Chat/ThemePickerModal'
+import ProPlansSheet from '@/Components/ProPlansSheet'
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
@@ -240,11 +243,14 @@ function ReportModal({ user, onClose, onSubmit }) {
 }
 
 // ── Chat context menu (block + report) ────────────────────────────────────────
-function ChatMenu({ isBlocked, onBlock, onReport, onClose }) {
+function ChatMenu({ isBlocked, onBlock, onReport, onClose, onAnimation }) {
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
       <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+        <button onClick={onAnimation} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+    <RiVipDiamondLine size={16} color="rgba(255,255,255,0.5)" /> Animation
+</button>
         <button onClick={onReport} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <RiAlertLine size={16} color="rgba(255,255,255,0.5)" /> Report
         </button>
@@ -295,6 +301,11 @@ const [typingUsers, setTypingUsers] = useState({})
 const [mentionStart, setMentionStart] = useState(null)
 const [mentionQuery, setMentionQuery] = useState(null)
 const [showRequestSheet, setShowRequestSheet] = useState(false)
+const [myChatTheme, setMyChatTheme] = useState(auth?.user?.chat_theme ?? 'off')
+const [showThemePicker, setShowThemePicker] = useState(false)
+const [showProSheet, setShowProSheet] = useState(false)
+
+const canUsePro = auth?.user?.role === 'seller' && auth?.user?.is_subscriber
 
 // ── Off-platform payment safety ────────────────────────────────────────────
 const [showWarningSheet, setShowWarningSheet]   = useState(false)
@@ -318,6 +329,14 @@ const handleFollowFromChat = async () => {
         setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === other.id ? { ...p, i_follow_them: false } : p) }))
         showToast('Failed to follow. Try again.', 'error')
     }
+}
+
+const resolveActiveTheme = () => {
+    const other = otherUser(active)
+    if (other?.role === 'seller' && other?.has_active_subscription_flag && other?.chat_theme && other.chat_theme !== 'off') {
+        return other.chat_theme
+    }
+    return myChatTheme
 }
 
 const broadcastTyping = () => {
@@ -836,6 +855,23 @@ const dismissRequestSheet = () => {
         />
       )}
 
+      {showThemePicker && (
+  <ThemePickerModal
+    currentTheme={myChatTheme}
+    canUsePro={canUsePro}
+    onSelectTheme={(theme) => setMyChatTheme(theme)}
+    onUpgrade={() => {
+      setShowThemePicker(false)
+      setShowProSheet(true)
+    }}
+    onClose={() => setShowThemePicker(false)}
+  />
+)}
+
+{showProSheet && (
+  <ProPlansSheet onClose={() => setShowProSheet(false)} />
+)}
+
       <style>{`
         @media (max-width: 767px) {
           body.chat-open .mobile-topbar     { display: none !important; }
@@ -847,18 +883,6 @@ const dismissRequestSheet = () => {
         .conv-item-active { background: rgba(255,255,255,0.06) !important; }
         .search-inp { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; color: #fff; font-size: 13px; outline: none; padding: 9px 14px 9px 36px; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
         .search-inp:focus { border-color: rgba(255,92,0,0.5) !important; }
-       .chat-ambient-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
-.chat-bubble {
-    position: absolute; bottom: -20px; border-radius: 50%;
-    background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.12);
-    animation-name: bubbleFloat; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
-}
-.chat-spark {
-    position: absolute; bottom: -20px; width: 10px; height: 10px;
-    background: rgba(255,107,53,0.16);
-    clip-path: polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%);
-    animation-name: sparkFloat; animation-timing-function: ease-in-out; animation-iteration-count: infinite;
-}
 @keyframes bubbleFloat {
     0%   { transform: translateY(0) translateX(0); opacity: 0; }
     10%  { opacity: 1; }
@@ -1030,24 +1054,7 @@ const dismissRequestSheet = () => {
         {/* ══ CHAT PANEL ══ */}
         <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', display: active ? 'flex' : 'none' }} className="chat-panel">
           
-         <div className="chat-ambient-bg" aria-hidden="true">
-    {[...Array(9)].map((_, i) => (
-        <span key={`b${i}`} className="chat-bubble" style={{
-            left: `${(i * 11 + 4) % 100}%`,
-            width: 6 + (i % 4) * 4,
-            height: 6 + (i % 4) * 4,
-            animationDuration: `${14 + (i % 5) * 4}s`,
-            animationDelay: `${i * -1.7}s`,
-        }} />
-    ))}
-    {[...Array(4)].map((_, i) => (
-        <span key={`s${i}`} className="chat-spark" style={{
-            left: `${(i * 27 + 15) % 100}%`,
-            animationDuration: `${18 + i * 3}s`,
-            animationDelay: `${i * -4}s`,
-        }} />
-    ))}
-</div>
+         <ChatBackgroundAnimation theme={active ? resolveActiveTheme() : 'off'} />
 
             {!active ? (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, position: 'relative', zIndex: 1 }}>
@@ -1099,6 +1106,7 @@ const dismissRequestSheet = () => {
                       <ChatMenu
                         isBlocked={iBlocked}
                         onBlock={handleBlock}
+                        onAnimation={() => { setShowMenu(false); setShowThemePicker(true) }}
                         onReport={() => { setShowMenu(false); setReportTarget(active); }}
                         onClose={() => setShowMenu(false)}
                       />

@@ -54,6 +54,7 @@ class User extends Authenticatable implements MustVerifyEmail
     'deleted_email',
     'suspension_reason',
     'suspended_at',
+    'chat_theme',
 ];
 
     protected $hidden = ['password', 'remember_token'];

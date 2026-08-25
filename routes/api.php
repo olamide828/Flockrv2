@@ -527,6 +527,19 @@ Route::get('/users/{user}/mutual-follows', function (\App\Models\User $user) {
 
     return response()->json(['count' => $users->count(), 'users' => $users]);
 });
+Route::patch('/users/me/chat-theme', function (\Illuminate\Http\Request $request) {
+    $request->validate(['theme' => 'required|string']);
+
+    $freeThemes = ['off', 'bubbles', 'drift'];
+    $user = Auth::user();
+
+    if (!in_array($request->theme, $freeThemes) && !($user->role === 'seller' && $user->hasActiveSubscription())) {
+        return response()->json(['message' => 'This background is a Flockr Pro feature for sellers.'], 403);
+    }
+
+    $user->update(['chat_theme' => $request->theme]);
+    return response()->json(['chat_theme' => $request->theme]);
+});
 
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {

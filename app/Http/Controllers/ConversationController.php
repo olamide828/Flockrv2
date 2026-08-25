@@ -39,7 +39,9 @@ class ConversationController extends Controller
         $conversations = $user
             ->conversations()
             ->with([
-                'participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support',
+                'participants' => fn($q) => $q
+    ->select(array_merge(explode(',', self::PARTICIPANT_FIELDS), ['role', 'is_flockr_support', 'chat_theme']))
+    ->withActiveSubscriptionFlag(),
                 'lastMessage.sender:' . self::SENDER_FIELDS,
             ])
             ->withCount(['messages as unread_count' => function ($q) {
