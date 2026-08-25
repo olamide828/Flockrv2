@@ -6,6 +6,7 @@ import {
   RiSendPlaneFill, RiArrowLeftLine, RiChat1Line,
   RiCheckDoubleLine, RiCheckLine, RiSearchLine,
   RiCloseLine, RiMoreLine, RiAlertLine, RiProhibitedLine, RiBellLine,
+  RiVipDiamondLine,
 } from 'react-icons/ri'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
