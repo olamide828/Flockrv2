@@ -39,9 +39,17 @@ class ConversationController extends Controller
         $conversations = $user
             ->conversations()
             ->with([
-                'participants' => fn($q) => $q
-    ->select(array_merge(explode(',', self::PARTICIPANT_FIELDS), ['role', 'is_flockr_support', 'chat_theme']))
-    ->withActiveSubscriptionFlag(),
+                'participants' => function ($q) {
+    $fields = array_merge(
+        explode(',', self::PARTICIPANT_FIELDS),
+        ['role', 'is_flockr_support', 'chat_theme']
+    );
+
+    // Prefix each field with 'users.' to avoid SQL ambiguous column errors
+    $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
+
+    $q->select($qualifiedFields)->withActiveSubscriptionFlag();
+},
                 'lastMessage.sender:' . self::SENDER_FIELDS,
             ])
             ->withCount(['messages as unread_count' => function ($q) {
