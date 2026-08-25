@@ -113,41 +113,50 @@ class CartController extends Controller
      * Validate a coupon code and return discount amount.
      */
     public function validateCoupon(Request $request): JsonResponse
-    {
-        $request->validate(['code' => 'required|string']);
+{
+    $validated = $request->validate([
+        'code'     => 'required|string',
+        'subtotal' => 'nullable|numeric|min:0',
+    ]);
 
-        $coupon = Coupon::where('code', strtoupper(trim($request->code)))
-            ->where('buyer_id', Auth::id())
-            ->whereNull('used_at')
-            ->where(function ($q) {
-                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
+    $coupon = Coupon::where('code', strtoupper(trim($validated['code'])))
+        ->where('buyer_id', Auth::id())
+        ->whereNull('used_at')
+        ->where(function ($q) {
+            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+        })
+        ->first();
 
-        if (!$coupon) {
-            return response()->json(['message' => 'Invalid or expired coupon code.'], 422);
-        }
+    if (!$coupon) {
+        return response()->json(['message' => 'Invalid or expired coupon code.'], 422);
+    }
 
-        // Calculate cart total to check min_order
+    // Prefer the subtotal the frontend is actually checking out with —
+    // works correctly for both single-product "Buy Now" and cart checkout.
+    // Falls back to the persisted cart only when none was supplied.
+    if ($request->filled('subtotal')) {
+        $subtotal = (float) $validated['subtotal'];
+    } else {
         $items    = CartItem::where('user_id', Auth::id())->with('product')->get();
         $subtotal = $items->sum(fn($i) => $i->product->price * $i->quantity);
-
-        if ($subtotal < $coupon->min_order) {
-            return response()->json([
-                'message' => "This coupon requires a minimum order of ₦" . number_format($coupon->min_order, 0) . ".",
-            ], 422);
-        }
-
-        return response()->json([
-            'coupon' => [
-                'id'         => $coupon->id,
-                'code'       => $coupon->code,
-                'amount'     => $coupon->amount,
-                'min_order'  => $coupon->min_order,
-                'expires_at' => $coupon->expires_at?->toDateString(),
-            ],
-        ]);
     }
+
+    if ($subtotal < $coupon->min_order) {
+        return response()->json([
+            'message' => "This coupon requires a minimum order of ₦" . number_format($coupon->min_order, 0) . ".",
+        ], 422);
+    }
+
+    return response()->json([
+        'coupon' => [
+            'id'         => $coupon->id,
+            'code'       => $coupon->code,
+            'amount'     => $coupon->amount,
+            'min_order'  => $coupon->min_order,
+            'expires_at' => $coupon->expires_at?->toDateString(),
+        ],
+    ]);
+}
 
    /**
  * POST /api/cart/checkout

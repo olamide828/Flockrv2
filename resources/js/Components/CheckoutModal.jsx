@@ -330,21 +330,24 @@ export default function CheckoutModal({
     const goToDelivery = () => { setStep('delivery'); fetchRates(selectedAddr); };
 
     const handleApplyCoupon = async () => {
-        if (!couponCode.trim()) return;
-        setCouponLoading(true);
-        try {
-            const { data } = await axios.post('/api/cart/validate-coupon', { code: couponCode });
-            setCouponApplied(data.coupon);
-            showToast?.('Coupon applied — ₦' + Number(data.coupon.amount).toLocaleString() + ' off!', 'success');
-        } catch (err) {
-            const msg = err.code === 'ERR_NETWORK'
-                ? 'No internet connection.'
-                : (err.response?.data?.message ?? 'Invalid coupon.');
-            showToast?.(msg, 'error');
-        } finally {
-            setCouponLoading(false);
-        }
-    };
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    try {
+        const { data } = await axios.post('/api/cart/validate-coupon', {
+            code: couponCode,
+            subtotal,   
+        });
+        setCouponApplied(data.coupon);
+        showToast?.('Coupon applied — ₦' + Number(data.coupon.amount).toLocaleString() + ' off!', 'success');
+    } catch (err) {
+        const msg = err.code === 'ERR_NETWORK'
+            ? 'No internet connection.'
+            : (err.response?.data?.message ?? 'Invalid coupon.');
+        showToast?.(msg, 'error');
+    } finally {
+        setCouponLoading(false);
+    }
+};
 
     const handleRemoveCoupon = () => { setCouponApplied(null); setCouponCode(''); };
 

@@ -296,7 +296,7 @@ public function getTrackingEvents(Order $order): JsonResponse
      * GET /orders/callback — Paystack redirects here after payment.
      * Handles both single-product orders AND multi-seller cart orders.
      */
-    public function paystackCallback(Request $request): \Illuminate\Http\RedirectResponse
+        public function paystackCallback(Request $request): \Illuminate\Http\RedirectResponse
     {
         $reference = $request->query('reference') ?? $request->query('trxref');
         if (!$reference) {
@@ -308,26 +308,29 @@ public function getTrackingEvents(Order $order): JsonResponse
             $order = Order::where('reference', $reference)->firstOrFail();
 
             if ($data['status'] === 'success' && $order->status === 'pending') {
-                // Mark the primary order paid
                 $order->markAsPaid($reference, $data['id']);
-                $order->buyer->notify(new NewOrderNotification($order));
+
+                try {
+                    $order->buyer->notify(new NewOrderNotification($order));
+                } catch (\Throwable $e) {
+                    Log::warning('Buyer notification failed in paystackCallback', ['error' => $e->getMessage()]);
+                }
 
                 $this->awardPurchaseBadges($order->buyer_id);
 
-                // ── Multi-seller cart: mark sibling orders paid too ───────────
-               if ($order->checkout_batch_id) {
-    $siblingOrders = Order::where('checkout_batch_id', $order->checkout_batch_id)
-        ->where('id', '!=', $order->id)
-        ->where('status', 'pending')
-        ->get();
+                if ($order->checkout_batch_id) {
+                    $siblingOrders = Order::where('checkout_batch_id', $order->checkout_batch_id)
+                        ->where('id', '!=', $order->id)
+                        ->where('status', 'pending')
+                        ->get();
 
-    foreach ($siblingOrders as $sibling) {
-        $sibling->markAsPaid($reference, $data['id']);
-        try {
-            $sibling->buyer->notify(new NewOrderNotification($sibling));
-        } catch (\Throwable) {}
-    }
-}
+                    foreach ($siblingOrders as $sibling) {
+                        $sibling->markAsPaid($reference, $data['id']);
+                        try {
+                            $sibling->buyer->notify(new NewOrderNotification($sibling));
+                        } catch (\Throwable) {}
+                    }
+                }
             }
 
             return redirect()->route('orders.success', ['reference' => $reference]);
