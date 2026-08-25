@@ -247,7 +247,7 @@ function ReportModal({ user, onClose, onSubmit }) {
 function ChatMenu({ isBlocked, onBlock, onReport, onClose, onAnimation }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
       <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
         <button onClick={onAnimation} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
     <RiVipDiamondLine size={16} color="rgba(255,255,255,0.5)" /> Animation

@@ -98,39 +98,38 @@ export default function ChatBackgroundAnimation({ theme }) {
   if (theme === 'off') return null
 
   if (theme === 'aurora') {
-    return (
-      <div aria-hidden="true">
-        <span className="cba-aurora cba-aurora-1" /><span className="cba-aurora cba-aurora-2" /><span className="cba-aurora cba-aurora-3" />
-        <style>{`
-          .cba-aurora { position: absolute; width: 60%; height: 60%; border-radius: 50%; filter: blur(70px); opacity: 0.22; z-index: 0; }
-          .cba-aurora-1 { background: #34D399; top: -15%; left: -10%; animation: cbaA1 16s ease-in-out infinite; }
-          .cba-aurora-2 { background: #60A5FA; top: 20%; right: -15%; animation: cbaA2 20s ease-in-out infinite; }
-          .cba-aurora-3 { background: #A78BFA; bottom: -20%; left: 20%; animation: cbaA3 18s ease-in-out infinite; }
-          @keyframes cbaA1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,40px) scale(1.15); } }
-          @keyframes cbaA2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,60px) scale(1.1); } }
-          @keyframes cbaA3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,-50px) scale(1.2); } }
-        `}</style>
-      </div>
-    )
-  }
+  return (
+    <div aria-hidden="true" style={{ pointerEvents: 'none' }}>
+      <span className="cba-aurora cba-aurora-1" /><span className="cba-aurora cba-aurora-2" /><span className="cba-aurora cba-aurora-3" />
+      <style>{`
+        .cba-aurora { position: absolute; width: 60%; height: 60%; border-radius: 50%; filter: blur(70px); opacity: 0.22; z-index: 0; pointer-events: none; }
+        .cba-aurora-1 { background: #34D399; top: -15%; left: -10%; animation: cbaA1 16s ease-in-out infinite; }
+        .cba-aurora-2 { background: #60A5FA; top: 20%; right: -15%; animation: cbaA2 20s ease-in-out infinite; }
+        .cba-aurora-3 { background: #A78BFA; bottom: -20%; left: 20%; animation: cbaA3 18s ease-in-out infinite; }
+        @keyframes cbaA1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,40px) scale(1.15); } }
+        @keyframes cbaA2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,60px) scale(1.1); } }
+        @keyframes cbaA3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,-50px) scale(1.2); } }
+      `}</style>
+    </div>
+  )
+}
 
   if (theme === 'neonGrid') {
-    return (
-      <div aria-hidden="true" style={{
-        position: 'absolute', inset: 0, zIndex: 0,
-        backgroundImage: 'linear-gradient(rgba(34,211,238,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.14) 1px, transparent 1px)',
-        backgroundSize: '42px 42px',
-        animation: 'cbaNeonPulse 5s ease-in-out infinite, cbaNeonDrift 22s linear infinite',
-        maskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, #000 40%, transparent 90%)',
-        WebkitMaskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, #000 40%, transparent 90%)',
-      }}>
-        <style>{`
-          @keyframes cbaNeonPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
-          @keyframes cbaNeonDrift { from { background-position: 0 0; } to { background-position: 84px 84px; } }
-        `}</style>
-      </div>
-    )
-  }
-
-  return <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 0 }} />
+  return (
+    <div aria-hidden="true" style={{
+      position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+      backgroundImage: 'linear-gradient(rgba(34,211,238,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.14) 1px, transparent 1px)',
+      backgroundSize: '42px 42px',
+      animation: 'cbaNeonPulse 5s ease-in-out infinite, cbaNeonDrift 22s linear infinite',
+      maskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, #000 40%, transparent 90%)',
+      WebkitMaskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, #000 40%, transparent 90%)',
+    }}>
+      <style>{`
+        @keyframes cbaNeonPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+        @keyframes cbaNeonDrift { from { background-position: 0 0; } to { background-position: 84px 84px; } }
+      `}</style>
+    </div>
+  )
+}
+  return <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 0, pointerEvents: 'none' }} />
 }
