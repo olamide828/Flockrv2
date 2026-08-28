@@ -1,27 +1,37 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 import { Link } from '@inertiajs/react'
-import { RiCloseLine } from 'react-icons/ri'
+import { RiCloseLine, RiArrowLeftSLine, RiArrowRightSLine } from 'react-icons/ri'
 
 function MutualFriendsModal({ users, onClose }) {
+    const scrollRef = useRef(null)
+    const scrollBy = (dir) => scrollRef.current?.scrollBy({ left: dir * 220, behavior: 'smooth' })
+
     return (
         <>
             <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,0.7)' }} />
-            <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 'min(380px,90vw)', maxHeight: '75vh', zIndex: 901, background: '#141414', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: 20, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px,92vw)', zIndex: 901, background: '#141414', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                     <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 15 }}>Flock Mates in Common</p>
-                    <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={15} /></button>
+                    <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}><RiCloseLine size={15} /></button>
                 </div>
-                <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {users.map(u => (
-                        <Link key={u.id} href={`/@${u.username}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 6px', borderRadius: 10, textDecoration: 'none' }}>
-                            <img src={u.avatar_url} alt={u.name} style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />
-                            <div>
-                                <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{u.name}</p>
-                                <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{u.username}</p>
-                            </div>
-                        </Link>
-                    ))}
+
+                <div style={{ position: 'relative' }}>
+                    {users.length > 3 && (
+                        <button onClick={() => scrollBy(-1)} style={{ position: 'absolute', left: -6, top: '38%', width: 30, height: 30, borderRadius: '50%', background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}><RiArrowLeftSLine size={18} /></button>
+                    )}
+                    <div ref={scrollRef} style={{ display: 'flex', gap: 14, overflowX: 'auto', scrollbarWidth: 'none', padding: '4px 30px', scrollSnapType: 'x mandatory' }}>
+                        {users.map(u => (
+                            <Link key={u.id} href={`/@${u.username}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0, width: 84, scrollSnapAlign: 'start' }}>
+                                <img src={u.avatar_url} alt={u.name} style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }} />
+                                <p style={{ margin: 0, color: '#fff', fontSize: 12.5, fontWeight: 600, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84 }}>{u.name}</p>
+                                <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 11, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84 }}>@{u.username}</p>
+                            </Link>
+                        ))}
+                    </div>
+                    {users.length > 3 && (
+                        <button onClick={() => scrollBy(1)} style={{ position: 'absolute', right: -6, top: '38%', width: 30, height: 30, borderRadius: '50%', background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}><RiArrowRightSLine size={18} /></button>
+                    )}
                 </div>
             </div>
         </>
@@ -40,7 +50,6 @@ export default function MutualFriendsRow({ profileUserId }) {
 
     const preview = data.users.slice(0, 3)
     const extra = data.count - preview.length
-
     const names = preview.map(u => `@${u.username}`)
     const label = extra > 0
         ? `${names.join(', ')} +${extra} others are also Flock Mates with this account`

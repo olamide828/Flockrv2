@@ -247,8 +247,8 @@ function ReportModal({ user, onClose, onSubmit }) {
 function ChatMenu({ isBlocked, onBlock, onReport, onClose, onAnimation }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
-      <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 45 }} />
+      <div style={{ position: 'absolute', top: 44, right: 0, width: 180, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', zIndex: 55, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
         <button onClick={onAnimation} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
     <RiVipDiamondLine size={16} color="rgba(255,255,255,0.5)" /> Animation
 </button>
@@ -334,10 +334,17 @@ const handleFollowFromChat = async () => {
 
 const resolveActiveTheme = () => {
     const other = otherUser(active)
-    if (other?.role === 'seller' && other?.has_active_subscription_flag && other?.chat_theme && other.chat_theme !== 'off') {
-        return other.chat_theme
+    const me = active?.participants?.find(p => p.id === auth?.user?.id)
+
+    if (canUsePro && me?.conversation_chat_theme && me.conversation_chat_theme !== 'off') {
+        return me.conversation_chat_theme
     }
-    return myChatTheme
+
+    if (other?.role === 'seller' && other?.is_subscriber && other?.conversation_chat_theme && other.conversation_chat_theme !== 'off') {
+        return other.conversation_chat_theme
+    }
+
+    return 'off'
 }
 
 const broadcastTyping = () => {
@@ -856,15 +863,17 @@ const dismissRequestSheet = () => {
         />
       )}
 
-      {showThemePicker && (
+      {showThemePicker && active && (
   <ThemePickerModal
-    currentTheme={myChatTheme}
+    conversationId={active.id}
+    currentTheme={active.participants?.find(p => p.id === auth?.user?.id)?.conversation_chat_theme ?? 'off'}
     canUsePro={canUsePro}
-    onSelectTheme={(theme) => setMyChatTheme(theme)}
-    onUpgrade={() => {
-      setShowThemePicker(false)
-      setShowProSheet(true)
+    userRole={auth?.user?.role}
+    onSelectTheme={(theme) => {
+      setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === auth?.user?.id ? { ...p, conversation_chat_theme: theme } : p) }))
     }}
+    onUpgrade={() => { setShowThemePicker(false); setShowProSheet(true) }}
+    onBecomeSeller={() => router.post('/become-seller')}
     onClose={() => setShowThemePicker(false)}
   />
 )}

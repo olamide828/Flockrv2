@@ -19,72 +19,71 @@ class ConversationController extends Controller
     private const PARTICIPANT_FIELDS = 'id,name,username,avatar,last_seen_at';
     private const SENDER_FIELDS      = 'id,name,username,avatar,last_seen_at';
 
-   public function index(): Response
-    {
-        $user = Auth::user();
+public function index(): Response
+{
+    $user = Auth::user();
 
-        $this->ensureSupportConversation($user);
+    $this->ensureSupportConversation($user);
 
-        $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
-        $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
+    $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
+    $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
 
-        // Query relationships ONCE outside the loop to prevent N+1 queries
-        $whoFollowsMe = DB::table('follows')->where('following_id', $user->id)->pluck('follower_id')->toArray();
-        $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
-        $dismissedIds = DB::table('conversation_request_dismissals')
-            ->where('user_id', $user->id)
-            ->pluck('conversation_id')
-            ->toArray();
+    // Query relationships ONCE outside the loop to prevent N+1 queries
+    $whoFollowsMe = DB::table('follows')->where('following_id', $user->id)->pluck('follower_id')->toArray();
+    $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
+    $dismissedIds = DB::table('conversation_request_dismissals')
+        ->where('user_id', $user->id)
+        ->pluck('conversation_id')
+        ->toArray();
 
-        $conversations = $user
-            ->conversations()
-            ->with([
-                'participants' => function ($q) {
-    $fields = array_merge(
-        explode(',', self::PARTICIPANT_FIELDS),
-        ['role', 'is_flockr_support', 'chat_theme']
-    );
-
-    // Prefix each field with 'users.' to avoid SQL ambiguous column errors
-    $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
-
-    $q->select($qualifiedFields)->withActiveSubscriptionFlag();
-},
-                'lastMessage.sender:' . self::SENDER_FIELDS,
-            ])
-            ->withCount(['messages as unread_count' => function ($q) {
-                $q->whereNull('read_at')->where('sender_id', '!=', Auth::id());
-            }])
-            ->latest('updated_at')
-            ->get()
-            // ADDED $dismissedIds TO THE use() LIST BELOW
-            ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds) {
-                $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
-                    $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
-                    $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
-                    $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
-                    $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
-                });
-
-                // Set on the conversation itself (OUTSIDE the participants loop)
-                $conv->setAttribute('request_dismissed', in_array($conv->id, $dismissedIds));
-
-                $conv->setAttribute(
-                    'is_support',
-                    $conv->participants->contains(fn($p) => $p->is_flockr_support)
+    $conversations = $user
+        ->conversations()
+        ->with([
+            'participants' => function ($q) {
+                $fields = array_merge(
+                    explode(',', self::PARTICIPANT_FIELDS),
+                    ['role', 'is_flockr_support']
                 );
-                return $conv;
-            })
-            // Support conversation always first, everything else by recency.
-            ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
-            ->values();
+                $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
+                $q->select($qualifiedFields)->withPivot('chat_theme')->withActiveSubscriptionFlag();
+            },
+            'lastMessage.sender:' . self::SENDER_FIELDS,
+        ])
+        ->withCount(['messages as unread_count' => function ($q) {
+            $q->whereNull('read_at')->where('sender_id', '!=', Auth::id());
+        }])
+        ->latest('updated_at')
+        ->get()
+        ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds) {
+            $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
+                $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
+                $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
+                $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
+                $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
+                
+                // Attached directly from pivot table:
+                $p->setAttribute('conversation_chat_theme', $p->pivot->chat_theme ?? 'off');
+            });
 
-        return Inertia::render('Inbox/Index', [
-            'conversations'     => $conversations,
-            'blockedByMeIds'    => $blockedIds,
-            'blockedByOtherIds' => $blockedByIds,
-        ]);
-    }
+            // Set on the conversation itself (OUTSIDE the participants loop)
+            $conv->setAttribute('request_dismissed', in_array($conv->id, $dismissedIds));
+
+            $conv->setAttribute(
+                'is_support',
+                $conv->participants->contains(fn($p) => $p->is_flockr_support)
+            );
+            return $conv;
+        })
+        // Support conversation always first, everything else by recency.
+        ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
+        ->values();
+
+    return Inertia::render('Inbox/Index', [
+        'conversations'     => $conversations,
+        'blockedByMeIds'    => $blockedIds,
+        'blockedByOtherIds' => $blockedByIds,
+    ]);
+}
 
 
 

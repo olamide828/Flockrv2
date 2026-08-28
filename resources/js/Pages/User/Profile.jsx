@@ -6,6 +6,7 @@ import ProPlansSheet from '@/Components/ProPlansSheet';
 import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
 import MutualFriendsRow from '@/Components/MutualFriendsRow'
+import SuggestedAccountsSheet from '@/Components/SuggestedAccountsSheet'
 import { useState, useEffect } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -366,6 +367,7 @@ export default function UserProfile({
     const [followsMe, setFollowsMe] = useState(false)
     const [showUnfollowConfirm, setShowUnfollowConfirm] = useState(false)
 const [showUnblockConfirm, setShowUnblockConfirm] = useState(false)
+const [showSuggested, setShowSuggested] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -395,6 +397,7 @@ const [showUnblockConfirm, setShowUnblockConfirm] = useState(false)
         if (anyBlock) return;
         const next = !following;
         setFollowing(next);
+        if (next) setTimeout(() => setShowSuggested(true), 400)
         setFollowersCount((c) => c + (next ? 1 : -1));
         await axios.post(`/api/users/${profileUser.id}/follow`, {}, { withCredentials: true }).catch(() => {
             setFollowing(!next);
@@ -566,6 +569,8 @@ const requestBlockToggle = () => {
         {showBadgeRoadmap && <BadgeRoadmapSheet onClose={() => setShowBadgeRoadmap(false)} />}
 
         {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
+
+            {showSuggested && <SuggestedAccountsSheet afterUserId={profileUser.id} onClose={() => setShowSuggested(false)} />}
 
  
 {showUnfollowConfirm && (

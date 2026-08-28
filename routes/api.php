@@ -527,9 +527,12 @@ Route::get('/users/{user}/mutual-follows', function (\App\Models\User $user) {
 
     return response()->json(['count' => $users->count(), 'users' => $users]);
 });
-Route::patch('/users/me/chat-theme', function (\Illuminate\Http\Request $request) {
-    $request->validate(['theme' => 'required|string']);
+Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
+    if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
 
+    $request->validate(['theme' => 'required|string']);
     $freeThemes = ['off', 'bubbles', 'drift'];
     $user = Auth::user();
 
@@ -537,10 +540,40 @@ Route::patch('/users/me/chat-theme', function (\Illuminate\Http\Request $request
         return response()->json(['message' => 'This background is a Flockr Pro feature for sellers.'], 403);
     }
 
-    $user->update(['chat_theme' => $request->theme]);
-    return response()->json(['chat_theme' => $request->theme]);
+    DB::table('conversation_user')
+        ->where('conversation_id', $conversation->id)
+        ->where('user_id', $user->id)
+        ->update(['chat_theme' => $request->theme]);
+
+    return response()->json(['theme' => $request->theme]);
 });
 
+Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) {
+    $me = Auth::id();
+    $alreadyFollowingIds = DB::table('follows')->where('follower_id', $me)->pluck('following_id')->toArray();
+
+    // "People who follow the account you just followed, also follow..." —
+    // a lightweight collaborative-filtering pattern, no ML needed.
+    $suggested = DB::table('follows as f1')
+        ->join('follows as f2', 'f1.follower_id', '=', 'f2.follower_id')
+        ->where('f1.following_id', $user->id)
+        ->where('f2.following_id', '!=', $user->id)
+        ->whereNotIn('f2.following_id', array_merge($alreadyFollowingIds, [$me]))
+        ->select('f2.following_id', DB::raw('count(*) as overlap'))
+        ->groupBy('f2.following_id')
+        ->orderByDesc('overlap')
+        ->limit(10)
+        ->pluck('f2.following_id');
+
+    $users = \App\Models\User::whereIn('id', $suggested)
+        ->where('is_active', true)
+        ->select('id', 'name', 'username', 'avatar', 'role')
+        ->get()
+        ->sortBy(fn($u) => array_search($u->id, $suggested->toArray()))
+        ->values();
+
+    return response()->json($users);
+});
     // Seller endpoints
     Route::middleware('role:seller')->prefix('seller')->group(function () {
         Route::get('/stats', [SellerController::class, 'stats']);

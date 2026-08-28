@@ -12,9 +12,9 @@ class Conversation extends Model
     protected $fillable = [];
 
     public function participants(): BelongsToMany
-    {
-        return $this->belongsToMany(User::class, 'conversation_user')->withTimestamps();
-    }
+{
+    return $this->belongsToMany(User::class, 'conversation_user')->withPivot('chat_theme');
+}
 
     public function messages(): HasMany
     {

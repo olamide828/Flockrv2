@@ -8,6 +8,9 @@ const THEME_CONFIG = {
   snowfall: { count: 42, colors: ['rgba(255,255,255,0.6)'], shape: 'circle', size: [2, 5], speed: [0.3, 0.8], dir: 'down', sway: true },
   confetti: { count: 30, colors: ['#FF6B35', '#FBBF24', '#34D399', '#60A5FA', '#F472B6'], shape: 'rect', size: [4, 8], speed: [0.9, 1.9], dir: 'down', sway: true, spin: true },
   starfield:{ count: 60, colors: ['rgba(255,255,255,0.85)'], shape: 'star', size: [0.6, 1.8], speed: [0.02, 0.06], dir: 'up', twinkle: true, glow: true },
+    fireflies: { count: 20, colors: ['rgba(253,230,138,0.7)'], shape: 'circle', size: [1.5, 3.5], speed: [0.08, 0.2], dir: 'up', sway: true, glow: true, twinkle: true },
+meteor:    { count: 8,  colors: ['rgba(240,249,255,0.85)'], shape: 'streak', size: [40, 70], speed: [7, 12], dir: 'down-diag', glow: true },
+petals:    { count: 20, colors: ['rgba(249,168,212,0.55)', 'rgba(244,114,182,0.4)'], shape: 'rect', size: [5, 9], speed: [0.5, 1.1], dir: 'down', sway: true, spin: true },
 }
 
 function rand(min, max) { return Math.random() * (max - min) + min }
