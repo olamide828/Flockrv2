@@ -301,31 +301,48 @@ export default function CheckoutModal({
     const [couponLoading, setCouponLoading] = useState(false);
     const [checking,      setChecking]      = useState(false);
 
-    const primarySellerId = items[0]?.product?.seller?.id ?? items[0]?.product?.seller_id;
+    const sellerIds = [...new Set(items.map(i => i.product?.seller?.id ?? i.product?.seller_id))];
+const isMultiSeller = sellerIds.length > 1;
+const [ratesBySeller, setRatesBySeller] = useState({});
 
     const fetchRates = async addr => {
-        if (!addr || !primarySellerId) return;
-        setLoadingRates(true);
-        setRates([]);
-        setSelectedRate(null);
-        try {
+    if (!addr || sellerIds.length === 0) return;
+    setLoadingRates(true);
+    setRates([]);
+    setSelectedRate(null);
+    setRatesBySeller({});
+    try {
+        if (!isMultiSeller) {
             const { data } = await axios.post('/api/shipping/rates', {
                 address_id: addr.id,
-                seller_id:  primarySellerId,
+                seller_id:  sellerIds[0],
                 items:      items.map(i => i.id).filter(Boolean),
             });
             const loaded = data.rates ?? [];
             setRates(loaded);
-            if (loaded.length > 0) setSelectedRate(loaded[0]); // cheapest first (sorted by backend)
-        } catch (err) {
-            const msg = err.code === 'ERR_NETWORK'
-                ? 'No internet connection. Connect and try again.'
-                : (err.response?.data?.message ?? 'Could not load shipping rates.');
-            showToast?.(msg, 'error');
-        } finally {
-            setLoadingRates(false);
+            if (loaded.length > 0) setSelectedRate(loaded[0]);
+        } else {
+            const results = await Promise.all(sellerIds.map(async sellerId => {
+                const sellerItems = items.filter(i => (i.product?.seller?.id ?? i.product?.seller_id) === sellerId);
+                const { data } = await axios.post('/api/shipping/rates', {
+                    address_id: addr.id,
+                    seller_id:  sellerId,
+                    items:      sellerItems.map(i => i.id).filter(Boolean),
+                });
+                const loaded = data.rates ?? [];
+                return [sellerId, loaded[0] ?? null]; // cheapest, already sorted server-side
+            }));
+            setRatesBySeller(Object.fromEntries(results));
         }
-    };
+    } catch (err) {
+        const msg = err.code === 'ERR_NETWORK'
+            ? 'No internet connection. Connect and try again.'
+            : (err.response?.data?.message ?? 'Could not load shipping rates.');
+        showToast?.(msg, 'error');
+    } finally {
+        setLoadingRates(false);
+    }
+};
 
     const goToDelivery = () => { setStep('delivery'); fetchRates(selectedAddr); };
 
@@ -351,42 +368,58 @@ export default function CheckoutModal({
 
     const handleRemoveCoupon = () => { setCouponApplied(null); setCouponCode(''); };
 
-    const courierFee  = selectedRate ? Number(selectedRate.amount) : 0;
-    const platformFee = selectedRate ? DELIVERY_PLATFORM_FEE : 0;
+    const missingSellerRate = isMultiSeller && sellerIds.some(id => !ratesBySeller[id]);
+const courierFee  = isMultiSeller
+    ? Object.values(ratesBySeller).reduce((sum, r) => sum + (r ? Number(r.amount) : 0), 0)
+    : (selectedRate ? Number(selectedRate.amount) : 0);
+const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELIVERY_PLATFORM_FEE : 0;
     const discount    = couponApplied ? Math.min(Number(couponApplied.amount), subtotal) : 0;
     const grandTotal  = Math.max(0, subtotal + courierFee + platformFee - discount);
 
     const handleCheckout = async () => {
-        if (!selectedAddr || !selectedRate) return;
-        setChecking(true);
-        try {
-            const payload = {
-                address_id:            selectedAddr.id,
-                rate_id:               selectedRate.rate_id,
-                carrier:               selectedRate.carrier,
-                courier_fee:           selectedRate.amount,
+    if (!selectedAddr) return;
+    if (isMultiSeller && missingSellerRate) return;
+    if (!isMultiSeller && !selectedRate) return;
+    setChecking(true);
+    try {
+        const payload = isMultiSeller
+            ? {
+                address_id: selectedAddr.id,
+                rates: Object.fromEntries(sellerIds.map(id => [id, {
+                    rate_id: ratesBySeller[id].rate_id,
+                    carrier: ratesBySeller[id].carrier,
+                    amount:  ratesBySeller[id].amount,
+                }])),
                 delivery_platform_fee: DELIVERY_PLATFORM_FEE,
-                coupon_code:           couponApplied?.code ?? null,
-            };
-            let res;
-            if (singleProduct) {
-                res = await axios.post('/api/orders/checkout', {
-                    product_id: singleProduct.productId,
-                    quantity:   singleProduct.quantity,
-                    ...payload,
-                });
-            } else {
-                res = await axios.post('/api/cart/checkout', payload);
-            }
-            window.location.href = res.data.authorization_url;
-        } catch (err) {
-            const msg = err.code === 'ERR_NETWORK'
-                ? 'No internet connection. Please check your network and try again.'
-                : (err.response?.data?.message ?? 'Checkout failed. Please try again.');
-            showToast?.(msg, 'error');
-            setChecking(false);
+                coupon_code: couponApplied?.code ?? null,
+              }
+            : {
+                address_id: selectedAddr.id,
+                rate_id: selectedRate.rate_id,
+                carrier: selectedRate.carrier,
+                courier_fee: selectedRate.amount,
+                delivery_platform_fee: DELIVERY_PLATFORM_FEE,
+                coupon_code: couponApplied?.code ?? null,
+              };
+        let res;
+        if (singleProduct) {
+            res = await axios.post('/api/orders/checkout', {
+                product_id: singleProduct.productId,
+                quantity:   singleProduct.quantity,
+                ...payload,
+            });
+        } else {
+            res = await axios.post('/api/cart/checkout', payload);
         }
-    };
+        window.location.href = res.data.authorization_url;
+    } catch (err) {
+        const msg = err.code === 'ERR_NETWORK'
+            ? 'No internet connection. Please check your network and try again.'
+            : (err.response?.data?.message ?? 'Checkout failed. Please try again.');
+        showToast?.(msg, 'error');
+        setChecking(false);
+    }
+};
 
     const handleAddrSaved = (addr, type) => {
         if (type === 'add') {
@@ -539,7 +572,7 @@ export default function CheckoutModal({
                                     </div>
                                 )}
 
-                                {!loadingRates && rates.map(rate => (
+                                {!loadingRates && !isMultiSeller && rates.map(rate => (
                                     <div key={rate.rate_id} onClick={() => setSelectedRate(rate)}
                                         style={{ padding: '14px 16px', borderRadius: 16, background: selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.08)' : 'rgba(255,255,255,0.03)', border: '1.5px solid ' + (selectedRate?.rate_id === rate.rate_id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, transition: 'all 0.15s' }}>
                                         {/* Radio */}
@@ -566,7 +599,30 @@ export default function CheckoutModal({
                                     </div>
                                 ))}
 
-                                <button type="button" onClick={() => setStep('confirm')} disabled={!selectedRate || loadingRates}
+                                {!loadingRates && isMultiSeller && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+            Your cart has items from {sellerIds.length} sellers — each ships separately, so we've picked the best courier for each:
+        </p>
+        {sellerIds.map(id => {
+            const r = ratesBySeller[id];
+            const sellerName = items.find(i => (i.product?.seller?.id ?? i.product?.seller_id) === id)?.product?.seller?.name ?? 'Seller';
+            return (
+                <div key={id} style={{ padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{sellerName}</p>
+                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{r ? `${r.carrier} · ${r.estimated_days}` : 'No courier available'}</p>
+                    </div>
+                    <span style={{ color: r ? '#FF6B35' : '#EF4444', fontWeight: 700, fontSize: 14 }}>
+                        {r ? '₦' + Number(r.amount).toLocaleString() : 'Unavailable'}
+                    </span>
+                </div>
+            );
+        })}
+    </div>
+)}
+
+                                <button type="button" onClick={() => setStep('confirm')} disabled={loadingRates || (isMultiSeller ? missingSellerRate : !selectedRate)}
                                     style={{ padding: '14px', background: (!selectedRate || loadingRates) ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: (!selectedRate || loadingRates) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
                                     Continue <RiArrowRightLine size={16} />
                                 </button>
