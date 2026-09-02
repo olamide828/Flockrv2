@@ -298,32 +298,32 @@ class TerminalService
     }
 
     private function createAddress(array $addr): string
-    {
-        $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);
+{
+    $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);
 
-        $response = $this->post('/addresses', [
-            'first_name'     => $nameParts[0],
-            'last_name'      => $nameParts[1] ?? $nameParts[0],
-            'line1'          => $addr['address'] ?? $addr['street'] ?? 'N/A',
-            'city'           => $addr['city']    ?? '',
-            'state'          => $addr['state']   ?? '',
-            'country'        => $addr['country'] ?? 'NG',
-            'phone'          => $this->formatPhone($addr['phone'] ?? null),
-            'zip'            => $addr['postal_code'] ?? '000000',
-            'is_residential' => true,
-        ]);
+    $response = $this->post('/addresses', [
+        'first_name'     => $nameParts[0],
+        'last_name'      => $nameParts[1] ?? $nameParts[0],
+        'email'          => $addr['email'] ?? null,
+        'line1'          => $addr['address'] ?? $addr['street'] ?? 'N/A',
+        'city'           => $addr['city']    ?? '',
+        'state'          => $addr['state']   ?? '',
+        'country'        => $addr['country'] ?? 'NG',
+        'phone'          => $this->formatPhone($addr['phone'] ?? null),
+        'zip'            => $addr['postal_code'] ?? '000000',
+        'is_residential' => true,
+    ]);
 
-        $addressId = $response['data']['address_id'] ?? $response['data']['_id'] ?? null;
+    $addressId = $response['data']['address_id'] ?? $response['data']['_id'] ?? null;
 
-        if (!$addressId) {
-            throw new \RuntimeException(
-                'Failed to create address: ' . ($response['message'] ?? 'Unknown error')
-            );
-        }
-
-        return $addressId;
+    if (!$addressId) {
+        throw new \RuntimeException(
+            'Failed to create address: ' . ($response['message'] ?? 'Unknown error')
+        );
     }
 
+    return $addressId;
+}
     private function buildAddressPayload(array $addr): array
     {
         $nameParts = explode(' ', trim($addr['name'] ?? 'Flockr User'), 2);

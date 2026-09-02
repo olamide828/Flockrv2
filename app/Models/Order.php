@@ -139,24 +139,25 @@ class Order extends Model
 
                 if ($this->terminal_rate_id && $seller->pickup_street && $address) {
                     $shipment = $terminal->createShipment(
-                        order:    $this,
-                        rateId:   $this->terminal_rate_id,
-                        pickup:   [
-                            'name'        => $seller->name,
-                            'phone'       => $seller->phone,
-                            'address'     => $seller->pickup_street,
-                            'city'        => $seller->pickup_city,
-                            'state'       => $seller->pickup_state,
-                            'country'     => 'NG',
-                            'postal_code' => $seller->pickup_postal_code ?? '000000',
-                        ],
-                        delivery: $address->toTerminalFormat(),
-                        parcel:   [
-                            'weight'      => 0.5,
-                            'items_count' => $this->items->count(),
-                            'description' => 'Flockr order ' . $this->reference,
-                        ],
-                    );
+    order:    $this,
+    rateId:   $this->terminal_rate_id,
+    pickup:   [
+        'name'        => $seller->name,
+        'phone'       => $seller->phone,
+        'email'       => $seller->email,
+        'address'     => $seller->pickup_street,
+        'city'        => $seller->pickup_city,
+        'state'       => $seller->pickup_state,
+        'country'     => 'NG',
+        'postal_code' => $seller->pickup_postal_code ?? '000000',
+    ],
+    delivery: array_merge($address->toTerminalFormat(), ['email' => $this->buyer->email]),
+    parcel:   [
+        'weight'      => 0.5,
+        'items_count' => $this->items->count(),
+        'description' => 'Flockr order ' . $this->reference,
+    ],
+);
 
                     $this->update([
                         'terminal_shipment_id' => $shipment['shipment_id'],

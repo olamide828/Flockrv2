@@ -155,25 +155,26 @@ class AddressController extends Controller
     }
 
     $pickup = [
-        'name'        => $seller->name,
-        'phone'       => $seller->phone ?? '08000000000',
-        'address'     => $seller->pickup_street,
-        'city'        => $seller->pickup_city,
-        'state' => $seller->pickup_state,
-        'country'     => 'NG',
-        'postal_code' => $seller->pickup_postal_code ?? '000000',
-    ];
+    'name'        => $seller->name,
+    'phone'       => $seller->phone ?? '08000000000',
+    'email'       => $seller->email,
+    'address'     => $seller->pickup_street,
+    'city'        => $seller->pickup_city,
+    'state'       => $seller->pickup_state,
+    'country'     => 'NG',
+    'postal_code' => $seller->pickup_postal_code ?? '000000',
+];
 
     try {
         $rates = $this->terminal->getRates(
-            pickup:   $pickup,
-            delivery: $address->toTerminalFormat(),
-            parcel:   [
-                'weight'      => 0.5,
-                'items_count' => count($validated['items'] ?? [1]),
-                'description' => 'Flockr order package',
-            ],
-        );
+    pickup:   $pickup,
+    delivery: array_merge($address->toTerminalFormat(), ['email' => Auth::user()->email]),
+    parcel:   [
+        'weight'      => 0.5,
+        'items_count' => count($validated['items'] ?? [1]),
+        'description' => 'Flockr order package',
+    ],
+);
         return response()->json(['rates' => $rates]);
     } catch (\RuntimeException $e) {
         return response()->json(['message' => $e->getMessage()], 422);
