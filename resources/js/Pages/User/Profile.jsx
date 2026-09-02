@@ -35,6 +35,7 @@ import {
     RiTelegramLine, 
     RiTwitterXLine, 
     RiLink,
+    RiCloseLine 
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
