@@ -6,7 +6,7 @@ import ProPlansSheet from '@/Components/ProPlansSheet';
 import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
 import MutualFriendsRow from '@/Components/MutualFriendsRow'
-import SuggestedAccountsSheet from '@/Components/SuggestedAccountsSheet'
+import ShareProfileSheet from '@/Components/ShareProfileSheet'
 import { useState, useEffect } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
@@ -28,7 +28,13 @@ import {
     RiVideoLine,
     RiNewspaperLine,
     RiVipCrownLine,
-    RiShieldCheckLine
+    RiShieldCheckLine,
+    RiArrowDownSLine,
+    RiWhatsappLine, 
+    RiFacebookCircleLine, 
+    RiTelegramLine, 
+    RiTwitterXLine, 
+    RiLink,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -342,6 +348,91 @@ function BlockedBanner({ iBlockedThem, theyBlockedMe, username, onUnblock }) {
     return null;
 }
 
+function SuggestedAccountsPanel({ afterUserId }) {
+    const [users, setUsers] = useState([])
+    const [followed, setFollowed] = useState({})
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        setLoading(true)
+        axios.get(`/api/users/${afterUserId}/suggested-follows`)
+            .then(({ data }) => setUsers(data))
+            .catch(() => setUsers([]))
+            .finally(() => setLoading(false))
+    }, [afterUserId])
+
+    const toggleFollow = async (u) => {
+        const was = !!followed[u.id]
+        setFollowed(prev => ({ ...prev, [u.id]: !was }))
+        try { await axios.post(`/api/users/${u.id}/follow`) }
+        catch { setFollowed(prev => ({ ...prev, [u.id]: was })) }
+    }
+
+    return (
+        <div style={{ padding: '14px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+            <p style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.5)', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Suggested for you</p>
+            {loading && <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, margin: 0 }}>Loading…</p>}
+            {!loading && users.length === 0 && <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, margin: 0 }}>No suggestions right now.</p>}
+            {!loading && users.length > 0 && (
+                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {users.map(u => (
+                        <div key={u.id} style={{ flexShrink: 0, width: 116, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 12, textAlign: 'center' }}>
+                            <Link href={`/@${u.username}`}>
+                                <img src={u.avatar_url} alt={u.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', marginBottom: 6 }} />
+                                <p style={{ margin: '0 0 1px', color: '#fff', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</p>
+                                <p style={{ margin: '0 0 8px', color: 'rgba(255,255,255,0.4)', fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{u.username}</p>
+                            </Link>
+                            <button onClick={() => toggleFollow(u)} style={{ width: '100%', padding: '6px 0', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 10.5, fontWeight: 700, background: followed[u.id] ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed[u.id] ? 'rgba(255,255,255,0.6)' : '#fff' }}>
+                                {followed[u.id] ? 'Following' : 'Follow'}
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function AvatarLightbox({ user, onClose }) {
+    const url = `${window.location.origin}/@${user.username}`
+    const enc = encodeURIComponent(url)
+    const encTitle = encodeURIComponent(`Check out ${user.name} on Flockr`)
+    const [copied, setCopied] = useState(false)
+    const canShare = typeof navigator !== 'undefined' && !!navigator.share
+
+    const handleCopy = async () => {
+        await navigator.clipboard?.writeText(url).catch(() => {})
+        setCopied(true); setTimeout(() => setCopied(false), 2000)
+    }
+
+    const opts = [
+        { label: 'WhatsApp', Icon: RiWhatsappLine, color: '#25D366', href: `https://wa.me/?text=${encTitle}%20${enc}` },
+        { label: 'Facebook', Icon: RiFacebookCircleLine, color: '#1877F2', href: `https://www.facebook.com/sharer/sharer.php?u=${enc}` },
+        { label: 'Telegram', Icon: RiTelegramLine, color: '#26A5E4', href: `https://t.me/share/url?url=${enc}&text=${encTitle}` },
+        { label: 'X', Icon: RiTwitterXLine, color: '#fff', href: `https://twitter.com/intent/tweet?text=${encTitle}&url=${enc}` },
+        ...(canShare ? [{ label: 'More', Icon: RiShareForwardLine, color: '#FF6B35', onClick: () => navigator.share({ title: user.name, url }).catch(() => {}) }] : []),
+    ]
+
+    return (
+        <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 980, background: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <button onClick={onClose} style={{ position: 'absolute', top: 18, right: 18, width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={20} /></button>
+            <img src={user.avatar_url} alt={user.name} onClick={e => e.stopPropagation()} style={{ width: 'min(320px, 80vw)', height: 'min(320px, 80vw)', borderRadius: '50%', objectFit: 'cover', marginBottom: 26 }} />
+            <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 18 }}>
+                {opts.map(o => (
+                    <button key={o.label} onClick={() => { if (o.onClick) return o.onClick(); window.open(o.href, '_blank', 'noopener,noreferrer') }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer' }}>
+                        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><o.Icon size={21} color={o.color} /></div>
+                        <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>{o.label}</span>
+                    </button>
+                ))}
+                <button onClick={handleCopy} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer' }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: copied ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{copied ? <RiCheckLine size={19} color="#10B981" /> : <RiLink size={19} color="#fff" />}</div>
+                    <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+            </div>
+        </div>
+    )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function UserProfile({
     profileUser,
@@ -367,7 +458,9 @@ export default function UserProfile({
     const [followsMe, setFollowsMe] = useState(false)
     const [showUnfollowConfirm, setShowUnfollowConfirm] = useState(false)
 const [showUnblockConfirm, setShowUnblockConfirm] = useState(false)
-const [showSuggested, setShowSuggested] = useState(false)
+const [showShareSheet, setShowShareSheet] = useState(false)
+const [showSuggestedPanel, setShowSuggestedPanel] = useState(false)
+const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -397,7 +490,7 @@ const [showSuggested, setShowSuggested] = useState(false)
         if (anyBlock) return;
         const next = !following;
         setFollowing(next);
-        if (next) setTimeout(() => setShowSuggested(true), 400)
+        if (next) setShowSuggestedPanel(true)
         setFollowersCount((c) => c + (next ? 1 : -1));
         await axios.post(`/api/users/${profileUser.id}/follow`, {}, { withCredentials: true }).catch(() => {
             setFollowing(!next);
@@ -497,11 +590,7 @@ const requestBlockToggle = () => {
         setCommunityPosts((p) => p.map((q) => (q.id === postId ? { ...q, views_count: viewsCount } : q)));
     };
 
-    const handleShare = () => {
-        const url = `${window.location.origin}/@${profileUser.username}`;
-        if (navigator.share) navigator.share({ title: `Check out (@${profileUser.username}) on Flockr  \n Share and dicover quality products on Flockr`, url }).catch(() => {});
-        else navigator.clipboard?.writeText(url);
-    };
+    const handleShare = () => setShowShareSheet(true)
 
     const copyUsername = () => {
         navigator.clipboard?.writeText(profileUser.username);
@@ -570,8 +659,10 @@ const requestBlockToggle = () => {
 
         {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
 
-            {showSuggested && <SuggestedAccountsSheet afterUserId={profileUser.id} onClose={() => setShowSuggested(false)} />}
+           
 
+{showShareSheet && <ShareProfileSheet user={profileUser} onClose={() => setShowShareSheet(false)} />}
+    {showAvatarLightbox && <AvatarLightbox user={profileUser} onClose={() => setShowAvatarLightbox(false)} />}
  
 {showUnfollowConfirm && (
     <ConfirmModal
@@ -643,18 +734,23 @@ const requestBlockToggle = () => {
 
             <div style={{ minHeight: '100%', background: '#121212', color: '#fff', fontFamily: 'var(--font-body)' }}>
                 {/* Back button */}
-                <button onClick={() => window.history.back()} className="p-4" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.6)" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                    </svg>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <button onClick={() => window.history.back()} className="p-4" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.6)" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+        </svg>
+    </button>
+    <button onClick={handleShare} className="p-4" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+        <RiShareForwardLine size={19} color="rgba(255,255,255,0.6)" />
+    </button>
+</div>
 
                 {/* ═══ DESKTOP HEADER ════════════════════════════════════════ */}
                 <div className="hidden md:block" style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 32px 0' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 32, marginBottom: 24 }}>
                         {/* Avatar */}
                         <div style={{ flexShrink: 0, position: 'relative' }}>
-                           <div style={{ border: "1px solid var(--flockr-subtle)" }} className='h-[120px] w-[120px] block rounded-full'>
+                           <div style={{ border: "1px solid var(--flockr-subtle)", cursor: "pointer" }} className='h-[120px] w-[120px] block rounded-full'>
                              <img
                                 src={avatarSrc}
                                 alt={profileUser.name}
@@ -666,6 +762,7 @@ const requestBlockToggle = () => {
                                     display: 'block',
                                     filter: anyBlock ? 'grayscale(1) opacity(0.5)' : 'none',
                                 }}
+                                onClick={() => setShowAvatarLightbox(true)}
                             />
                            </div>
                             {anyBlock && (
@@ -775,9 +872,9 @@ const requestBlockToggle = () => {
                                                 <RiMessage2Line size={14} /> Message
                                             </Link>
                                         )}
-                                        <button onClick={handleShare} style={iconBtn}>
-                                            <RiShareForwardLine size={16} color="#fff" />
-                                        </button>
+                                        <button onClick={() => setShowSuggestedPanel(v => !v)} style={iconBtn}>
+    <RiArrowDownSLine size={17} color="#fff" style={{ transform: showSuggestedPanel ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+</button>
                                         
                                         {/* 3-dot menu with block + report */}
                                         {auth?.user && (
@@ -860,7 +957,7 @@ const requestBlockToggle = () => {
                 <div className="md:hidden" style={{ padding: '0 16px 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
                         <div style={{ position: 'relative', flexShrink: 0 }}>
-                            <div style={{ border: "2px solid var(--flockr-subtle)" }} className='h-[84px] w-[84px] block rounded-full'>
+                            <div style={{ border: "2px solid var(--flockr-subtle)", cursor: "pointer" }} className='h-[84px] w-[84px] block rounded-full'>
                              <img
                                 src={avatarSrc}
                                 alt={profileUser.name}
@@ -872,6 +969,7 @@ const requestBlockToggle = () => {
                                     display: 'block',
                                     filter: anyBlock ? 'grayscale(1) opacity(0.5)' : 'none',
                                 }}
+                                onClick={() => setShowAvatarLightbox(true)}
                             />
                            </div>
                             {anyBlock && (
@@ -1056,9 +1154,9 @@ const requestBlockToggle = () => {
                                         <RiMessage2Line size={14} /> Message
                                     </Link>
                                 )}
-                                <button onClick={handleShare} style={iconBtn}>
-                                    <RiShareForwardLine size={16} color="#fff" />
-                                </button>
+                               <button onClick={() => setShowSuggestedPanel(v => !v)} style={iconBtn}>
+    <RiArrowDownSLine size={17} color="#fff" style={{ transform: showSuggestedPanel ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+</button>
                                 
                                 {/* Mobile 3-dot menu */}
                                 {auth?.user && (
@@ -1086,6 +1184,10 @@ const requestBlockToggle = () => {
 
                 {/* ═══ BLOCKED STATE BANNER ══════════════════════════════════ */}
                 <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />
+
+                {!anyBlock && showSuggestedPanel && (
+    <SuggestedAccountsPanel afterUserId={profileUser.id} />
+)}
 
                 {/* ═══ TABS (only show when not blocked) ════════════════════ */}
                 {!anyBlock && (
