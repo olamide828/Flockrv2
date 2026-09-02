@@ -176,7 +176,7 @@ class TerminalService
      *
      * @throws \RuntimeException on API failure
      */
-    public function createShipment(
+        public function createShipment(
         Order  $order,
         string $rateId,
         array  $pickup,
@@ -188,8 +188,6 @@ class TerminalService
         $packagingId = $this->getDefaultPackagingId();
         $parcelId    = $this->createParcel($parcel, $packagingId);
 
-        // Create real addresses right before use — IDs are created fresh
-        // for this shipment, so there's no expiry concern.
         $pickupId   = $this->createAddress($pickup);
         $deliveryId = $this->createAddress($delivery);
 
@@ -212,7 +210,8 @@ class TerminalService
             throw new \RuntimeException('Failed to create shipment on Terminal Africa.');
         }
 
-        $arrangeResponse = $this->post('/shipments/arrange', [
+        // Correct endpoint: POST /shipments/pickup — not /shipments/arrange
+        $arrangeResponse = $this->post('/shipments/pickup', [
             'shipment_id' => $shipmentId,
             'rate_id'     => $rateId,
         ]);
@@ -226,9 +225,9 @@ class TerminalService
 
         return [
             'shipment_id'     => $shipmentId,
-            'tracking_number' => $data['tracking_number'] ?? null,
-            'label_url'       => $data['label_url']       ?? null,
-            'carrier'         => $data['carrier_name']    ?? null,
+            'tracking_number' => $data['extras']['tracking_number'] ?? null,
+            'label_url'       => $data['extras']['tracking_url']    ?? null,
+            'carrier'         => $data['carrier_name']              ?? null,
         ];
     }
 
@@ -239,10 +238,10 @@ class TerminalService
     {
         $this->assertConfigured();
 
-        $response = $this->get('/shipments/' . $shipmentId . '/events');
+        // Correct endpoint: GET /shipments/track/{id} — not /shipments/{id}/events
+        $response = $this->get('/shipments/track/' . $shipmentId);
         return $response['data'] ?? [];
     }
-
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private function getDefaultPackagingId(): string
