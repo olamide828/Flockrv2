@@ -38,6 +38,7 @@ import {
     RiCloseLine,
     RiHeartLine,
     RiEyeLine,
+    RiBookmarkLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
