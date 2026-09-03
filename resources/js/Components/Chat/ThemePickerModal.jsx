@@ -35,19 +35,6 @@ export const CHAT_THEMES = [
   { key: 'petals', label: 'Sakura Petals', free: false },
 ]
 
-export default function ChatBackgroundAnimation({ theme, wallpaperUrl }) {
-  if (wallpaperUrl) {
-    return (
-      <div aria-hidden="true" style={{
-        position: 'absolute', inset: 0, zIndex: 0,
-        backgroundImage: `url(${wallpaperUrl})`, backgroundSize: 'cover', backgroundPosition: 'center',
-      }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
-      </div>
-    )
-  }
-}
-
 export default function ThemePickerModal({ conversationId, currentTheme, canUsePro, userRole, onSelectTheme, onUpgrade, onBecomeSeller, onClose, currentWallpaperId, onSelectWallpaper }) {
   const [saving, setSaving] = useState(null)
   const [error, setError] = useState('')

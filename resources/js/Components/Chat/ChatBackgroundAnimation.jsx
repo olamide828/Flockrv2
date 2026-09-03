@@ -15,7 +15,7 @@ petals:    { count: 20, colors: ['rgba(249,168,212,0.55)', 'rgba(244,114,182,0.4
 
 function rand(min, max) { return Math.random() * (max - min) + min }
 
-export default function ChatBackgroundAnimation({ theme }) {
+export default function ChatBackgroundAnimation({ theme, wallpaperUrl }) {
   const canvasRef = useRef(null)
   const rafRef = useRef(null)
 
@@ -97,6 +97,17 @@ export default function ChatBackgroundAnimation({ theme }) {
 
     return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener('resize', resize) }
   }, [theme])
+
+  if (wallpaperUrl) {
+      return (
+        <div aria-hidden="true" style={{
+          position: 'absolute', inset: 0, zIndex: 0,
+          backgroundImage: `url(${wallpaperUrl})`, backgroundSize: 'cover', backgroundPosition: 'center',
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
+        </div>
+      )
+    }
 
   if (theme === 'off') return null
 
