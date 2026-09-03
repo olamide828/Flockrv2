@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ChatWallpaper;
 use App\Models\Conversation;
 use App\Models\Report;
 use App\Models\User;
 use App\Models\UserBlock;
 use App\Events\NewMessageToast;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -46,7 +48,7 @@ public function index(StorageService $storage): Response
         ->pluck('chat_wallpaper_id')
         ->unique();
 
-    $wallpapers = \App\Models\ChatWallpaper::whereIn('id', $wallpaperIds)
+    $wallpapers = ChatWallpaper::whereIn('id', $wallpaperIds)
         ->get()
         ->keyBy('id');
 
