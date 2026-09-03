@@ -668,14 +668,14 @@ const loadPrivateTab = async (key) => {
         .catch(() => {})
 }, [profileUser.id])
 
-    return (
-        <>
-            <Head title={`${profileUser.name} (@${profileUser.username})`} />
+return (
+    <>
+        <Head title={`${profileUser.name} (@${profileUser.username})`} />
 
         {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
         {showSubSuccess && flash?.subscription && (
-             <SubscriptionSuccessSheet subscription={flash.subscription} onClose={() => setShowSubSuccess(false)} />
+            <SubscriptionSuccessSheet subscription={flash.subscription} onClose={() => setShowSubSuccess(false)} />
         )}
 
         {showProSheet && <ProPlansSheet onClose={() => setShowProSheet(false)} />}
@@ -684,34 +684,32 @@ const loadPrivateTab = async (key) => {
 
         {showTrust && <TrustScoreModal sellerId={profileUser.id} onClose={() => setShowTrust(false)} />}
 
-           
+        {showShareSheet && <ShareProfileSheet user={profileUser} onClose={() => setShowShareSheet(false)} />}
+        {showAvatarLightbox && <AvatarLightbox user={profileUser} onClose={() => setShowAvatarLightbox(false)} />}
 
-{showShareSheet && <ShareProfileSheet user={profileUser} onClose={() => setShowShareSheet(false)} />}
-    {showAvatarLightbox && <AvatarLightbox user={profileUser} onClose={() => setShowAvatarLightbox(false)} />}
- 
-{showUnfollowConfirm && (
-    <ConfirmModal
-        title={`Unfollow @${profileUser.username}?`}
-        message="You'll stop seeing their videos and posts in your feed. And you won't be able to purchase or send them messages."
-        confirmLabel="Unfollow"
-        cancelLabel="Cancel"
-        danger
-        onConfirm={() => { setShowUnfollowConfirm(false); handleFollow() }}
-        onClose={() => setShowUnfollowConfirm(false)}
-    />
-)}
-{showUnblockConfirm && (
-    <ConfirmModal
-        title={`Unblock @${profileUser.username}?`}
-        message="They'll be able to see your profile, follow you, and message you again."
-        confirmLabel="Unblock"
-        cancelLabel="Cancel"
-        onConfirm={() => { setShowUnblockConfirm(false); handleBlock() }}
-        onClose={() => setShowUnblockConfirm(false)}
-    />
-)}
+        {showUnfollowConfirm && (
+            <ConfirmModal
+                title={`Unfollow @${profileUser.username}?`}
+                message="You'll stop seeing their videos and posts in your feed. And you won't be able to purchase or send them messages."
+                confirmLabel="Unfollow"
+                cancelLabel="Cancel"
+                danger
+                onConfirm={() => { setShowUnfollowConfirm(false); handleFollow() }}
+                onClose={() => setShowUnfollowConfirm(false)}
+            />
+        )}
+        {showUnblockConfirm && (
+            <ConfirmModal
+                title={`Unblock @${profileUser.username}?`}
+                message="They'll be able to see your profile, follow you, and message you again."
+                confirmLabel="Unblock"
+                cancelLabel="Cancel"
+                onConfirm={() => { setShowUnblockConfirm(false); handleBlock() }}
+                onClose={() => setShowUnblockConfirm(false)}
+            />
+        )}
 
-            {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
+        {/* ── Fixed toast — does NOT shift layout ────────────────────── */}
             <div
                 style={{
                     position: 'fixed',
@@ -1436,9 +1434,13 @@ const loadPrivateTab = async (key) => {
     </>
 )}
 
-<style>{`@keyframes profileSpin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`@keyframes profileSpin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        </>
+    );
+}
 
-UserProfile.layout = (page) => <AppLayout>{page}</AppLayout>;
+UserProfile.layout = (page) => (<AppLayout>{page}</AppLayout>);
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function EmptyState({ Icon, title, sub, cta }) {
