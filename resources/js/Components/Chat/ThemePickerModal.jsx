@@ -46,6 +46,7 @@ export default function ChatBackgroundAnimation({ theme, wallpaperUrl }) {
       </div>
     )
   }
+}
 
 export default function ThemePickerModal({ conversationId, currentTheme, canUsePro, userRole, onSelectTheme, onUpgrade, onBecomeSeller, onClose, currentWallpaperId, onSelectWallpaper }) {
   const [saving, setSaving] = useState(null)
