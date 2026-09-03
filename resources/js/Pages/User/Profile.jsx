@@ -35,7 +35,9 @@ import {
     RiTelegramLine, 
     RiTwitterXLine, 
     RiLink,
-    RiCloseLine 
+    RiCloseLine,
+    RiHeartLine,
+    RiEyeLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -462,6 +464,8 @@ const [showUnblockConfirm, setShowUnblockConfirm] = useState(false)
 const [showShareSheet, setShowShareSheet] = useState(false)
 const [showSuggestedPanel, setShowSuggestedPanel] = useState(false)
 const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
+const [privateTabVideos, setPrivateTabVideos] = useState({})
+const [privateTabLoading, setPrivateTabLoading] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -540,11 +544,10 @@ const requestBlockToggle = () => {
     };
 
     const handleTabClick = (key) => {
-        setActiveTab(key);
-        if (key === 'community' && !communityLoaded) {
-            loadCommunityPosts(true);
-        }
-    };
+    setActiveTab(key)
+    if (key === 'community' && !communityLoaded) loadCommunityPosts(true)
+    if (PRIVATE_TAB_ENDPOINTS[key]) loadPrivateTab(key)
+}
 
     const handleCommunityLike = async (post) => {
         const was = post.is_liked_by_me;
@@ -626,10 +629,31 @@ const requestBlockToggle = () => {
         await axios.post(`/api/users/${profileUser.id}/report`, { reason });
     };
 
+    const PRIVATE_TAB_ENDPOINTS = {
+    liked: '/api/users/me/liked-videos',
+    viewed: '/api/users/me/viewed-videos',
+    savedVideos: '/api/users/me/saved-videos-list',
+}
+
+const loadPrivateTab = async (key) => {
+    if (privateTabVideos[key] || !PRIVATE_TAB_ENDPOINTS[key]) return
+    setPrivateTabLoading(true)
+    try {
+        const { data } = await axios.get(PRIVATE_TAB_ENDPOINTS[key])
+        setPrivateTabVideos(prev => ({ ...prev, [key]: data }))
+    } catch { setPrivateTabVideos(prev => ({ ...prev, [key]: [] })) }
+    finally { setPrivateTabLoading(false) }
+}
+
     const tabs = [
         { key: 'videos', label: 'Videos', Icon: RiVideoLine, count: videos?.length ?? 0 },
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
         { key: 'community', label: 'Posts', Icon: RiNewspaperLine, count: null },
+        ...(isOwnProfile ? [
+    { key: 'liked', label: 'Liked', Icon: RiHeartLine, count: null },
+    { key: 'viewed', label: 'Viewed', Icon: RiEyeLine, count: null },
+    { key: 'savedVideos', label: 'Saved', Icon: RiBookmarkLine, count: null },
+] : []),
     ];
 
     const totalLikes = videos?.reduce((sum, v) => sum + (v.likes_count ?? 0), 0) ?? 0;
@@ -840,9 +864,9 @@ const requestBlockToggle = () => {
                                             Edit profile
                                         </Link>
                                         {isOwnProfile && profileUser.role === 'buyer' && (
-    <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
-        <RiStoreLine size={14} /> Start Selling
-    </Link>
+    <Link href="/seller/onboarding" style={outlineBtn}>
+    <RiStoreLine size={14} /> Start Selling
+</Link>
 )}
                                         {profileUser.role === 'seller' && (
                                             <Link href="/seller/upload" style={outlineBtn}>
@@ -1192,209 +1216,227 @@ const requestBlockToggle = () => {
 
                 {/* ═══ TABS (only show when not blocked) ════════════════════ */}
                 {!anyBlock && (
-                    <>
-                        <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', marginTop: 8 }}>
-                            <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 16px', display: 'flex' }}>
-                                {tabs.map(({ key, label, Icon }) => {
-                                    const active = activeTab === key;
-                                    return (
-                                        <button
-                                            key={key}
-                                            onClick={() => handleTabClick(key)}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                padding: '14px 16px 13px 0',
-                                                marginRight: 8,
-                                                background: 'none',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                color: active ? '#fff' : 'rgba(255,255,255,0.35)',
-                                                fontSize: 15,
-                                                fontWeight: active ? 700 : 500,
-                                                borderBottom: active ? '2px solid #fff' : '2px solid transparent',
-                                                marginBottom: -1,
-                                                transition: 'color 0.15s',
-                                            }}
-                                        >
-                                            <Icon size={17} /> {label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
+    <>
+        <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', marginTop: 8 }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 16px', display: 'flex' }}>
+                {tabs.map(({ key, label, Icon }) => {
+                    const active = activeTab === key;
+                    return (
+                        <button
+                            key={key}
+                            onClick={() => handleTabClick(key)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '14px 16px 13px 0',
+                                marginRight: 8,
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: active ? '#fff' : 'rgba(255,255,255,0.35)',
+                                fontSize: 15,
+                                fontWeight: active ? 700 : 500,
+                                borderBottom: active ? '2px solid #fff' : '2px solid transparent',
+                                marginBottom: -1,
+                                transition: 'color 0.15s',
+                            }}
+                        >
+                            <Icon size={17} /> {label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
 
-                        {/* ═══ TAB CONTENT ═══════════════════════════════════ */}
-                        <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>
-                            {activeTab === 'videos' &&
-                                (videos?.length > 0 ? (
-                                    <div className="vgrid">
-                                        {videos.map((video) => (
-                                            <Link
-                                                key={video.id}
-                                                href={`/@${video.user?.username}/video/${video.ulid}`}
-                                                className="vthumb"
-                                                style={{
-                                                    position: 'relative',
-                                                    aspectRatio: '9/16',
-                                                    display: 'block',
-                                                    background: '#1a1a1a',
-                                                    overflow: 'hidden',
-                                                }}
-                                            >
-                                                {video.thumbnail_url_full ? (
-                                                    <img
-                                                        src={video.thumbnail_url_full}
-                                                        alt={video.title}
-                                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                                    />
-                                                ) : (
-                                                    <div
-                                                        style={{
-                                                            width: '100%',
-                                                            height: '100%',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            background: '#1a1a1a',
-                                                        }}
-                                                    >
-                                                        <RiVideoLine size={24} color="rgba(255,255,255,0.1)" />
-                                                    </div>
-                                                )}
-                                                <div
-                                                    className="vplay"
-                                                    style={{
-                                                        position: 'absolute',
-                                                        inset: 0,
-                                                        background: 'rgba(0,0,0,0.25)',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        opacity: 0,
-                                                        transition: 'opacity 0.2s',
-                                                    }}
-                                                >
-                                                    <RiPlayFill size={36} color="rgba(255,255,255,0.9)" />
-                                                </div>
-                                                <div
-                                                    style={{
-                                                        position: 'absolute',
-                                                        bottom: 0,
-                                                        left: 0,
-                                                        right: 0,
-                                                        height: '40%',
-                                                        background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)',
-                                                        pointerEvents: 'none',
-                                                    }}
-                                                />
-                                                <div
-                                                    style={{
-                                                        position: 'absolute',
-                                                        bottom: 7,
-                                                        left: 7,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 2,
-                                                    }}
-                                                >
-                                                    <RiPlayLine size={14} color="rgba(255,255,255,0.9)" />
-                                                    <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 700 }}>
-                                                        {fmtCount(video.views_count)}
-                                                    </span>
-                                                </div>
-                                            </Link>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <EmptyState
-                                        Icon={RiVideoLine}
-                                        title={isOwnProfile ? 'No videos yet' : `${profileUser.name} hasn't uploaded yet`}
-                                        sub={isOwnProfile ? 'Upload your first video to start selling' : 'Check back later'}
-                                        cta={isOwnProfile && profileUser.role === 'seller' ? { label: 'Upload Video', href: '/seller/upload' } : null}
+        {/* ═══ TAB CONTENT ═══════════════════════════════════ */}
+        <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>
+            {activeTab === 'videos' &&
+                (videos?.length > 0 ? (
+                    <div className="vgrid">
+                        {videos.map((video) => (
+                            <Link
+                                key={video.id}
+                                href={`/@${video.user?.username}/video/${video.ulid}`}
+                                className="vthumb"
+                                style={{
+                                    position: 'relative',
+                                    aspectRatio: '9/16',
+                                    display: 'block',
+                                    background: '#1a1a1a',
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                {video.thumbnail_url_full ? (
+                                    <img
+                                        src={video.thumbnail_url_full}
+                                        alt={video.title}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                     />
-                                ))}
-
-                            {activeTab === 'products' &&
-                                (products?.length > 0 ? (
+                                ) : (
                                     <div
                                         style={{
-                                            padding: '16px',
-                                            display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                                            gap: 12,
+                                            width: '100%',
+                                            height: '100%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            background: '#1a1a1a',
                                         }}
                                     >
-                                        {products.map((p) => (
-                                            <ProductCard key={p.id} product={p} />
-                                        ))}
+                                        <RiVideoLine size={24} color="rgba(255,255,255,0.1)" />
                                     </div>
-                                ) : (
-                                    <EmptyState
-                                        Icon={RiStoreLine}
-                                        title="No products listed"
-                                        sub={isOwnProfile ? 'Add your first product' : `${profileUser.name} hasn't listed products yet`}
-                                        cta={isOwnProfile ? { label: 'Add Product', href: '/seller/products/create' } : null}
-                                    />
-                                ))}
-
-                            {activeTab === 'community' && (
-                                <div>
-                                    {communityLoading && communityPosts.length === 0 && (
-                                        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-                                            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
-                                        </div>
-                                    )}
-
-                                    {!communityLoading && communityLoaded && communityPosts.length === 0 && (
-                                        <EmptyState
-                                            Icon={RiNewspaperLine}
-                                            title={isOwnProfile ? "You haven't posted yet" : `${profileUser.name} hasn't posted yet`}
-                                            sub={isOwnProfile ? 'Share something with the community' : 'Check back later'}
-                                            cta={isOwnProfile ? { label: 'Go to Community', href: '/community' } : null}
-                                        />
-                                    )}
-
-                                    {communityPosts.map((post) => (
-                                        <PostCard
-                                            key={post.id}
-                                            post={post}
-                                            auth={auth}
-                                            showToast={showToast}
-                                            onDelete={handleCommunityDelete}
-                                            onLike={handleCommunityLike}
-                                            onDismiss={handleCommunityDismiss}
-                                            onBlockAuthor={handleCommunityBlockAuthor}
-                                            onReport={handleCommunityReport}
-                                            isFollowingAuthor={following}
-                                            onFollowChange={handleCommunityFollowChange}
-                                            onViewed={handleCommunityViewed}
-                                        />
-                                    ))}
-
-                                    {communityHasMore && communityPosts.length > 0 && (
-                                        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
-                                            <button
-                                                onClick={() => loadCommunityPosts(false)}
-                                                disabled={communityLoading}
-                                                style={{ padding: '8px 20px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 13, cursor: 'pointer' }}
-                                            >
-                                                {communityLoading ? 'Loading…' : 'Load more'}
-                                            </button>
-                                        </div>
-                                    )}
+                                )}
+                                <div
+                                    className="vplay"
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        background: 'rgba(0,0,0,0.25)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        opacity: 0,
+                                        transition: 'opacity 0.2s',
+                                    }}
+                                >
+                                    <RiPlayFill size={36} color="rgba(255,255,255,0.9)" />
                                 </div>
-                            )}
-                        </div>
-                    </>
-                )}
-            </div>
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        left: 0,
+                                        right: 0,
+                                        height: '40%',
+                                        background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)',
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: 7,
+                                        left: 7,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 2,
+                                    }}
+                                >
+                                    <RiPlayLine size={14} color="rgba(255,255,255,0.9)" />
+                                    <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 700 }}>
+                                        {fmtCount(video.views_count)}
+                                    </span>
+                                </div>
+                            </Link>
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyState
+                        Icon={RiVideoLine}
+                        title={isOwnProfile ? 'No videos yet' : `${profileUser.name} hasn't uploaded yet`}
+                        sub={isOwnProfile ? 'Upload your first video to start selling' : 'Check back later'}
+                        cta={isOwnProfile && profileUser.role === 'seller' ? { label: 'Upload Video', href: '/seller/upload' } : null}
+                    />
+                ))}
 
-            <style>{`@keyframes profileSpin { to { transform: rotate(360deg); } }`}</style>
-        </>
-    );
-}
+            {activeTab === 'products' &&
+                (products?.length > 0 ? (
+                    <div
+                        style={{
+                            padding: '16px',
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                            gap: 12,
+                        }}
+                    >
+                        {products.map((p) => (
+                            <ProductCard key={p.id} product={p} />
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyState
+                        Icon={RiStoreLine}
+                        title="No products listed"
+                        sub={isOwnProfile ? 'Add your first product' : `${profileUser.name} hasn't listed products yet`}
+                        cta={isOwnProfile ? { label: 'Add Product', href: '/seller/products/create' } : null}
+                    />
+                ))}
+
+            {activeTab === 'community' && (
+                <div>
+                    {communityLoading && communityPosts.length === 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+                            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+                        </div>
+                    )}
+
+                    {!communityLoading && communityLoaded && communityPosts.length === 0 && (
+                        <EmptyState
+                            Icon={RiNewspaperLine}
+                            title={isOwnProfile ? "You haven't posted yet" : `${profileUser.name} hasn't posted yet`}
+                            sub={isOwnProfile ? 'Share something with the community' : 'Check back later'}
+                            cta={isOwnProfile ? { label: 'Go to Community', href: '/community' } : null}
+                        />
+                    )}
+
+                    {communityPosts.map((post) => (
+                        <PostCard
+                            key={post.id}
+                            post={post}
+                            auth={auth}
+                            showToast={showToast}
+                            onDelete={handleCommunityDelete}
+                            onLike={handleCommunityLike}
+                            onDismiss={handleCommunityDismiss}
+                            onBlockAuthor={handleCommunityBlockAuthor}
+                            onReport={handleCommunityReport}
+                            isFollowingAuthor={following}
+                            onFollowChange={handleCommunityFollowChange}
+                            onViewed={handleCommunityViewed}
+                        />
+                    ))}
+
+                    {communityHasMore && communityPosts.length === 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+                            <button
+                                onClick={() => loadCommunityPosts(false)}
+                                disabled={communityLoading}
+                                style={{ padding: '8px 20px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 13, cursor: 'pointer' }}
+                            >
+                                {communityLoading ? 'Loading…' : 'Load more'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Private Tabs Renderer */}
+            {['liked', 'viewed', 'savedVideos'].includes(activeTab) && (
+                privateTabLoading && !privateTabVideos[activeTab] ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+                        <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+                    </div>
+                ) : (privateTabVideos[activeTab]?.length > 0 ? (
+                    <div className="vgrid">
+                        {privateTabVideos[activeTab].map(video => (
+                            <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="vthumb" style={{ position: 'relative', aspectRatio: '9/16', display: 'block', background: '#1a1a1a', overflow: 'hidden' }}>
+                                {video.thumbnail_url_full
+                                    ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>
+                                }
+                            </Link>
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyState Icon={activeTab === 'liked' ? RiHeartLine : activeTab === 'viewed' ? RiEyeLine : RiBookmarkLine} title={`No ${activeTab === 'savedVideos' ? 'saved' : activeTab} videos yet`} sub="Videos will show up here." />
+                ))
+            )}
+        </div>
+    </>
+)}
+
+<style>{`@keyframes profileSpin { to { transform: rotate(360deg); } }`}</style>
 
 UserProfile.layout = (page) => <AppLayout>{page}</AppLayout>;
 

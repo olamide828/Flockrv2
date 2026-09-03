@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\SafetyController;
 use App\Http\Controllers\SellerTrustController;
+use App\Http\Controllers\ChatWallpaperController;
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
@@ -527,6 +528,18 @@ Route::get('/users/{user}/mutual-follows', function (\App\Models\User $user) {
 
     return response()->json(['count' => $users->count(), 'users' => $users]);
 });
+
+Route::get('/users/me/liked-videos', function () {
+    return Auth::user()->likedVideos()->with('user:id,name,username,avatar')->latest('video_likes.created_at')->get();
+});
+Route::get('/users/me/viewed-videos', function () {
+    $videoIds = \App\Models\VideoView::where('user_id', Auth::id())->latest()->pluck('video_id')->unique()->take(60);
+    return \App\Models\Video::whereIn('id', $videoIds)->with('user:id,name,username,avatar')->get();
+});
+Route::get('/users/me/saved-videos-list', function () {
+    return Auth::user()->savedVideos()->with('user:id,name,username,avatar')->latest('video_saves.created_at')->get();
+});
+
 Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
     if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
         return response()->json(['message' => 'Unauthorized.'], 403);
@@ -543,9 +556,37 @@ Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conver
     DB::table('conversation_user')
         ->where('conversation_id', $conversation->id)
         ->where('user_id', $user->id)
-        ->update(['chat_theme' => $request->theme]);
+        ->update(['chat_theme' => $request->theme, 'chat_wallpaper_id' => null]);
 
     return response()->json(['theme' => $request->theme]);
+});
+
+Route::get('/chat-wallpapers', [ChatWallpaperController::class, 'index']);
+Route::post('/chat-wallpapers', [ChatWallpaperController::class, 'store']);
+Route::delete('/chat-wallpapers/{wallpaper}', [ChatWallpaperController::class, 'destroy']);
+
+Route::patch('/conversations/{conversation}/wallpaper', function (\App\Models\Conversation $conversation, Request $request) {
+    if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
+    }
+    $request->validate(['wallpaper_id' => 'nullable|integer|exists:chat_wallpapers,id']);
+    $user = Auth::user();
+
+    if ($request->wallpaper_id) {
+        \App\Models\ChatWallpaper::where('id', $request->wallpaper_id)->where('user_id', $user->id)->firstOrFail();
+        if (!($user->role === 'seller' && $user->hasActiveSubscription())) {
+            return response()->json(['message' => 'Custom wallpapers are a Flockr Pro feature for sellers.'], 403);
+        }
+    }
+
+    // A conversation shows either an animated theme OR a static wallpaper —
+    // never both — so setting one clears the other.
+    DB::table('conversation_user')
+        ->where('conversation_id', $conversation->id)
+        ->where('user_id', $user->id)
+        ->update(['chat_wallpaper_id' => $request->wallpaper_id, 'chat_theme' => 'off']);
+
+    return response()->json(['ok' => true]);
 });
 
 Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) {

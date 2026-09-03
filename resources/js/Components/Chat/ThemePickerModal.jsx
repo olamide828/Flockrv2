@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { RiCloseLine, RiCheckLine, RiVipDiamondLine, RiStore3Line } from 'react-icons/ri'
+import { RiCloseLine, RiCheckLine, RiVipDiamondLine, RiStore3Line, RiAddLine, RiImageLine } from 'react-icons/ri'
 
 // ── Small line-art icons — one distinct motif per theme, no emoji, no flat swatch ──
 const Icon = {
@@ -35,10 +35,32 @@ export const CHAT_THEMES = [
   { key: 'petals', label: 'Sakura Petals', free: false },
 ]
 
-export default function ThemePickerModal({ conversationId, currentTheme, canUsePro, userRole, onSelectTheme, onUpgrade, onBecomeSeller, onClose }) {
+export default function ChatBackgroundAnimation({ theme, wallpaperUrl }) {
+  if (wallpaperUrl) {
+    return (
+      <div aria-hidden="true" style={{
+        position: 'absolute', inset: 0, zIndex: 0,
+        backgroundImage: `url(${wallpaperUrl})`, backgroundSize: 'cover', backgroundPosition: 'center',
+      }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
+      </div>
+    )
+  }
+
+export default function ThemePickerModal({ conversationId, currentTheme, canUsePro, userRole, onSelectTheme, onUpgrade, onBecomeSeller, onClose, currentWallpaperId, onSelectWallpaper }) {
   const [saving, setSaving] = useState(null)
   const [error, setError] = useState('')
   const [applied, setApplied] = useState(currentTheme)
+  const [wallpapers, setWallpapers] = useState([])
+const [uploading, setUploading] = useState(false)
+const [activeWallpaperId, setActiveWallpaperId] = useState(currentWallpaperId ?? null)
+const fileInputRef = useRef(null)
+
+
+useEffect(() => {
+    if (!canUsePro) return
+    axios.get('/api/chat-wallpapers').then(({ data }) => setWallpapers(data)).catch(() => {})
+}, [canUsePro])
 
   const select = async (theme) => {
     if (!theme.free && !canUsePro) { onUpgrade(); return }
@@ -51,6 +73,35 @@ export default function ThemePickerModal({ conversationId, currentTheme, canUseP
       setError(err.response?.data?.message ?? 'Could not update theme.')
     } finally { setSaving(null) }
   }
+
+  const uploadWallpaper = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+        const fd = new FormData()
+        fd.append('image', file)
+        const { data } = await axios.post('/api/chat-wallpapers', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        setWallpapers(prev => [data, ...prev])
+        await selectWallpaper(data.id)
+    } catch (err) {
+        setError(err.response?.data?.message ?? 'Upload failed.')
+    } finally {
+        setUploading(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+}
+
+const selectWallpaper = async (id) => {
+    try {
+        await axios.patch(`/api/conversations/${conversationId}/wallpaper`, { wallpaper_id: id })
+        setActiveWallpaperId(id)
+        setApplied(null) 
+        onSelectWallpaper(id, wallpapers.find(w => w.id === id)?.url)
+    } catch (err) {
+        setError(err.response?.data?.message ?? 'Could not set wallpaper.')
+    }
+}
 
   const sellerNotPro = userRole === 'seller' && !canUsePro
   const isBuyer = userRole !== 'seller'
@@ -111,6 +162,32 @@ export default function ThemePickerModal({ conversationId, currentTheme, canUseP
                 )
               })}
             </div>
+
+              {canUsePro && (
+    <>
+        <p style={{ margin: '22px 0 4px', color: '#fff', fontWeight: 700, fontSize: 14 }}>Wallpaper</p>
+        <p style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Add a wallpaper</p>
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
+            <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                style={{ flexShrink: 0, width: 70, height: 96, borderRadius: 14, border: '1.5px dashed rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: uploading ? 'not-allowed' : 'pointer' }}
+            >
+                {uploading
+                    ? <RiImageLine size={20} color="rgba(255,255,255,0.3)" />
+                    : <div style={{ width: 30, height: 30, borderRadius: 999, background: 'rgba(255,107,53,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiAddLine size={18} color="#FF6B35" /></div>
+                }
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadWallpaper} style={{ display: 'none' }} />
+            {wallpapers.map(w => (
+                <button key={w.id} onClick={() => selectWallpaper(w.id)} style={{ flexShrink: 0, width: 70, height: 96, borderRadius: 14, padding: 0, border: `2px solid ${activeWallpaperId === w.id ? '#FF6B35' : 'transparent'}`, cursor: 'pointer', overflow: 'hidden' }}>
+                    <img src={w.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
+            ))}
+        </div>
+    </>
+)}
+
           </>
         )}
       </div>

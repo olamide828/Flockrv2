@@ -332,19 +332,17 @@ const handleFollowFromChat = async () => {
     }
 }
 
-const resolveActiveTheme = () => {
+const resolveActiveBackground = () => {
     const other = otherUser(active)
     const me = active?.participants?.find(p => p.id === auth?.user?.id)
 
-    if (canUsePro && me?.conversation_chat_theme && me.conversation_chat_theme !== 'off') {
-        return me.conversation_chat_theme
+    if (canUsePro && me?.conversation_wallpaper_url) return { theme: 'off', wallpaperUrl: me.conversation_wallpaper_url }
+    if (canUsePro && me?.conversation_chat_theme && me.conversation_chat_theme !== 'off') return { theme: me.conversation_chat_theme, wallpaperUrl: null }
+    if (other?.role === 'seller' && other?.has_active_subscription_flag) {
+        if (other?.conversation_wallpaper_url) return { theme: 'off', wallpaperUrl: other.conversation_wallpaper_url }
+        if (other?.conversation_chat_theme && other.conversation_chat_theme !== 'off') return { theme: other.conversation_chat_theme, wallpaperUrl: null }
     }
-
-    if (other?.role === 'seller' && other?.is_subscriber && other?.conversation_chat_theme && other.conversation_chat_theme !== 'off') {
-        return other.conversation_chat_theme
-    }
-
-    return 'off'
+    return { theme: 'off', wallpaperUrl: null }
 }
 
 const broadcastTyping = () => {
@@ -867,15 +865,19 @@ const dismissRequestSheet = () => {
   <ThemePickerModal
     conversationId={active.id}
     currentTheme={active.participants?.find(p => p.id === auth?.user?.id)?.conversation_chat_theme ?? 'off'}
+    currentWallpaperId={null /* not tracked client-side by ID today — fine, selecting always confirms visually via the border highlight */}
+    onSelectWallpaper={(id, url) => {
+        setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === auth?.user?.id ? { ...p, conversation_wallpaper_url: url, conversation_chat_theme: 'off' } : p) }))
+    }}
     canUsePro={canUsePro}
     userRole={auth?.user?.role}
     onSelectTheme={(theme) => {
-      setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === auth?.user?.id ? { ...p, conversation_chat_theme: theme } : p) }))
+        setActive(prev => ({ ...prev, participants: prev.participants.map(p => p.id === auth?.user?.id ? { ...p, conversation_chat_theme: theme, conversation_wallpaper_url: null } : p) }))
     }}
     onUpgrade={() => { setShowThemePicker(false); setShowProSheet(true) }}
-    onBecomeSeller={() => router.post('/become-seller')}
+    onBecomeSeller={() => router.visit('/seller/onboarding')}
     onClose={() => setShowThemePicker(false)}
-  />
+/>
 )}
 
 {showProSheet && (
@@ -1064,7 +1066,7 @@ const dismissRequestSheet = () => {
         {/* ══ CHAT PANEL ══ */}
         <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', display: active ? 'flex' : 'none' }} className="chat-panel">
           
-         <ChatBackgroundAnimation theme={active ? resolveActiveTheme() : 'off'} />
+         {(() => { const bg = active ? resolveActiveBackground() : { theme: 'off', wallpaperUrl: null }; return <ChatBackgroundAnimation theme={bg.theme} wallpaperUrl={bg.wallpaperUrl} /> })()}
 
             {!active ? (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, position: 'relative', zIndex: 1 }}>

@@ -13,7 +13,7 @@ class Conversation extends Model
 
     public function participants(): BelongsToMany
 {
-    return $this->belongsToMany(User::class, 'conversation_user')->withPivot('chat_theme');
+    return $this->belongsToMany(User::class, 'conversation_user')->withPivot('chat_theme', 'chat_wallpaper_id');
 }
 
     public function messages(): HasMany

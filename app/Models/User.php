@@ -338,4 +338,9 @@ public function offPlatformWarningsReceived(): HasMany
     return $this->hasMany(\App\Models\OffPlatformWarning::class, 'seller_id');
 }
 
+public function likedVideos(): BelongsToMany
+{
+    return $this->belongsToMany(Video::class, 'video_likes')->withTimestamps();
+}
+
 }

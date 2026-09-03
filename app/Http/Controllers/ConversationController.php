@@ -19,7 +19,7 @@ class ConversationController extends Controller
     private const PARTICIPANT_FIELDS = 'id,name,username,avatar,last_seen_at';
     private const SENDER_FIELDS      = 'id,name,username,avatar,last_seen_at';
 
-public function index(): Response
+public function index(StorageService $storage): Response
 {
     $user = Auth::user();
 
@@ -36,6 +36,20 @@ public function index(): Response
         ->pluck('conversation_id')
         ->toArray();
 
+    // Fetch all conversations to get wallpaper IDs for in-memory mapping
+    $userConversations = $user->conversations()->latest('updated_at')->get();
+
+    // Fetch all referenced wallpapers in a single batch query (prevents N+1 database queries)
+    $wallpaperIds = DB::table('conversation_user')
+        ->whereIn('conversation_id', $userConversations->pluck('id'))
+        ->whereNotNull('chat_wallpaper_id')
+        ->pluck('chat_wallpaper_id')
+        ->unique();
+
+    $wallpapers = \App\Models\ChatWallpaper::whereIn('id', $wallpaperIds)
+        ->get()
+        ->keyBy('id');
+
     $conversations = $user
         ->conversations()
         ->with([
@@ -45,7 +59,9 @@ public function index(): Response
                     ['role', 'is_flockr_support']
                 );
                 $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
-                $q->select($qualifiedFields)->withPivot('chat_theme')->withActiveSubscriptionFlag();
+                $q->select($qualifiedFields)
+                  ->withPivot('chat_theme', 'chat_wallpaper_id')
+                  ->withActiveSubscriptionFlag();
             },
             'lastMessage.sender:' . self::SENDER_FIELDS,
         ])
@@ -54,15 +70,24 @@ public function index(): Response
         }])
         ->latest('updated_at')
         ->get()
-        ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds) {
-            $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow) {
+        ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds, $storage, $wallpapers) {
+            $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $storage, $wallpapers) {
                 $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
                 $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
                 $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
                 $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
-                
-                // Attached directly from pivot table:
+
+                // Pivot attributes
                 $p->setAttribute('conversation_chat_theme', $p->pivot->chat_theme ?? 'off');
+
+                // Fast in-memory resolution for wallpaper image path URL
+                $wallpaperId = $p->pivot->chat_wallpaper_id;
+                $wallpaper   = $wallpaperId ? $wallpapers->get($wallpaperId) : null;
+
+                $p->setAttribute(
+                    'conversation_wallpaper_url',
+                    $wallpaper ? $storage->url($wallpaper->image_path) : null
+                );
             });
 
             // Set on the conversation itself (OUTSIDE the participants loop)
