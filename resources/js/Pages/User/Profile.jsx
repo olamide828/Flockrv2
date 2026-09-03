@@ -1217,36 +1217,45 @@ return (
                 {!anyBlock && (
     <>
         <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', marginTop: 8 }}>
-            <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 16px', display: 'flex' }}>
-                {tabs.map(({ key, label, Icon }) => {
-                    const active = activeTab === key;
-                    return (
-                        <button
-                            key={key}
-                            onClick={() => handleTabClick(key)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '14px 16px 13px 0',
-                                marginRight: 8,
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: active ? '#fff' : 'rgba(255,255,255,0.35)',
-                                fontSize: 15,
-                                fontWeight: active ? 700 : 500,
-                                borderBottom: active ? '2px solid #fff' : '2px solid transparent',
-                                marginBottom: -1,
-                                transition: 'color 0.15s',
-                            }}
-                        >
-                            <Icon size={17} /> {label}
-                        </button>
-                    );
-                })}
-            </div>
-        </div>
+    <div style={{ 
+        maxWidth: 1000, 
+        margin: '0 auto', 
+        padding: '0 16px', 
+        display: 'flex',
+        overflowX: 'auto',
+        scrollbarWidth: 'none' 
+    }}>
+        {tabs.map(({ key, label, Icon }) => {
+            const active = activeTab === key;
+            return (
+                <button
+                    key={key}
+                    onClick={() => handleTabClick(key)}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '14px 16px 13px 0',
+                        marginRight: 8,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: active ? '#fff' : 'rgba(255,255,255,0.35)',
+                        fontSize: 15,
+                        fontWeight: active ? 700 : 500,
+                        borderBottom: active ? '2px solid #fff' : '2px solid transparent',
+                        marginBottom: -1,
+                        transition: 'color 0.15s',
+                        flexShrink: 0, 
+                        whiteSpace: 'nowrap', 
+                    }}
+                >
+                    <Icon size={17} /> {label}
+                </button>
+            );
+        })}
+    </div>
+</div>
 
         {/* ═══ TAB CONTENT ═══════════════════════════════════ */}
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 80 }}>

@@ -565,7 +565,7 @@ Route::get('/chat-wallpapers', [ChatWallpaperController::class, 'index']);
 Route::post('/chat-wallpapers', [ChatWallpaperController::class, 'store']);
 Route::delete('/chat-wallpapers/{wallpaper}', [ChatWallpaperController::class, 'destroy']);
 
-Route::patch('/conversations/{conversation}/wallpaper', function (\App\Models\Conversation $conversation, Request $request) {
+Route::patch('/conversations/{conversation}/wallpaper', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
     if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
         return response()->json(['message' => 'Unauthorized.'], 403);
     }
