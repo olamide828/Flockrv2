@@ -193,6 +193,11 @@ export default function OrderTracking({ order: initialOrder }) {
         ? ((currentStep >= 0 ? currentStep : 0) / (PIPELINE.length - 1)) * 100
         : Math.max(0, (currentStep / (PIPELINE.length - 1)) * 100);
 
+
+        const back = () => {
+            window.history.back();
+        }
+
     return (
         <>
             <Head title={`Track · ${order.reference}`} />
@@ -200,9 +205,9 @@ export default function OrderTracking({ order: initialOrder }) {
 
                 {/* Sticky header */}
                 <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(10,10,10,0.95)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <Link href={`/orders/${order.id}`} style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', textDecoration: 'none', flexShrink: 0 }}>
+                    <button onClick={back} style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', textDecoration: 'none', flexShrink: 0 }}>
                         <RiArrowLeftLine size={18} />
-                    </Link>
+                    </button>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 15 }}>Track Delivery</p>
                         <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 11, fontFamily: 'monospace' }}>{order.reference}</p>
