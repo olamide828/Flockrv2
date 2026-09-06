@@ -45,7 +45,7 @@ class OrderController extends Controller
         $userId = Auth::id();
         abort_unless($order->buyer_id === $userId || $order->seller_id === $userId, 403);
 
-        $order->load(['seller', 'buyer', 'items.product', 'video:id,thumbnail_url']);
+        $order->load(['seller', 'buyer', 'items.product', 'video:id,thumbnail_url', 'dispute.messages.user:id,name,username,avatar']);
         return Inertia::render('Order/Show', ['order' => $order]);
     }
 

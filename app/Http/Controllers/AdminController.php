@@ -547,4 +547,9 @@ public function clearFlag(User $user): JsonResponse
     return response()->json(['message' => "Flag cleared for @{$user->username}."]);
 }
 
+public function disputesPage(): Response
+{
+    return Inertia::render('Admin/Disputes');
+}
+
 }

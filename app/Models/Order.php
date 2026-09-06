@@ -80,6 +80,11 @@ class Order extends Model
         return $this->hasOne(Coupon::class, 'used_on_order_id');
     }
 
+    public function dispute(): HasOne
+{
+    return $this->hasOne(Dispute::class);
+}
+
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopePaid($query)
@@ -91,6 +96,8 @@ class Order extends Model
     {
         return $query->where('seller_id', $sellerId);
     }
+
+    
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 

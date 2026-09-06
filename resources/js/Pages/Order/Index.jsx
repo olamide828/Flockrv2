@@ -34,6 +34,14 @@ export default function OrdersList({ orders = [] }) {
   const [filter, setFilter] = useState('all')
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter)
+  const [expandedBatch, setExpandedBatch] = useState(null)
+
+  const batchGroups = orders.reduce((acc, o) => {
+  if (o.checkout_batch_id) {
+    (acc[o.checkout_batch_id] ??= []).push(o)
+  }
+  return acc
+}, {})
 
   return (
     <>
@@ -86,17 +94,22 @@ export default function OrdersList({ orders = [] }) {
           )}
 
           {filtered.map(order => {
-            const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
-            const StatusIcon = cfg.Icon
-            const currentIdx = TRACKING_STEPS.indexOf(order.status)
-            const showTracking = currentIdx !== -1
+    const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
+    const StatusIcon = cfg.Icon
+    const currentIdx = TRACKING_STEPS.indexOf(order.status)
+    const showTracking = currentIdx !== -1
 
-            return (
-              <Link
-                key={order.id}
-                href={`/orders/${order.id}`}
-                style={{ display: 'block', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden', textDecoration: 'none', transition: 'border-color 0.15s' }}
-              >
+    const siblings = order.checkout_batch_id
+      ? (batchGroups[order.checkout_batch_id] ?? []).filter(o => o.id !== order.id)
+      : []
+    const isExpanded = expandedBatch === order.checkout_batch_id
+
+    return (
+      <div key={order.id}>
+      <Link
+        href={`/orders/${order.id}`}
+        style={{ display: 'block', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: siblings.length > 0 ? '20px 20px 0 0' : 20, overflow: 'hidden', textDecoration: 'none', transition: 'border-color 0.15s' }}
+      >
                 {/* Order header row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <div>
@@ -187,9 +200,33 @@ export default function OrdersList({ orders = [] }) {
                   </div>
                 )}
               </Link>
-            )
-          })}
+              {siblings.length > 0 && (
+        <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderTop: 'none', borderRadius: '0 0 20px 20px', overflow: 'hidden' }}>
+          <button
+            onClick={() => setExpandedBatch(isExpanded ? null : order.checkout_batch_id)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px', background: 'rgba(255,107,53,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.05)', color: '#FF6B35', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+          >
+            Part of a {siblings.length + 1}-seller order {isExpanded ? '▲' : '▼'}
+          </button>
+          {isExpanded && (
+            <div style={{ padding: '10px 16px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {siblings.map(s => {
+                const sCfg = STATUS_CONFIG[s.status] ?? STATUS_CONFIG.pending
+                return (
+                  <Link key={s.id} href={`/orders/${s.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', textDecoration: 'none' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>@{s.seller?.username}</span>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: sCfg.color, color: sCfg.text }}>{sCfg.label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </div>
+      )}
+      </div>
+    )
+})}
+     </div>
       </div>
     </>
   )

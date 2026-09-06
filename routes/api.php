@@ -28,6 +28,8 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\SafetyController;
 use App\Http\Controllers\SellerTrustController;
 use App\Http\Controllers\ChatWallpaperController;
+use App\Http\Controllers\DisputeController;
+
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
@@ -471,6 +473,9 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::post('/conversations/{conversation}/dismiss-request', [ConversationController::class, 'dismissRequest']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
+    Route::post('/orders/{order}/disputes', [DisputeController::class, 'store']);
+Route::get('/disputes/{dispute}', [DisputeController::class, 'show']);
+Route::post('/disputes/{dispute}/messages', [DisputeController::class, 'reply']);
     Route::post('/conversations/{conversation}/report', [ConversationController::class, 'reportConversation']);
     Route::post('/safety/off-platform-warning', [SafetyController::class, 'recordWarning']);
 Route::get('/safety/conversations/{conversation}/status', [SafetyController::class, 'conversationStatus']);
@@ -658,6 +663,8 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
         Route::post('/orders/{order}/refund', [AdminController::class, 'refundOrder']);
         Route::post('/orders/{order}/resolve', [AdminController::class, 'resolveOrder']);
         Route::patch('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
+        Route::get('/disputes', [DisputeController::class, 'adminIndex']);
+    Route::post('/disputes/{dispute}/resolve', [DisputeController::class, 'resolve']);
 
 
         Route::get('/stats', [AdminController::class, 'stats']);

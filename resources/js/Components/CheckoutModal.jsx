@@ -565,7 +565,7 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
                                     </div>
                                 )}
 
-                                {!loadingRates && rates.length === 0 && (
+                                {!loadingRates && !isMultiSeller && rates.length === 0 && (
                                     <div style={{ padding: '20px', textAlign: 'center' }}>
                                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: '0 0 12px' }}>No shipping options available for this route.</p>
                                         <button type="button" onClick={() => fetchRates(selectedAddr)} style={{ color: '#FF6B35', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Try again</button>
@@ -623,9 +623,9 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
 )}
 
                                 <button type="button" onClick={() => setStep('confirm')} disabled={loadingRates || (isMultiSeller ? missingSellerRate : !selectedRate)}
-                                    style={{ padding: '14px', background: (!selectedRate || loadingRates) ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: (!selectedRate || loadingRates) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
-                                    Continue <RiArrowRightLine size={16} />
-                                </button>
+    style={{ padding: '14px', background: (loadingRates || (isMultiSeller ? missingSellerRate : !selectedRate)) ? 'rgba(255,107,53,0.3)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: (loadingRates || (isMultiSeller ? missingSellerRate : !selectedRate)) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
+    Continue <RiArrowRightLine size={16} />
+</button>
                             </div>
                         )}
 
@@ -646,14 +646,33 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
                                 </div>
 
                                 {/* Courier summary */}
-                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <RiTruckLine size={18} color="#FF6B35" />
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{selectedRate?.carrier} · {selectedRate?.service}</p>
-                                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{selectedRate?.estimated_days}</p>
-                                    </div>
-                                    <span style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14 }}>₦{selectedRate ? Number(selectedRate.amount || 0).toLocaleString() : '0'}</span>
-                                </div>
+                                {!isMultiSeller ? (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <RiTruckLine size={18} color="#FF6B35" />
+        <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{selectedRate?.carrier} · {selectedRate?.service}</p>
+            <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{selectedRate?.estimated_days}</p>
+        </div>
+        <span style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14 }}>₦{selectedRate ? Number(selectedRate.amount || 0).toLocaleString() : '0'}</span>
+    </div>
+) : (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <RiTruckLine size={16} color="#FF6B35" />
+            <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700 }}>{sellerIds.length} separate shipments</p>
+        </div>
+        {sellerIds.map(id => {
+            const r = ratesBySeller[id];
+            const sellerName = items.find(i => (i.product?.seller?.id ?? i.product?.seller_id) === id)?.product?.seller?.name ?? 'Seller';
+            return (
+                <div key={id} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 24 }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{sellerName} · {r?.carrier}</span>
+                    <span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 600 }}>₦{r ? Number(r.amount).toLocaleString() : '0'}</span>
+                </div>
+            );
+        })}
+    </div>
+)}
 
                                 {/* Coupon */}
                                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden' }}>

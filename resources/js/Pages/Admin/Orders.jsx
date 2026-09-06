@@ -17,6 +17,7 @@ function AdminLayout({ children, active }) {
     { href: '/admin/payouts',   icon: RiBankCardLine,    label: 'Payouts'   },
     { href: '/admin/reports',   icon: RiAlertLine,       label: 'Reports'   },
     { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
+    { href: '/admin/disputes', icon: RiAlertLine, label: 'Disputes' },
   ]
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>

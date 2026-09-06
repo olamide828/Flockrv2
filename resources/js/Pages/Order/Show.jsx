@@ -29,6 +29,7 @@ import {
 } from 'react-icons/ri'
 import DisputeModal from './DisputeModal'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import DisputeThread from './DisputeThread'
 
 const STATUS_CONFIG = {
   pending:    { label: 'Pending',    bg: 'rgba(234,179,8,0.12)',    text: '#EAB308', Icon: RiTimeLine           },
@@ -64,7 +65,10 @@ export default function OrderShow({ order }) {
   const [copied,          setCopied]          = useState(false)
   const [resumingPayment, setResumingPayment] = useState(false)
   const [toast,           setToast]           = useState(null)
-  const [showDispute,     setShowDispute]     = useState(false)
+  const [showDispute, setShowDispute] = useState(false)
+const [disputeThread, setDisputeThread] = useState(null)
+const hasDispute = !!order.dispute
+  const [confirmingReceipt, setConfirmingReceipt] = useState(false)
 
   const showToast = (msg, type = 'error') => {
     setToast({ msg, type })
@@ -79,8 +83,33 @@ export default function OrderShow({ order }) {
   const canCancel  = isBuyer && ['pending', 'paid', 'confirmed'].includes(order.status)
   const canResume  = isBuyer && order.status === 'pending'
 
-  // Show "Report a Problem" for buyers on active paid orders
+
   const canDispute = isBuyer && ['paid', 'confirmed', 'processing', 'shipped', 'delivered'].includes(order.status)
+
+  const handleConfirmReceipt = async () => {
+  if (!confirm('Confirm you received this order? This releases payment to the seller immediately.')) return
+  setConfirmingReceipt(true)
+  try {
+    const { data } = await axios.post(`/api/orders/${order.id}/confirm-receipt`)
+    showToast(data.message, 'success')
+    router.reload()
+  } catch (err) {
+    showToast(err.response?.data?.message ?? 'Failed to confirm receipt.')
+  } finally {
+    setConfirmingReceipt(false)
+  }
+}
+
+const canConfirmReceipt = isBuyer && order.status === 'delivered' && !order.escrow_released_at
+
+const openDisputeThread = async () => {
+  try {
+    const { data } = await axios.get(`/api/disputes/${order.dispute.id}`)
+    setDisputeThread(data)
+  } catch {
+    showToast('Could not load dispute.')
+  }
+}
 
   const currentStepIdx = TRACKING_STEPS.findIndex(s => s.key === order.status)
   const showTracking   = !['cancelled', 'refunded'].includes(order.status)
@@ -256,7 +285,7 @@ export default function OrderShow({ order }) {
 )}
 
           {/* Tracking number */}
-          {order.tracking_number && (
+          {order.tracking_number && !['pending', 'paid'].includes(order.status) &&  (
             <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
               <RiTruckLine size={20} color="#8B5CF6" />
               <div style={{ flex: 1 }}>
@@ -386,8 +415,19 @@ export default function OrderShow({ order }) {
             </button>
           )}
 
+          {canConfirmReceipt && (
+  <button
+    onClick={handleConfirmReceipt}
+    disabled={confirmingReceipt}
+    style={{ width: '100%', padding: '14px', borderRadius: 16, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10B981', fontWeight: 700, fontSize: 14, cursor: confirmingReceipt ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: confirmingReceipt ? 0.6 : 1 }}
+  >
+    <RiCheckboxCircleLine size={17} />
+    {confirmingReceipt ? 'Confirming...' : 'Confirm Receipt & Release Payment'}
+  </button>
+)}
+
           {/* Report a Problem — shown for buyers on active paid orders */}
-          {canDispute && (
+          {canDispute && !hasDispute && (
             <button
               onClick={() => setShowDispute(true)}
               style={{
@@ -405,6 +445,13 @@ export default function OrderShow({ order }) {
               Report a Problem
             </button>
           )}
+
+          {hasDispute && (
+  <button onClick={openDisputeThread} style={{ width: '100%', padding: '13px', borderRadius: 16, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+    <RiAlertLine size={16} />
+    View Dispute
+  </button>
+)}
 
         </div>
       </div>
@@ -425,7 +472,8 @@ export default function OrderShow({ order }) {
         </div>
       )}
 
-      {showDispute && <DisputeModal order={order} onClose={() => setShowDispute(false)} />}
+      {showDispute && <DisputeModal order={order} onClose={() => setShowDispute(false)} onSubmitted={() => router.reload()} />}
+{disputeThread && <DisputeThread dispute={disputeThread} currentUserId={auth?.user?.id} onClose={() => setDisputeThread(null)} />}
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }

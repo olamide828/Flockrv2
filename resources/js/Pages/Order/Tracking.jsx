@@ -396,10 +396,10 @@ export default function OrderTracking({ order: initialOrder }) {
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     {order.courier_name && <p style={{ margin: '0 0 3px', color: '#fff', fontSize: 14, fontWeight: 700 }}>{order.courier_name}</p>}
-                                    {order.tracking_number
-                                        ? <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: 'monospace', letterSpacing: '0.05em' }}>{order.tracking_number}</p>
-                                        : <p style={{ margin: 0, color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>Tracking number will appear once courier picks up</p>
-                                    }
+                                    {(order.tracking_number && !['pending', 'paid'].includes(order.status))
+    ? <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: 'monospace', letterSpacing: '0.05em' }}>{order.tracking_number}</p>
+    : <p style={{ margin: 0, color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>Tracking number will appear once courier picks up</p>
+}
                                 </div>
                                 {order.tracking_number && (
                                     <button onClick={copyTracking} style={{ width: 36, height: 36, borderRadius: 10, background: copied ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: copied ? '#10B981' : 'rgba(255,255,255,0.4)', flexShrink: 0, transition: 'all 0.2s' }}>

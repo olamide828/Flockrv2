@@ -88,18 +88,18 @@ export default function OrderSuccess({ order }) {
                         </div>
                     </div>
 
-                    {/* Courier info — shown if Terminal created shipment */}
+                   
                     {hasCourier && (
                         <div style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 16, padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
                             <RiTruckLine size={20} color="#8B5CF6" style={{ flexShrink: 0 }} />
                             <div>
                                 <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600 }}>{order.courier_name}</p>
-                                {order.tracking_number && (
+                                {order.tracking_number && !['pending', 'paid'].includes(order.status) && (
                                     <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: 'monospace' }}>
                                         Tracking: {order.tracking_number}
                                     </p>
                                 )}
-                                {!order.tracking_number && (
+                                {!order.tracking_number && !['pending', 'paid'].includes(order.status) && (
                                     <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
                                         Tracking number will appear once courier picks up
                                     </p>
