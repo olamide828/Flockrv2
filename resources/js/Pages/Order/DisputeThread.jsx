@@ -3,7 +3,7 @@ import axios from 'axios'
 import {
   RiCloseLine, RiAlertLine, RiImageAddLine, RiLoader4Line, RiSendPlaneFill, RiVideoLine,
 } from 'react-icons/ri'
-import DisputeLightbox from './DisputeLightbox';
+import DisputeLightbox from '../Order/DisputeLightBox';
 
 export default function DisputeThread({ dispute: initialDispute, currentUserId, onClose }) {
   const [dispute,       setDispute]       = useState(initialDispute)
