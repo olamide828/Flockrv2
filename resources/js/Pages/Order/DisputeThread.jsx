@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import axios from 'axios'
 import {
-  RiCloseLine, RiAlertLine, RiImageAddLine, RiLoader4Line, RiSendPlaneFill,
+  RiCloseLine, RiAlertLine, RiImageAddLine, RiLoader4Line, RiSendPlaneFill, RiVideoLine,
 } from 'react-icons/ri'
+import DisputeLightbox from './DisputeLightbox';
 
 export default function DisputeThread({ dispute: initialDispute, currentUserId, onClose }) {
   const [dispute,       setDispute]       = useState(initialDispute)
@@ -10,6 +11,7 @@ export default function DisputeThread({ dispute: initialDispute, currentUserId, 
   const [photoFiles,    setPhotoFiles]    = useState([])
   const [photoPreviews, setPhotoPreviews] = useState([])
   const [sending,       setSending]       = useState(false)
+  const [lightbox, setLightbox] = useState(null)
 
   const resolved = ['resolved_buyer', 'resolved_seller', 'closed'].includes(dispute.status)
 
@@ -87,14 +89,17 @@ export default function DisputeThread({ dispute: initialDispute, currentUserId, 
                   {m.message}
                 </div>
                 {m.attachment_urls?.length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                    {m.attachment_urls.map((url, i) => (
-                      <a key={i} href={url} target="_blank" rel="noreferrer">
-                        <img src={url} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)' }} />
-                      </a>
-                    ))}
-                  </div>
-                )}
+  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+    {m.attachment_urls.map((att, i) => (
+      <button key={i} onClick={() => setLightbox({ items: m.attachment_urls, idx: i })} style={{ width: 64, height: 64, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', padding: 0, cursor: 'zoom-in', background: '#1a1a1a', position: 'relative', overflow: 'hidden' }}>
+        {att.type === 'video'
+          ? <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={20} color="rgba(255,255,255,0.5)" /></div>
+          : <img src={att.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        }
+      </button>
+    ))}
+  </div>
+)}
               </div>
             )
           })}
@@ -135,6 +140,9 @@ export default function DisputeThread({ dispute: initialDispute, currentUserId, 
           </div>
         )}
       </div>
+
+        {lightbox && <DisputeLightbox items={lightbox.items} startIdx={lightbox.idx} onClose={() => setLightbox(null)} />}
+
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )

@@ -20,6 +20,7 @@ export default function DisputeModal({ order, onClose, onSubmitted }) {
   const [photoPreviews,setPhotoPreviews]= useState([])
   const [submitting,   setSubmitting]   = useState(false)
   const [error,        setError]        = useState('')
+  const [videoFile, setVideoFile] = useState(null)
 
   const handlePhoto = e => {
     const files = Array.from(e.target.files ?? []).slice(0, 3 - photoFiles.length)
@@ -44,6 +45,7 @@ export default function DisputeModal({ order, onClose, onSubmitted }) {
       fd.append('reason', reason)
       fd.append('description', description.trim())
       photoFiles.forEach(f => fd.append('photos[]', f))
+      if (videoFile) fd.append('video', videoFile)
       const { data } = await axios.post(`/api/orders/${order.id}/disputes`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -122,6 +124,21 @@ export default function DisputeModal({ order, onClose, onSubmitted }) {
               )}
             </div>
           </div>
+
+          <div>
+  <p style={lbSt}>Video evidence <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional, max 20MB)</span></p>
+  {videoFile ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 12 }}>
+      <span style={{ color: '#fff', fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{videoFile.name}</span>
+      <button onClick={() => setVideoFile(null)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
+    </div>
+  ) : (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(255,255,255,0.03)', border: '1.5px dashed rgba(255,255,255,0.1)', borderRadius: 12, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+      Add a short video
+      <input type="file" accept="video/mp4,video/quicktime,video/webm" onChange={e => setVideoFile(e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
+    </label>
+  )}
+</div>
 
           {error && (
             <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10 }}>

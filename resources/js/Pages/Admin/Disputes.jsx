@@ -3,8 +3,9 @@ import { Head, Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
-  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line,
+  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line, RiVideoLine,
 } from 'react-icons/ri'
+import DisputeLightbox from './DisputeLightbox';
 
 function AdminLayout({ children, active }) {
   const links = [
@@ -51,6 +52,7 @@ export default function AdminDisputes() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [note,      setNote]      = useState('')
   const [resolving, setResolving] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
 
   const load = (status = statusFilter) => {
     setLoading(true)
@@ -157,12 +159,17 @@ export default function AdminDisputes() {
                       </p>
                       <p style={{ margin: 0, fontSize: 13, color: '#fff' }}>{m.message}</p>
                       {m.attachment_urls?.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                          {m.attachment_urls.map((url, i) => (
-                            <a key={i} href={url} target="_blank" rel="noreferrer"><img src={url} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8 }} /></a>
-                          ))}
-                        </div>
-                      )}
+  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+    {m.attachment_urls.map((att, i) => (
+      <button key={i} onClick={() => setLightbox({ items: m.attachment_urls, idx: i })} style={{ width: 64, height: 64, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', padding: 0, cursor: 'zoom-in', background: '#1a1a1a', position: 'relative', overflow: 'hidden' }}>
+        {att.type === 'video'
+          ? <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={20} color="rgba(255,255,255,0.5)" /></div>
+          : <img src={att.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        }
+      </button>
+    ))}
+  </div>
+)}
                     </div>
                   ))}
                 </div>
@@ -184,6 +191,7 @@ export default function AdminDisputes() {
                 )}
               </>
             )}
+            {lightbox && <DisputeLightbox items={lightbox.items} startIdx={lightbox.idx} onClose={() => setLightbox(null)} />}
           </div>
         </>
       )}

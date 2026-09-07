@@ -55,6 +55,13 @@ class DisputeController extends Controller
             }
         }
 
+        $validated['video'] = null;
+        if ($request->hasFile('video')) {
+        $request->validate(['video' => 'file|mimes:mp4,mov,webm|max:20480']); 
+        $disk = config('filesystems.default', 'public');
+        $photoKeys[] = $request->file('video')->store('disputes/videos/' . now()->format('Y/m'), $disk);
+        }
+
         [$dispute, $message] = DB::transaction(function () use ($order, $validated, $photoKeys) {
             $dispute = Dispute::create([
                 'order_id'    => $order->id,
@@ -84,6 +91,16 @@ class DisputeController extends Controller
                 "A dispute was opened for order #{$order->reference}. Please respond within 48 hours."
             ));
         } catch (\Throwable) {}
+
+        try {
+        \App\Models\User::where('role', 'admin')->get()->each(
+        fn($admin) => $admin->notify(new \App\Notifications\OrderStatusNotification(
+            $order,
+            'New dispute opened',
+            "Order #{$order->reference} — {$validated['reason']}"
+        ))
+    );
+} catch (\Throwable) {}
 
         return response()->json([
             'message' => 'Dispute submitted. We\'ll review within 24-48 hours.',
@@ -146,6 +163,13 @@ class DisputeController extends Controller
             }
         }
 
+        $validated['video'] = null;
+        if ($request->hasFile('video')) {
+        $request->validate(['video' => 'file|mimes:mp4,mov,webm|max:20480']); // 20MB
+        $disk = config('filesystems.default', 'public');
+        $photoKeys[] = $request->file('video')->store('disputes/videos/' . now()->format('Y/m'), $disk);
+        }
+
         $message = DisputeMessage::create([
             'dispute_id'  => $dispute->id,
             'user_id'     => $userId,
@@ -153,7 +177,17 @@ class DisputeController extends Controller
             'attachments' => !empty($photoKeys) ? $photoKeys : null,
         ]);
 
-        $dispute->update(['status' => 'awaiting_admin']);
+        $dispute->update(['status' => 'awaiting_admin']);   
+
+        try {
+    \App\Models\User::where('role', 'admin')->get()->each(
+        fn($admin) => $admin->notify(new \App\Notifications\OrderStatusNotification(
+            $order,
+            'New response on dispute',
+            "New reply on dispute #{$dispute->id} — needs review"
+        ))
+    );
+} catch (\Throwable) {}
 
         $otherPartyId = $userId === $dispute->buyer_id ? $dispute->seller_id : $dispute->buyer_id;
         try {

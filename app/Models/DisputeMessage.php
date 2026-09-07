@@ -25,21 +25,22 @@ class DisputeMessage extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Same pattern as Review::getPhotoUrlsAttribute() — safe for local or R2/S3.
     public function getAttachmentUrlsAttribute(): array
-    {
-        $keys = $this->attachments ?? [];
-        if (empty($keys)) return [];
+{
+    $keys = $this->attachments ?? [];
+    if (empty($keys)) return [];
 
-        $disk = config('filesystems.default', 'public');
-        $base = config("filesystems.disks.{$disk}.url");
-        if (!$base) $base = rtrim(config('app.url'), '/') . '/storage';
-        $base = rtrim($base, '/');
+    $disk = config('filesystems.default', 'public');
+    $base = config("filesystems.disks.{$disk}.url");
+    if (!$base) $base = rtrim(config('app.url'), '/') . '/storage';
+    $base = rtrim($base, '/');
 
-        return array_values(array_filter(array_map(function ($key) use ($base) {
-            if (!$key) return null;
-            if (str_starts_with($key, 'http')) return $key;
-            return $base . '/' . ltrim($key, '/');
-        }, $keys)));
-    }
+    return array_values(array_filter(array_map(function ($key) use ($base) {
+        if (!$key) return null;
+        $url = str_starts_with($key, 'http') ? $key : $base . '/' . ltrim($key, '/');
+        $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+        $type = in_array($ext, ['mp4', 'mov', 'webm', 'm4v']) ? 'video' : 'image';
+        return ['url' => $url, 'type' => $type];
+    }, $keys)));
+}
 }
