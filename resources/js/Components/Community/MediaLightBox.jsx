@@ -399,8 +399,8 @@ useEffect(() => {
                 )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: -8 }}>
-                  <button ref={el => { likeBtnRefs.current[post.id] = el }} onPointerDown={() => onLike(post)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
-                    {post.is_liked_by_me ? <RiHeartFill size={21} /> : <RiHeartLine size={21} />}
+                  <button ref={el => { likeBtnRefs.current[post.id] = el }} onPointerDown={(e) => { if (!post.is_liked_by_me) triggerLikeAnim(e.clientX, e.clientY); onLike(post) }} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
+                    {post.is_liked_by_me ? <RiHeartFill size={26} /> : <RiHeartLine size={26} />}
                     {post.likes_count > 0 && <span>{fmtCount(post.likes_count)}</span>}
                   </button>
                   <Link href={`/community/posts/${post.id}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 8, borderRadius: 999, color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>

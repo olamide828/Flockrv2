@@ -48,6 +48,7 @@
         "concurrently": "^9.0.1",
         "framer-motion": "^12.40.0",
         "globals": "^15.14.0",
+        "hls.js": "^1.7.2",
         "laravel-echo": "^2.3.4",
         "laravel-vite-plugin": "^1.0",
         "lucide-react": "^0.475.0",

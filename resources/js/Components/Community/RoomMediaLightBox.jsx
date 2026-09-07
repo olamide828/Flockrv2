@@ -260,9 +260,9 @@ useEffect(() => {
         )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{fmtTime(activeMsg.created_at)}</span>
-          <button onClick={(e) => { onLike?.(activeMsg); triggerLikeAnim(e.clientX, e.clientY) }}
+          <button onClick={(e) => { if (!activeMsg.is_liked_by_me) triggerLikeAnim(e.clientX, e.clientY); onLike?.(activeMsg) }}
             style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 999, padding: '6px 12px', cursor: 'pointer', color: activeMsg.is_liked_by_me ? '#ff2d55' : '#fff' }}>
-            {activeMsg.is_liked_by_me ? <RiHeartFill size={16} /> : <RiHeartLine size={16} />}
+            {activeMsg.is_liked_by_me ? <RiHeartFill size={20} /> : <RiHeartLine size={20} />}
             {activeMsg.likes_count > 0 && <span style={{ fontSize: 12, fontWeight: 700 }}>{activeMsg.likes_count}</span>}
           </button>
         </div>

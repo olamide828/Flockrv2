@@ -359,7 +359,7 @@ class WatermarkVideoJob implements ShouldQueue
 
     private function probeDimensions(string $path): array
     {
-        $fp  = str_replace('\\', '/', config('flockr.ffprobe_path', 'ffprobe'));
+        $fp  = str_replace('\\', '/', config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
         $out = trim(shell_exec("\"{$fp}\" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 \"" . $this->p($path) . "\" 2>&1") ?? '');
         if (preg_match('/(\d+),(\d+)/', $out, $m)) return [(int) $m[1], (int) $m[2]];
         return [720, 1280];
@@ -379,9 +379,9 @@ class WatermarkVideoJob implements ShouldQueue
     }
 
     private function ff(): string
-    {
-        return $this->p(config('flockr.ffmpeg_path', 'ffmpeg'));
-    }
+{
+    return $this->p(config('flockr.ffmpeg_path', '/var/www/bin/ffmpeg'));
+}
 
     private function findFont(): ?string
     {

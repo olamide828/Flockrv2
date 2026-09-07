@@ -39,6 +39,7 @@ import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/vid
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
 import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
+import { useHlsVideo } from '@/lib/useHlsVideo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -394,6 +395,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const { download, dlState } = useVideoDownload(video);
 
+    useHlsVideo(videoRef, isActive ? videoSrc : null);
+
     const isOwner     = auth?.user?.id === video.user_id;
     const hasProducts = video.is_for_sale && video.products?.length > 0;
     const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
@@ -541,7 +544,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
-                <video ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
+                                <video ref={videoRef} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
                     onPlaying={() => setLoading(false)}
                onPlay={() => { setPlaying(true); setShowPP(false) }}
@@ -631,7 +634,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     <div style={{ position: 'relative', marginBottom: 4 }}>
                         <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
                     </div>
-                    <SideBtn btnRef={likeBtnRef} onClick={handleLike} label={fmt(likesCount)}>{liked ? <RiHeartFill size={28} color="#EF4444" /> : <RiHeartLine size={28} color="#fff" />}</SideBtn>
+                    <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike() }} label={fmt(likesCount)}>{liked ? <RiHeartFill size={34} color="#EF4444" /> : <RiHeartLine size={34} color="#fff" />}</SideBtn>
                     <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
                         <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>

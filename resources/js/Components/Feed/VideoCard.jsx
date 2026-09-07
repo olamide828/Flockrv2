@@ -19,6 +19,7 @@ import VideoSeekBar from '@/Components/VideoSeekBar'
 import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
+import { useHlsVideo } from '@/lib/useHlsVideo'
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -254,6 +255,8 @@ export default function VideoCard({ video, isActive }) {
 
   const { download, dlState } = useVideoDownload(video);
 
+  useHlsVideo(videoRef, isActive ? videoSrc : null)
+
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
@@ -406,8 +409,8 @@ export default function VideoCard({ video, isActive }) {
       )}
       {showReportVideo && <ReportVideoModal video={video} onClose={() => setShowReportVideo(false)} />}
 
-      <video
-        ref={videoRef} src={videoSrc} poster={video.thumbnail_url_full ?? undefined}
+        <video
+        ref={videoRef} poster={video.thumbnail_url_full ?? undefined}
         muted playsInline preload={isActive ? 'auto' : 'none'}
         onCanPlay={() => setLoading(false)}
         onPlaying={() => setLoading(false)}
@@ -491,8 +494,8 @@ export default function VideoCard({ video, isActive }) {
             </div>
           </Link>
         </div>
-        <SideBtn btnRef={likeBtnRef} onClick={handleLike} label={fmt(likesCount)}>
-          {liked ? <RiHeartFill size={28} color="#ef4444" /> : <RiHeartLine size={28} color="#fff" />}
+         <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike() }} label={fmt(likesCount)}>
+          {liked ? <RiHeartFill size={34} color="#ef4444" /> : <RiHeartLine size={34} color="#fff" />}
         </SideBtn>
         <SideBtn onClick={() => { if (!auth?.user) { router.visit('/login'); return }; setShowComments(s => !s); setShowProducts(false); setShowShare(false) }} label={fmt(commentsCount)}>
           <RiChat1Line size={28} color={showComments ? '#ff5c00' : '#fff'} />

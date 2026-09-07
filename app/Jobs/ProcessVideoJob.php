@@ -16,7 +16,7 @@ class ProcessVideoJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 120; // reduced — we no longer download the whole file
+    public int $timeout = 600;
     public int $tries   = 2;
 
     public function __construct(public Video $video) {}
@@ -46,13 +46,16 @@ class ProcessVideoJob implements ShouldQueue
             // ── Get duration ──────────────────────────────────────────────────
             $duration = $this->getDuration($videoSource);
             $optimizedKey = $this->optimizeForStreaming($videoSource, $disk);
+            $hlsKey = $this->generateHls($videoSource, $disk);
 
             // ── Activate video ────────────────────────────────────────────────
             $this->video->update(array_filter([
-                'status'           => 'active',
-                'published_at'     => now(),
-                'thumbnail_url'    => $thumbnailKey,
-                'duration_seconds' => $duration,
+            'status'           => 'active',
+            'published_at'     => now(),
+            'thumbnail_url'    => $thumbnailKey,
+            'duration_seconds' => $duration,
+            'video_url'        => $optimizedKey,
+            'hls_url'          => $hlsKey,
             ], fn($v) => $v !== null));
 
             Log::info("ProcessVideoJob: video #{$this->video->id} done", [
@@ -246,6 +249,55 @@ private function getDuration(string $videoSource): ?int
 
     return $key;
 }
+
+    private function generateHls(string $videoSource, string $disk): ?string
+    {
+        $ffmpeg = '/var/www/bin/ffmpeg';
+
+        exec($ffmpeg . ' -version 2>&1', $out, $code);
+        if ($code !== 0) return null;
+
+        $tmpDir = sys_get_temp_dir() . '/hls-' . Str::uuid();
+        mkdir($tmpDir, 0755, true);
+        $playlist = $tmpDir . '/index.m3u8';
+
+        $cmd = sprintf(
+            '%s -i %s -vf "scale=-2:720" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -hls_time 6 -hls_list_size 0 -hls_flags independent_segments -hls_segment_filename %s -f hls %s -y 2>&1',
+            $ffmpeg,
+            escapeshellarg($videoSource),
+            escapeshellarg($tmpDir . '/seg_%03d.ts'),
+            escapeshellarg($playlist)
+        );
+
+        exec($cmd, $output, $returnCode);
+
+        if ($returnCode !== 0 || !file_exists($playlist)) {
+            Log::warning('ProcessVideoJob: HLS generation failed', ['output' => implode("\n", $output)]);
+            $this->cleanupTmpDir($tmpDir);
+            return null;
+        }
+
+        $prefix = 'hls/' . now()->format('Y/m/d') . '/' . Str::uuid();
+
+        foreach (glob($tmpDir . '/*') as $file) {
+            $filename    = basename($file);
+            $contentType = str_ends_with($filename, '.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
+            Storage::disk($disk)->put("{$prefix}/{$filename}", file_get_contents($file), [
+                'ContentType' => $contentType, 'visibility' => 'public',
+            ]);
+        }
+
+        $this->cleanupTmpDir($tmpDir);
+
+        return "{$prefix}/index.m3u8";
+    }
+
+    private function cleanupTmpDir(string $dir): void
+    {
+        foreach (glob($dir . '/*') as $file) { @unlink($file); }
+        @rmdir($dir);
+    }
+
 }
 
 

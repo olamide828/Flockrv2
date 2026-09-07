@@ -89,7 +89,11 @@ export default function PostCard({
     return () => { if (dwellTimer) clearTimeout(dwellTimer); obs.disconnect() }
   }, [post.id, onViewed])
 
-  const handleLikeClick = (e) => { e.stopPropagation(); e.preventDefault(); onLike(post) }
+    const handleLikeClick = (e) => {
+    e.stopPropagation(); e.preventDefault()
+    if (!post.is_liked_by_me) triggerLikeAnim(e.clientX, e.clientY)
+    onLike(post)
+  }
   const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(true) }
   const handleDelClick  = () => { setMenuOpen(false); onDelete(post) }
   const handleShareClick = (e) => { e.stopPropagation(); e.preventDefault(); setShowShare(true) }
@@ -201,7 +205,7 @@ export default function PostCard({
 
         <div style={{ display:'flex', alignItems:'center', gap:2, marginTop:4, marginLeft:-8 }}>
           <button onClick={handleLikeClick} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: post.is_liked_by_me ? '#EF4444' : 'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
-            {post.is_liked_by_me ? <RiHeartFill size={20} /> : <RiHeartLine size={20} />}
+            {post.is_liked_by_me ? <RiHeartFill size={24} /> : <RiHeartLine size={24} />}
             {post.likes_count > 0 && <span>{fmtCount(post.likes_count)}</span>}
           </button>
 

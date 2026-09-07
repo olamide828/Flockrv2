@@ -35,7 +35,7 @@ function SingleBurst({ x, y }) {
       {particles.map((p, i) => (
         <span key={i} className="like-anim-particle" style={{ '--angle': `${p.angle}deg`, animationDelay: `${p.delay}ms` }} />
       ))}
-      <RiHeartFill size={84} color="#ff2d55" className="like-anim-heart" style={{ display: 'block' }} />
+      <RiHeartFill size={128} color="#ff2d55" className="like-anim-heart" style={{ display: 'block' }} />
     </div>
   )
 }
@@ -48,9 +48,9 @@ export function LikeAnimationOverlay({ burst, bursts }) {
     <>
       {list.map(b => <SingleBurst key={b.id} x={b.x} y={b.y} />)}
       <style>{`
-        @keyframes likeAnimRing {
-          0%   { width: 14px; height: 14px; opacity: 0.8; border-width: 3px; }
-          100% { width: 150px; height: 150px; opacity: 0; border-width: 0.5px; }
+         @keyframes likeAnimRing {
+          0%   { width: 18px; height: 18px; opacity: 0.8; border-width: 3px; }
+          100% { width: 210px; height: 210px; opacity: 0; border-width: 0.5px; }
         }
         .like-anim-ring {
           position: absolute; top: 0; left: 0; transform: translate(-50%, -50%);
@@ -60,17 +60,18 @@ export function LikeAnimationOverlay({ burst, bursts }) {
         }
         @keyframes likeAnimHeart {
           0%   { transform: scale(0); opacity: 0; }
-          35%  { transform: scale(1.25); opacity: 1; }
-          55%  { transform: scale(1); opacity: 1; }
+          28%  { transform: scale(1.3); opacity: 1; }
+          45%  { transform: scale(1); opacity: 1; }
+          80%  { transform: scale(1); opacity: 1; }
           100% { transform: scale(1); opacity: 0; }
         }
         .like-anim-heart {
-          animation: likeAnimHeart 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          animation: likeAnimHeart 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
           will-change: transform, opacity;
         }
-        @keyframes likeAnimParticle {
+         @keyframes likeAnimParticle {
           0%   { transform: rotate(var(--angle)) translateX(0) scale(0); opacity: 1; }
-          100% { transform: rotate(var(--angle)) translateX(48px) scale(1); opacity: 0; }
+          100% { transform: rotate(var(--angle)) translateX(68px) scale(1); opacity: 0; }
         }
         .like-anim-particle {
           position: absolute; top: 0; left: 0; width: 6px; height: 6px; border-radius: 50%;
