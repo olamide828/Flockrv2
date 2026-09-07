@@ -21,94 +21,74 @@ class ConversationController extends Controller
     private const PARTICIPANT_FIELDS = 'id,name,username,avatar,last_seen_at';
     private const SENDER_FIELDS      = 'id,name,username,avatar,last_seen_at';
 
-public function index(StorageService $storage): Response
+public function index(): Response
 {
     $user = Auth::user();
-
     $this->ensureSupportConversation($user);
 
     $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
     $blockedByIds = UserBlock::where('blocked_id', $user->id)->pluck('blocker_id')->toArray();
-
-    // Query relationships ONCE outside the loop to prevent N+1 queries
     $whoFollowsMe = DB::table('follows')->where('following_id', $user->id)->pluck('follower_id')->toArray();
     $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
-    $dismissedIds = DB::table('conversation_request_dismissals')
-        ->where('user_id', $user->id)
-        ->pluck('conversation_id')
-        ->toArray();
+    $dismissedIds = DB::table('conversation_request_dismissals')->where('user_id', $user->id)->pluck('conversation_id')->toArray();
 
-    // Fetch all conversations to get wallpaper IDs for in-memory mapping
-    $userConversations = $user->conversations()->latest('updated_at')->get();
+    $storage = app(StorageService::class);
 
-    // Fetch all referenced wallpapers in a single batch query (prevents N+1 database queries)
-    $wallpaperIds = DB::table('conversation_user')
-        ->whereIn('conversation_id', $userConversations->pluck('id'))
-        ->whereNotNull('chat_wallpaper_id')
-        ->pluck('chat_wallpaper_id')
-        ->unique();
-
-    $wallpapers = ChatWallpaper::whereIn('id', $wallpaperIds)
-        ->get()
-        ->keyBy('id');
-
-    $conversations = $user
-        ->conversations()
+    $allConvs = $user->conversations()
         ->with([
             'participants' => function ($q) {
-                $fields = array_merge(
-                    explode(',', self::PARTICIPANT_FIELDS),
-                    ['role', 'is_flockr_support']
-                );
+                $fields = array_merge(explode(',', self::PARTICIPANT_FIELDS), ['role', 'is_flockr_support']);
                 $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
-                $q->select($qualifiedFields)
-                  ->withPivot('chat_theme', 'chat_wallpaper_id')
-                  ->withActiveSubscriptionFlag();
+                $q->select($qualifiedFields)->withPivot('chat_theme', 'chat_wallpaper_id')->withActiveSubscriptionFlag();
             },
             'lastMessage.sender:' . self::SENDER_FIELDS,
         ])
-        ->withCount(['messages as unread_count' => function ($q) {
-            $q->whereNull('read_at')->where('sender_id', '!=', Auth::id());
-        }])
+        ->withCount(['messages as unread_count' => fn($q) => $q->whereNull('read_at')->where('sender_id', '!=', Auth::id())])
         ->latest('updated_at')
-        ->get()
-        ->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $dismissedIds, $storage, $wallpapers) {
-            $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $storage, $wallpapers) {
-                $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
-                $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
-                $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
-                $p->setAttribute('i_follow_them',   in_array($p->id, $whoIFollow));
+        ->get();
 
-                // Pivot attributes
-                $p->setAttribute('conversation_chat_theme', $p->pivot->chat_theme ?? 'off');
+    $convIds = $allConvs->pluck('id');
+    $sentByMeIds    = DB::table('messages')->where('sender_id', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
+    $sentByOtherIds = DB::table('messages')->where('sender_id', '!=', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
 
-                // Fast in-memory resolution for wallpaper image path URL
-                $wallpaperId = $p->pivot->chat_wallpaper_id;
-                $wallpaper   = $wallpaperId ? $wallpapers->get($wallpaperId) : null;
+    $wallpaperIds = DB::table('conversation_user')->whereIn('conversation_id', $convIds)->whereNotNull('chat_wallpaper_id')->pluck('chat_wallpaper_id')->unique();
+    $wallpapers = ChatWallpaper::whereIn('id', $wallpaperIds)->get()->keyBy('id');
 
-                $p->setAttribute(
-                    'conversation_wallpaper_url',
-                    $wallpaper ? $storage->url($wallpaper->image_path) : null
-                );
-            });
+    $mapped = $allConvs->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $sentByMeIds, $sentByOtherIds, $dismissedIds, $storage, $wallpapers, $user) {
+        $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $storage, $wallpapers) {
+            $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
+            $p->setAttribute('has_blocked_me',   in_array($p->id, $blockedByIds));
+            $p->setAttribute('follows_me',       in_array($p->id, $whoFollowsMe));
+            $p->setAttribute('i_follow_them',    in_array($p->id, $whoIFollow));
+            $p->setAttribute('conversation_chat_theme', $p->pivot->chat_theme ?? 'off');
+            $wallpaperId = $p->pivot->chat_wallpaper_id;
+            $wallpaper   = $wallpaperId ? $wallpapers->get($wallpaperId) : null;
+            $p->setAttribute('conversation_wallpaper_url', $wallpaper ? $storage->url($wallpaper->image_path) : null);
+        });
 
-            // Set on the conversation itself (OUTSIDE the participants loop)
-            $conv->setAttribute('request_dismissed', in_array($conv->id, $dismissedIds));
+        $other = $conv->participants->first(fn($p) => $p->id !== $user->id);
+        $isPendingRequestForMe = $other
+            && !$other->is_flockr_support
+            && !in_array($other->id, $whoIFollow)
+            && in_array($conv->id, $sentByOtherIds)
+            && !in_array($conv->id, $sentByMeIds)
+            && !in_array($conv->id, $dismissedIds);
 
-            $conv->setAttribute(
-                'is_support',
-                $conv->participants->contains(fn($p) => $p->is_flockr_support)
-            );
-            return $conv;
-        })
-        // Support conversation always first, everything else by recency.
+        $conv->setAttribute('is_pending_request', $isPendingRequestForMe);
+        $conv->setAttribute('request_dismissed', in_array($conv->id, $dismissedIds));
+        $conv->setAttribute('is_support', $conv->participants->contains(fn($p) => $p->is_flockr_support));
+        return $conv;
+    });
+
+    $conversations = $mapped->reject(fn($c) => $c->is_pending_request)
         ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
         ->values();
 
     return Inertia::render('Inbox/Index', [
-        'conversations'     => $conversations,
-        'blockedByMeIds'    => $blockedIds,
-        'blockedByOtherIds' => $blockedByIds,
+        'conversations'        => $conversations,
+        'blockedByMeIds'       => $blockedIds,
+        'blockedByOtherIds'    => $blockedByIds,
+        'pendingRequestsCount' => $mapped->where('is_pending_request', true)->count(),
     ]);
 }
 
@@ -331,6 +311,36 @@ public function markRead(Conversation $conversation): JsonResponse
     }
     $conversation->messages()->where('sender_id', '!=', Auth::id())->whereNull('read_at')->update(['read_at' => now()]);
     return response()->json(['ok' => true]);
+}
+
+public function requestsPage(): Response
+{
+    $user = Auth::user();
+    $blockedIds   = UserBlock::where('blocker_id', $user->id)->pluck('blocked_id')->toArray();
+    $whoIFollow   = DB::table('follows')->where('follower_id', $user->id)->pluck('following_id')->toArray();
+    $dismissedIds = DB::table('conversation_request_dismissals')->where('user_id', $user->id)->pluck('conversation_id')->toArray();
+
+    $convs = $user->conversations()
+        ->with(['participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support', 'lastMessage'])
+        ->latest('updated_at')
+        ->get();
+
+    $convIds = $convs->pluck('id');
+    $sentByMeIds    = DB::table('messages')->where('sender_id', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
+    $sentByOtherIds = DB::table('messages')->where('sender_id', '!=', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
+
+    $requests = $convs->filter(function ($conv) use ($user, $whoIFollow, $sentByMeIds, $sentByOtherIds, $dismissedIds, $blockedIds) {
+        $other = $conv->participants->first(fn($p) => $p->id !== $user->id);
+        if (!$other || $other->is_flockr_support || in_array($other->id, $blockedIds)) return false;
+        return !in_array($other->id, $whoIFollow)
+            && in_array($conv->id, $sentByOtherIds)
+            && !in_array($conv->id, $sentByMeIds)
+            && !in_array($conv->id, $dismissedIds);
+    })
+    ->map(fn($c) => tap($c, fn($cc) => $cc->setAttribute('other', $cc->participants->first(fn($p) => $p->id !== Auth::id()))))
+    ->values();
+
+    return Inertia::render('Inbox/Requests', ['requests' => $requests]);
 }
 
 }

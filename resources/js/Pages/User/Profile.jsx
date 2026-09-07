@@ -39,6 +39,7 @@ import {
     RiHeartLine,
     RiEyeLine,
     RiBookmarkLine,
+    RiThumbUpLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -467,6 +468,8 @@ const [showSuggestedPanel, setShowSuggestedPanel] = useState(false)
 const [showAvatarLightbox, setShowAvatarLightbox] = useState(false)
 const [privateTabVideos, setPrivateTabVideos] = useState({})
 const [privateTabLoading, setPrivateTabLoading] = useState(false)
+const [wishlistProducts, setWishlistProducts] = useState(null)
+const [wishlistLoading, setWishlistLoading] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -544,9 +547,20 @@ const requestBlockToggle = () => {
         }
     };
 
-    const handleTabClick = (key) => {
+    const loadWishlist = async () => {
+    if (wishlistProducts) return
+    setWishlistLoading(true)
+    try {
+        const { data } = await axios.get('/api/users/me/wishlist-products')
+        setWishlistProducts(data)
+    } catch { setWishlistProducts([]) }
+    finally { setWishlistLoading(false) }
+}
+
+const handleTabClick = (key) => {
     setActiveTab(key)
     if (key === 'community' && !communityLoaded) loadCommunityPosts(true)
+    if (key === 'wishlist') loadWishlist()
     if (PRIVATE_TAB_ENDPOINTS[key]) loadPrivateTab(key)
 }
 
@@ -651,7 +665,8 @@ const loadPrivateTab = async (key) => {
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
         { key: 'community', label: 'Posts', Icon: RiNewspaperLine, count: null },
         ...(isOwnProfile ? [
-    { key: 'liked', label: 'Liked', Icon: RiHeartLine, count: null },
+    { key: 'wishlist', label: 'Wishlist', Icon: RiHeartLine, count: null },
+    { key: 'liked', label: 'Liked', Icon: RiThumbUpLine, count: null },
     { key: 'viewed', label: 'Viewed', Icon: RiEyeLine, count: null },
     { key: 'savedVideos', label: 'Saved', Icon: RiBookmarkLine, count: null },
 ] : []),
@@ -1417,6 +1432,20 @@ return (
                         </div>
                     )}
                 </div>
+            )}
+
+            {activeTab === 'wishlist' && (
+             wishlistLoading && !wishlistProducts ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+                  <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+               </div>
+             ) : (wishlistProducts?.length > 0 ? (
+                   <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                   {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
+             </div>
+              ) : (
+            <EmptyState Icon={RiHeartLine} title="Your wishlist is empty" sub="Products you save will show up here." />
+             ))
             )}
 
             {/* Private Tabs Renderer */}

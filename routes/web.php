@@ -86,6 +86,7 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
 
     Route::get('/profile', [UserController::class, 'edit'])->name('profile');
     Route::get('/inbox', [ConversationController::class, 'index'])->name('inbox');
+    Route::get('/inbox/requests', [ConversationController::class, 'requestsPage'])->name('inbox.requests');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/success', [OrderController::class, 'success'])->name('orders.success');

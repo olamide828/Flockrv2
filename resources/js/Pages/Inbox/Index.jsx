@@ -6,7 +6,7 @@ import {
   RiSendPlaneFill, RiArrowLeftLine, RiChat1Line,
   RiCheckDoubleLine, RiCheckLine, RiSearchLine,
   RiCloseLine, RiMoreLine, RiAlertLine, RiProhibitedLine, RiBellLine,
-  RiVipDiamondLine,
+  RiVipDiamondLine, RiInboxUnarchiveLine,
 } from 'react-icons/ri'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
@@ -275,7 +275,7 @@ function renderMessageBody(text) {
 }
 
 // ── Main Inbox ────────────────────────────────────────────────────────────────
-export default function Inbox({ conversations: initialConvs = [], blockedByMeIds = [], blockedByOtherIds = [] }) {
+export default function Inbox({ conversations: initialConvs = [], blockedByMeIds = [], blockedByOtherIds = [], pendingRequestsCount = 0 }) {
   const { auth } = usePage().props
   const pageUrl  = usePage().url
 
@@ -850,7 +850,6 @@ const dismissRequestSheet = () => {
         onContinue={dismissRequestSheet}
         onReport={() => { dismissRequestSheet(); setReportTarget(active) }}
         onBlock={async () => { dismissRequestSheet(); await handleBlock() }}
-        onClose={dismissRequestSheet}
     />
 )}
 
@@ -995,6 +994,20 @@ const dismissRequestSheet = () => {
         }}>
             {latestNotif ? latestNotif.body : 'No notifications yet'}
         </p>
+    </div>
+</button>
+
+<button
+    onClick={() => router.visit('/inbox/requests')}
+    className="conv-item"
+    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left' }}
+>
+    <div style={{ width: 48, height: 48, borderRadius: '50%', background: pendingRequestsCount > 0 ? 'rgba(255,92,0,0.15)' : 'rgba(255,255,255,0.05)', border: `1.5px solid ${pendingRequestsCount > 0 ? 'rgba(255,92,0,0.3)' : 'rgba(255,255,255,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <RiInboxUnarchiveLine size={20} color={pendingRequestsCount > 0 ? '#FF6B35' : 'rgba(255,255,255,0.4)'} />
+    </div>
+    <div style={{ flex: 1 }}>
+        <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: pendingRequestsCount > 0 ? 700 : 600 }}>Message Requests</p>
+        <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{pendingRequestsCount > 0 ? `${pendingRequestsCount} pending` : 'No pending requests'}</p>
     </div>
 </button>
 

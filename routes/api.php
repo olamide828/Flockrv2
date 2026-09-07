@@ -545,6 +545,13 @@ Route::get('/users/me/saved-videos-list', function () {
     return Auth::user()->savedVideos()->with('user:id,name,username,avatar')->latest('video_saves.created_at')->get();
 });
 
+Route::get('/users/me/wishlist-products', function () {
+    return Auth::user()->savedProducts()
+        ->with('seller:id,name,username,avatar,is_verified')
+        ->latest('product_saves.created_at')
+        ->get();
+});
+
 Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
     if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
         return response()->json(['message' => 'Unauthorized.'], 403);
