@@ -135,7 +135,7 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     Route::get('/reports',    [AdminController::class, 'reports'])->name('admin.reports');
     Route::get('/analytics',  [AdminController::class, 'analyticsPage'])->name('admin.analytics');
 Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name('flagged-sellers');
-Route::get('/admin/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
+Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
     });
 });
 

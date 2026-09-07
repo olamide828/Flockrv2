@@ -125,7 +125,7 @@ class ProcessVideoJob implements ShouldQueue
      */
 private function generateThumbnail(string $videoSource, string $disk): ?string
 {
-    $ffmpeg = '/var/www/bin/ffmpeg';
+    $ffmpeg = config('flockr.ffmpeg_path');
 
     exec($ffmpeg . ' -version 2>&1', $out, $code);
     if ($code !== 0) {
@@ -182,7 +182,7 @@ private function generateThumbnail(string $videoSource, string $disk): ?string
 
 private function getDuration(string $videoSource): ?int
 {
-    $ffprobe = '/var/www/bin/ffprobe';
+    $ffprobe = config('flockr.ffprobe_path');
 
     exec($ffprobe . ' -version 2>&1', $out, $code);
     if ($code !== 0) return null;
@@ -209,7 +209,7 @@ private function getDuration(string $videoSource): ?int
     
     private function optimizeForStreaming(string $videoSource, string $disk): ?string
 {
-    $ffmpeg = '/var/www/bin/ffmpeg';
+    $ffmpeg = config('flockr.ffmpeg_path');
 
     exec($ffmpeg . ' -version 2>&1', $out, $code);
     if ($code !== 0) return null;
@@ -252,7 +252,7 @@ private function getDuration(string $videoSource): ?int
 
     private function generateHls(string $videoSource, string $disk): ?string
     {
-        $ffmpeg = '/var/www/bin/ffmpeg';
+        $ffmpeg = config('flockr.ffmpeg_path');
 
         exec($ffmpeg . ' -version 2>&1', $out, $code);
         if ($code !== 0) return null;

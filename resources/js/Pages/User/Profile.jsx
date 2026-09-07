@@ -420,7 +420,7 @@ function AvatarLightbox({ user, onClose }) {
 
     return (
         <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 980, background: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <button onClick={onClose} style={{ position: 'absolute', top: 18, right: 18, width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={20} /></button>
+            <button onClick={onClose} style={{ position: 'absolute', top: 18, right: 18, width: 38, height: 38, borderRadius: '50%', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={24} /></button>
             <img src={user.avatar_url} alt={user.name} onClick={e => e.stopPropagation()} style={{ width: 'min(320px, 80vw)', height: 'min(320px, 80vw)', borderRadius: '50%', objectFit: 'cover', marginBottom: 26 }} />
             <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 18 }}>
                 {opts.map(o => (

@@ -255,12 +255,12 @@ export default function VideoCard({ video, isActive }) {
 
   const { download, dlState } = useVideoDownload(video);
 
-  useHlsVideo(videoRef, isActive ? videoSrc : null)
-
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
   const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
+
+  useHlsVideo(videoRef, isActive ? videoSrc : null)
 
   useEffect(() => {
     const el = videoRef.current

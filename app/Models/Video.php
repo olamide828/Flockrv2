@@ -36,6 +36,7 @@ class Video extends Model
         'is_for_sale',
         'published_at',
         'text_overlays',
+        'ai_category_id',
     ];
 
     protected $casts = [

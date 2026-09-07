@@ -3,9 +3,9 @@ import { Head, Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
-  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line, RiVideoLine,
+  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line,
 } from 'react-icons/ri'
-import DisputeLightbox from './DisputeLightbox';
+import DisputeLightbox from "../Order/DisputeLightBox"
 
 function AdminLayout({ children, active }) {
   const links = [

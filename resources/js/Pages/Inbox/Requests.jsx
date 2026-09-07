@@ -38,7 +38,7 @@ export default function MessageRequests({ requests: initial = [] }) {
             <Head title="Message Requests" />
             <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: 'DM Sans, sans-serif' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <button onClick={() => window.history.back()} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', cursor: 'pointer' }}><RiArrowLeftLine size={18} /></button>
+                    <button onClick={() => window.history.back()} style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', cursor: 'pointer' }} className='relative'><RiArrowLeftLine size={18} className='absolute top-2 right-2' /></button>
                     <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Message Requests</h1>
                 </div>
 

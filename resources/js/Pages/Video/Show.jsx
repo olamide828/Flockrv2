@@ -395,13 +395,14 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const { download, dlState } = useVideoDownload(video);
 
-    useHlsVideo(videoRef, isActive ? videoSrc : null);
 
     const isOwner     = auth?.user?.id === video.user_id;
     const hasProducts = video.is_for_sale && video.products?.length > 0;
     const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
     const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url;
     const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : '';
+    
+    useHlsVideo(videoRef, isActive ? videoSrc : null);
 
     useEffect(() => {
         const el = videoRef.current

@@ -13,7 +13,7 @@ function MutualFriendsModal({ users, onClose }) {
             <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px,92vw)', zIndex: 901, background: '#141414', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                     <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 15 }}>Flock Mates in Common</p>
-                    <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}><RiCloseLine size={15} /></button>
+                    <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}><RiCloseLine size={18} /></button>
                 </div>
 
                 <div style={{ position: 'relative' }}>
