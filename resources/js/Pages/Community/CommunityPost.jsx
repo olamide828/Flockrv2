@@ -160,6 +160,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
   const lastMediaTapRef = useRef(0)
+  const likeBtnRef = useRef(null)
   const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
   const isFollowingAuthor = post.is_following_author ?? false
