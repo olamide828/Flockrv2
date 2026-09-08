@@ -471,6 +471,7 @@ Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Req
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::post('/conversations/{conversation}/mark-read', [ConversationController::class, 'markRead']);
     Route::post('/conversations/{conversation}/dismiss-request', [ConversationController::class, 'dismissRequest']);
+    Route::delete('/conversations/{conversation}/messages/{message}', [ConversationController::class, 'deleteMessage']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/dispute', [OrderController::class, 'openDispute']);
     Route::post('/orders/{order}/disputes', [DisputeController::class, 'store']);

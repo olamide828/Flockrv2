@@ -366,6 +366,7 @@ const broadcastTyping = () => {
   const bottomRef  = useRef(null)
   const channelRef = useRef(null)
   const inputRef   = useRef(null)
+  const mediaInputRef = useRef(null)
 
   useEffect(() => {
     if (active) document.body.classList.add('chat-open')
@@ -436,25 +437,22 @@ useEffect(() => {
 
             if (active?.id === conv.id) {
                 setMessages(prev => {
-                    if (prev.some(m => m.id === e.message.id)) {
-                        return prev
-                    }
-
-                    const optimisticIndex = prev.findIndex(
-                        m =>
-                            String(m.id).startsWith('opt-') &&
-                            m.body === e.message.body &&
-                            m.sender_id === e.message.sender_id
-                    )
-
-                    if (optimisticIndex !== -1) {
-                        const copy = [...prev]
-                        copy[optimisticIndex] = e.message
-                        return copy
-                    }
-
-                    return [...prev, e.message]
-                })
+    const existingIdx = prev.findIndex(m => m.id === e.message.id)
+    if (existingIdx !== -1) {
+        const copy = [...prev]
+        copy[existingIdx] = e.message
+        return copy
+    }
+    const optimisticIndex = prev.findIndex(
+        m => String(m.id).startsWith('opt-') && m.body === e.message.body && m.sender_id === e.message.sender_id
+    )
+    if (optimisticIndex !== -1) {
+        const copy = [...prev]
+        copy[optimisticIndex] = e.message
+        return copy
+    }
+    return [...prev, e.message]
+})
                 axios.post(`/api/conversations/${conv.id}/mark-read`).catch(() => {})
             }
         })
@@ -648,6 +646,33 @@ useEffect(() => {
     } finally { setSending(false) }
   }
 
+  const sendMediaMessage = async (file) => {
+    if (!active) return
+    const isVideo = file.type.startsWith('video')
+    const optimisticUrl = URL.createObjectURL(file)
+    const optimistic = {
+        id: `opt-${Date.now()}`, sender_id: auth.user.id, body: '',
+        media_url: optimisticUrl, media_type: isVideo ? 'video' : 'image',
+        created_at: new Date().toISOString(), _optimistic: true, sender: auth.user,
+    }
+    setMessages(prev => [...prev, optimistic])
+
+    const fd = new FormData()
+    fd.append('media', file)
+    try {
+        const { data } = await axios.post(`/api/conversations/${active.id}/messages`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
+    } catch (err) {
+        setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+        if (err.response?.status === 403 && err.response.data?.request_limit_reached) {
+            showToast(err.response.data.message, 'error')
+        }
+    }
+    if (mediaInputRef.current) mediaInputRef.current.value = ''
+}
+
 
 const detectMention = (text, cursorPos) => {
     const other = otherUser(active)
@@ -726,6 +751,11 @@ const dismissRequestSheet = () => {
       await axios.post(`/api/users/${other.id}/report`, { reason })
     }
   }
+
+  const deleteMessage = async (msg) => {
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_deleted: true, body: '', media_url: null } : m))
+    try { await axios.delete(`/api/conversations/${active.id}/messages/${msg.id}`) } catch {}
+}
 
   // ── Off-platform payment safety handlers ──────────────────────────────────
   const fetchSellerInfo = async (id) => {
@@ -890,6 +920,7 @@ const dismissRequestSheet = () => {
           body.chat-open .page-content      { overflow: hidden !important; }
         }
         .msg-bubble { max-width: 72%; word-break: break-word; }
+        .msg-row-wrap:hover .msg-delete-btn { display: flex !important; }
         .conv-item:hover { background: rgba(255,255,255,0.03) !important; }
         .conv-item-active { background: rgba(255,255,255,0.06) !important; }
         .search-inp { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; color: #fff; font-size: 13px; outline: none; padding: 9px 14px 9px 36px; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
@@ -1211,10 +1242,30 @@ const dismissRequestSheet = () => {
                         {showAv && <Avatar user={senderIsBlocked ? null : (msg.sender ?? other)} size={28} isBlocked={senderIsBlocked} />}
                     </div>
                 )}
-                <div className="msg-bubble" style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }}>
-                    <div style={{ padding: '9px 14px', background: mine ? (highlight ? '#e85200' : '#ff5c00') : (highlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'), border: mine ? 'none' : '1px solid rgba(255,255,255,0.08)', borderRadius: br, color: '#fff', fontSize: 14, lineHeight: 1.5, opacity: msg._optimistic ? 0.6 : 1, boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.2)' : 'none' }}>
-                        {renderMessageBody(msg.body)}
-                    </div>
+                <div className="msg-bubble msg-row-wrap" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }}>
+    {mine && !msg._optimistic && !msg.is_deleted && (
+        <button
+            onClick={() => deleteMessage(msg)}
+            className="msg-delete-btn"
+            style={{ position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', border: 'none', color: 'rgba(255,255,255,0.7)', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}
+        >
+            <RiCloseLine size={12} />
+        </button>
+    )}
+    <div style={{ padding: '9px 14px', background: mine ? (highlight ? '#e85200' : '#ff5c00') : (highlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'), border: mine ? 'none' : '1px solid rgba(255,255,255,0.08)', borderRadius: br, color: '#fff', fontSize: 14, lineHeight: 1.5, opacity: msg._optimistic ? 0.6 : 1, boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.2)' : 'none' }}>
+        {msg.is_deleted ? (
+            <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: 13 }}>This message was deleted</p>
+        ) : (
+            <>
+                {msg.media_url && (
+                    msg.media_type === 'video'
+                        ? <video src={msg.media_url} controls style={{ maxWidth: 220, borderRadius: 12, display: 'block', marginBottom: msg.body ? 6 : 0 }} />
+                        : <img src={msg.media_url} alt="" style={{ maxWidth: 220, borderRadius: 12, display: 'block', marginBottom: msg.body ? 6 : 0 }} />
+                )}
+                {msg.body && renderMessageBody(msg.body)}
+            </>
+        )}
+    </div>
                     {last && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
                             <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
@@ -1280,6 +1331,20 @@ const dismissRequestSheet = () => {
         onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }}
     />
 </div>
+<button
+    type="button"
+    onClick={() => mediaInputRef.current?.click()}
+    style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+>
+    <RiAttachment2 size={18} />
+</button>
+<input
+    ref={mediaInputRef}
+    type="file"
+    accept="image/*,video/*"
+    onChange={e => e.target.files?.[0] && sendMediaMessage(e.target.files[0])}
+    style={{ display: 'none' }}
+/>
                       <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
                         <RiSendPlaneFill size={17} color={body.trim() ? '#fff' : 'rgba(255,255,255,0.25)'} />
                       </button>
