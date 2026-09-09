@@ -36,7 +36,7 @@ class VideoDownloadController extends Controller
             $video->load('user:id,username'),
             $cacheKey,
             $outputPath
-        )->onQueue('watermark');
+        );
 
         return response()->json([
             'job_key' => $cacheKey,
