@@ -37,7 +37,7 @@ class ConversationController extends Controller
         $allConvs = $user->conversations()
             ->with([
                 'participants' => function ($q) {
-                    $fields = array_merge(explode(',', self::PARTICIPANT_FIELDS), ['role', 'is_flockr_support']);
+                    $fields = array_merge(explode(',', self::PARTICIPANT_FIELDS), ['role', 'is_flockr_support', 'is_verified']);
                     $qualifiedFields = array_map(fn($field) => "users.{$field}", $fields);
                     $q->select($qualifiedFields)->withPivot('chat_theme', 'chat_wallpaper_id')->withActiveSubscriptionFlag();
                 },
@@ -147,10 +147,15 @@ class ConversationController extends Controller
         }
 
         $messages = $conversation->messages()
-    ->with('sender:' . self::SENDER_FIELDS)
+    ->with('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type')
     ->orderBy('created_at', 'asc')
     ->get()
     ->map(function ($m) {
+        if ($m->is_deleted) {
+            $m->setAttribute('body', '');
+            $m->setAttribute('media_url', null);
+            return $m;
+        }
         if ($m->media_path) {
             $m->setAttribute('media_url', app(StorageService::class)->url($m->media_path));
         }
@@ -202,7 +207,11 @@ class ConversationController extends Controller
             }
         }
 
-        $request->validate(['body' => 'nullable|string|max:1000', 'media' => 'nullable|file|mimes:jpg,jpeg,png,webp,mp4,mov|max:20480']);
+        $request->validate([
+    'body'        => 'nullable|string|max:1000',
+    'media'       => 'nullable|file|mimes:jpg,jpeg,png,webp,mp4,mov|max:20480',
+    'reply_to_id' => 'nullable|integer|exists:messages,id',
+]);
 
         $bodyText = trim((string) $request->input('body', ''));
 
@@ -219,13 +228,14 @@ class ConversationController extends Controller
         }
 
         $message = $conversation->messages()->create([
-            'sender_id' => Auth::id(),
-            'body' => $bodyText,
-            'media_path' => $mediaPath,
-            'media_type' => $mediaType,
-        ]);
+    'sender_id'   => Auth::id(),
+    'body'        => $bodyText,
+    'media_path'  => $mediaPath,
+    'media_type'  => $mediaType,
+    'reply_to_id' => $request->input('reply_to_id'),
+]);
 
-        $message->load('sender:' . self::SENDER_FIELDS);
+        $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type');
         if ($message->media_path) {
             $message->setAttribute('media_url', app(StorageService::class)->url($message->media_path));
         }
@@ -252,7 +262,7 @@ class ConversationController extends Controller
         return response()->json($message, 201);
     }
 
-    
+
 
     public function deleteMessage(Conversation $conversation, \App\Models\Message $message): JsonResponse
 {
@@ -263,14 +273,18 @@ class ConversationController extends Controller
         return response()->json(['message' => 'Unauthorized.'], 403);
     }
 
-    $message->update(['is_deleted' => true, 'body' => '', 'media_path' => null, 'media_type' => null]);
-    $message->refresh()->load('sender:id,name,username,avatar,last_seen_at');
+    $message->update(['is_deleted' => true]);
+    $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id');
+
+    $masked = clone $message;
+    $masked->setAttribute('body', '');
+    $masked->setAttribute('media_url', null);
 
     try {
-        broadcast(new \App\Events\MessageSent($message, $conversation))->toOthers();
+        broadcast(new \App\Events\MessageSent($masked, $conversation))->toOthers();
     } catch (\Throwable) {}
 
-    return response()->json($message);
+    return response()->json($masked);
 }
 
     /**
@@ -365,7 +379,7 @@ class ConversationController extends Controller
         $dismissedIds = DB::table('conversation_request_dismissals')->where('user_id', $user->id)->pluck('conversation_id')->toArray();
 
         $convs = $user->conversations()
-            ->with(['participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support', 'lastMessage'])
+            ->with(['participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support,is_verified', 'lastMessage'])
             ->latest('updated_at')
             ->get();
 

@@ -8,7 +8,7 @@ import {
     RiCloseCircleLine, RiGiftLine, RiGroupLine, RiHeartLine,
     RiLoader4Line, RiPlayCircleLine, RiRefreshLine,
     RiSettings4Line, RiShoppingBagLine, RiTimeLine, RiTruckLine,
-    RiVerifiedBadgeLine,
+    RiVerifiedBadgeFill,
 } from 'react-icons/ri'
 import { MdOutlinePersonOutline } from 'react-icons/md'
 

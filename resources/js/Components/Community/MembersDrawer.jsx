@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { RiCloseLine, RiVerifiedBadgeLine, RiGroupLine, RiCheckLine } from 'react-icons/ri'
+import { RiCloseLine, RiVerifiedBadgeFill, RiGroupLine, RiCheckLine } from 'react-icons/ri'
 import Av from './Av'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 

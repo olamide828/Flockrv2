@@ -14,7 +14,7 @@ import {
   RiArrowGoBackLine,
   RiMapPinLine,
   RiStoreLine,
-  RiVerifiedBadgeLine,
+  RiVerifiedBadgeFill,
   RiArrowRightLine,
   RiShieldCheckLine,
   RiPhoneLine,

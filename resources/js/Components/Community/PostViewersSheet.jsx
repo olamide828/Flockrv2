@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from '@inertiajs/react'
 import axios from 'axios'
-import { RiCloseLine, RiVerifiedBadgeLine, RiEyeLine } from 'react-icons/ri'
+import { RiCloseLine, RiVerifiedBadgeFill, RiEyeLine } from 'react-icons/ri'
 import Av from './Av'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 

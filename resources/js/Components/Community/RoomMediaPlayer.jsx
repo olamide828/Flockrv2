@@ -1,12 +1,6 @@
 import { useRef, useState } from 'react'
 import { RiVolumeMuteLine, RiVolumeUpLine, RiFullscreenLine, RiFullscreenExitLine } from 'react-icons/ri'
 
-/**
- * Replaces native <video controls> for images/videos sent in room chat.
- * Same control language as the feed's PostVideoPlayer (tap to play/pause,
- * mute icon top-right) plus a fullscreen toggle, since chat bubbles are
- * small and people will want to blow a video up to see it properly.
- */
 export default function RoomMediaPlayer({ src, maxHeight = 220 }) {
   const videoRef = useRef(null)
   const wrapRef  = useRef(null)

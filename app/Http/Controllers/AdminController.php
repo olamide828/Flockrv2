@@ -519,10 +519,17 @@ public function dismissReport(\App\Models\Report $report): JsonResponse
 public function conversationMessages(\App\Models\Conversation $conversation): JsonResponse
 {
     $messages = $conversation->messages()
-        ->with('sender:id,name,username,avatar')
+        ->with('sender:id,name,username,avatar', 'replyTo:id,body,sender_id')
         ->orderBy('created_at', 'asc')
-        ->get();
- 
+        ->get()
+        ->map(function ($m) {
+            
+            if ($m->media_path) {
+                $m->setAttribute('media_url', app(\App\Services\StorageService::class)->url($m->media_path));
+            }
+            return $m;
+        });
+
     return response()->json($messages);
 }
 

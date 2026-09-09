@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
-import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeLine } from 'react-icons/ri';
+import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeFill } from 'react-icons/ri';
 import VerifiedBadge from '@/Components/VerifiedBadge';
 
 export default function ProductCard({ product, layout = 'grid' }) {

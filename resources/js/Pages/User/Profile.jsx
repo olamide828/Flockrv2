@@ -24,7 +24,7 @@ import {
     RiUploadCloud2Line,
     RiUserAddLine,
     RiUserFollowLine,
-    RiVerifiedBadgeLine,
+    RiVerifiedBadgeFill,
     RiVideoLine,
     RiNewspaperLine,
     RiVipCrownLine,
@@ -832,11 +832,11 @@ return (
                                         {isOwnProfile && profileUser.role === 'seller' && (
     profileUser.has_active_subscription ? (
         <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700 }}>
-            <RiVerifiedBadgeLine size={13} /> Verified Pro
+            <RiVerifiedBadgeFill size={13} /> Verified Pro
         </span>
     ) : (
         <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            <RiVerifiedBadgeLine size={13} /> Get Verified
+            <RiVerifiedBadgeFill size={13} /> Get Verified
         </button>
     )
 )}
@@ -1103,11 +1103,11 @@ return (
                                 {isOwnProfile && profileUser.role === 'seller' && (
     profileUser.has_active_subscription ? (
         <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700 }}>
-            <RiVerifiedBadgeLine size={13} /> Verified Pro
+            <RiVerifiedBadgeFill size={13} /> Verified Pro
         </span>
     ) : (
         <button onClick={() => setShowProSheet(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 999, color: '#3B82F6', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            <RiVerifiedBadgeLine size={13} /> Get Verified
+            <RiVerifiedBadgeFill size={13} /> Get Verified
         </button>
     )
 )}

@@ -27,7 +27,7 @@ import {
     RiStarLine,
     RiSubtractLine,
     RiTruckLine,
-    RiVerifiedBadgeLine,
+    RiVerifiedBadgeFill,
     RiVideoLine,
     RiZoomInLine,
     RiCameraLine,

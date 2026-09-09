@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Head, Link, router, usePage } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
-import { RiVerifiedBadgeLine, RiSearchLine, RiCloseLine, RiLoader4Line } from 'react-icons/ri'
+import { RiVerifiedBadgeFill, RiSearchLine, RiCloseLine, RiLoader4Line } from 'react-icons/ri'
 import VerifiedBadge from '@/Components/VerifiedBadge'
 
 export default function FollowList({ profileUser, followers = [], following = [], activeTab: initTab = 'followers', followersCapped = false, followingCapped = false }) {

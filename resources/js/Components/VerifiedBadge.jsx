@@ -1,4 +1,4 @@
-import { RiVerifiedBadgeLine } from 'react-icons/ri'
+import { RiVerifiedBadgeFill } from 'react-icons/ri'
 
 /**
  * Renders the verification checkmark with the correct color:
@@ -9,5 +9,5 @@ import { RiVerifiedBadgeLine } from 'react-icons/ri'
 export default function VerifiedBadge({ type, size = 16 }) {
     if (!type) return null
     const color = type === 'subscription' ? '#3B82F6' : '#FF6B35'
-    return <RiVerifiedBadgeLine size={size} color={color} style={{ flexShrink: 0 }} />
+    return <RiVerifiedBadgeFill size={size} color={color} style={{ flexShrink: 0 }} />
 }

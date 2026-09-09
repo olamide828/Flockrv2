@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { RiCloseLine, RiVerifiedBadgeLine, RiCalendarCheckLine } from 'react-icons/ri'
+import { RiCloseLine, RiVerifiedBadgeFill, RiCalendarCheckLine } from 'react-icons/ri'
 
 const CONFETTI_COLORS = ['#3B82F6', '#60A5FA', '#93C5FD', '#FBBF24', '#FF6B35']
 
@@ -60,7 +60,7 @@ export default function SubscriptionSuccessSheet({ subscription, onClose }) {
                 </button>
 
                 <div style={{ position: 'relative', zIndex: 2, width: 64, height: 64, borderRadius: '50%', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
-                    <RiVerifiedBadgeLine size={30} color="#3B82F6" />
+                    <RiVerifiedBadgeFill size={30} color="#3B82F6" />
                 </div>
 
                 <p style={{ position: 'relative', zIndex: 2, color: '#fff', fontSize: 19, fontWeight: 800, margin: '0 0 6px' }}>You're verified! 🎉</p>

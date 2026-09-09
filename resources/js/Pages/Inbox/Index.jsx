@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Head, usePage, router } from '@inertiajs/react'
+import Toast, { useToast } from '@/Components/Toast'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
 import {
   RiSendPlaneFill, RiArrowLeftLine, RiChat1Line,
   RiCheckDoubleLine, RiCheckLine, RiSearchLine,
   RiCloseLine, RiMoreLine, RiAlertLine, RiProhibitedLine, RiBellLine,
-  RiVipDiamondLine, RiInboxUnarchiveLine, RiAttachment2,
+  RiVipDiamondLine, RiInboxUnarchiveLine, RiAttachment2, RiVerifiedBadgeFill,
 } from 'react-icons/ri'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
@@ -16,6 +17,10 @@ import ConversationStartCard from '@/Components/Chat/ConversationStartCard'
 import ChatBackgroundAnimation from '@/Components/Chat/ChatBackgroundAnimation'
 import ThemePickerModal from '@/Components/Chat/ThemePickerModal'
 import ProPlansSheet from '@/Components/ProPlansSheet'
+import ChatMessageBubble from '@/Components/Chat/ChatMessageBubble'
+import MediaComposerPreview from '@/Components/Chat/MediaComposerPreview'
+import InboxSidebarHeader from '@/Components/Inbox/InboxSidebarHeader'
+import NewMessageOverlay from '@/Components/Inbox/NewMessageOverlay'
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
@@ -278,6 +283,7 @@ function renderMessageBody(text) {
 export default function Inbox({ conversations: initialConvs = [], blockedByMeIds = [], blockedByOtherIds = [], pendingRequestsCount = 0 }) {
   const { auth } = usePage().props
   const pageUrl  = usePage().url
+  const { showToast, ToastComponent } = useToast()
 
   const [conversations,  setConversations]  = useState(initialConvs)
   const [convSearch,     setConvSearch]     = useState('')
@@ -305,8 +311,13 @@ const [showRequestSheet, setShowRequestSheet] = useState(false)
 const [myChatTheme, setMyChatTheme] = useState(auth?.user?.chat_theme ?? 'off')
 const [showThemePicker, setShowThemePicker] = useState(false)
 const [showProSheet, setShowProSheet] = useState(false)
+const [showNewMessage, setShowNewMessage] = useState(false)
+const [replyingTo, setReplyingTo] = useState(null)
+const [pendingMedia, setPendingMedia] = useState(null)
+const [pendingCaption, setPendingCaption] = useState('')
+const [sendingMedia, setSendingMedia] = useState(false)
 
-const canUsePro = auth?.user?.role === 'seller' && auth?.user?.is_subscriber
+const canUsePro = auth?.user?.role === 'seller' && auth?.user?.has_active_subscription
 
 // ── Off-platform payment safety ────────────────────────────────────────────
 const [showWarningSheet, setShowWarningSheet]   = useState(false)
@@ -367,6 +378,7 @@ const broadcastTyping = () => {
   const channelRef = useRef(null)
   const inputRef   = useRef(null)
   const mediaInputRef = useRef(null)
+  
 
   useEffect(() => {
     if (active) document.body.classList.add('chat-open')
@@ -618,13 +630,17 @@ useEffect(() => {
     setBody('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
     try {
-      const { data } = await axios.post(`/api/conversations/${active.id}/messages`, { body: optimistic.body })
+      const { data } = await axios.post(`/api/conversations/${active.id}/messages`, {
+    body: optimistic.body,
+    reply_to_id: replyingTo?.id ?? null,
+})
       setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
       setConversations(prev => {
         const updated = prev.map(c => c.id === active.id ? { ...c, last_message: data, unread_count: 0 } : c)
         const found = updated.find(c => c.id === active.id)
         return [found, ...updated.filter(c => c.id !== active.id)]
       })
+      setReplyingTo(null)
       if (active?.is_support) {
     const countAtSend = messages.length + 1
     setTimeout(() => {
@@ -646,31 +662,25 @@ useEffect(() => {
     } finally { setSending(false) }
   }
 
-  const sendMediaMessage = async (file) => {
-    if (!active) return
-    const isVideo = file.type.startsWith('video')
-    const optimisticUrl = URL.createObjectURL(file)
-    const optimistic = {
-        id: `opt-${Date.now()}`, sender_id: auth.user.id, body: '',
-        media_url: optimisticUrl, media_type: isVideo ? 'video' : 'image',
-        created_at: new Date().toISOString(), _optimistic: true, sender: auth.user,
-    }
-    setMessages(prev => [...prev, optimistic])
+  const selectMedia = (file) => {
+    setPendingMedia({ file, previewUrl: URL.createObjectURL(file) })
+    setPendingCaption('')
+}
 
+ const confirmSendMedia = async () => {
+    if (!pendingMedia || !active) return
+    setSendingMedia(true)
     const fd = new FormData()
-    fd.append('media', file)
+    fd.append('media', pendingMedia.file)
+    if (pendingCaption.trim()) fd.append('body', pendingCaption.trim())
+    if (replyingTo) fd.append('reply_to_id', replyingTo.id)
     try {
-        const { data } = await axios.post(`/api/conversations/${active.id}/messages`, fd, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
+        const { data } = await axios.post(`/api/conversations/${active.id}/messages`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        setMessages(prev => [...prev, data])
+        setPendingMedia(null); setPendingCaption(''); setReplyingTo(null)
     } catch (err) {
-        setMessages(prev => prev.filter(m => m.id !== optimistic.id))
-        if (err.response?.status === 403 && err.response.data?.request_limit_reached) {
-            showToast(err.response.data.message, 'error')
-        }
-    }
-    if (mediaInputRef.current) mediaInputRef.current.value = ''
+        if (err.response?.status === 403 && err.response.data?.request_limit_reached) showToast(err.response.data.message, 'error')
+    } finally { setSendingMedia(false) }
 }
 
 
@@ -753,8 +763,10 @@ const dismissRequestSheet = () => {
   }
 
   const deleteMessage = async (msg) => {
-    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_deleted: true, body: '', media_url: null } : m))
-    try { await axios.delete(`/api/conversations/${active.id}/messages/${msg.id}`) } catch {}
+    try {
+        const { data } = await axios.delete(`/api/conversations/${active.id}/messages/${msg.id}`)
+        setMessages(prev => prev.map(m => m.id === msg.id ? data : m))
+    } catch {}
 }
 
   // ── Off-platform payment safety handlers ──────────────────────────────────
@@ -835,11 +847,9 @@ const dismissRequestSheet = () => {
   const filteredConvs = convSearch.trim()
     ? conversations.filter(c => {
         const other = otherUser(c)
-        const isBlk = other && isEffectivelyBlocked(other.id)
-        if (isBlk) return false
-        return other?.name?.toLowerCase().includes(convSearch.toLowerCase())
-            || other?.username?.toLowerCase().includes(convSearch.toLowerCase())
-      })
+        if (other && isEffectivelyBlocked(other.id)) return false
+        return other?.name?.toLowerCase().includes(convSearch.toLowerCase()) || other?.username?.toLowerCase().includes(convSearch.toLowerCase())
+    })
     : conversations
 
   const filteredMsgs = msgSearch.trim()
@@ -913,6 +923,8 @@ const dismissRequestSheet = () => {
   <ProPlansSheet onClose={() => setShowProSheet(false)} />
 )}
 
+{ToastComponent}
+
       <style>{`
         @media (max-width: 767px) {
           body.chat-open .mobile-topbar     { display: none !important; }
@@ -921,6 +933,7 @@ const dismissRequestSheet = () => {
         }
         .msg-bubble { max-width: 72%; word-break: break-word; }
         .msg-row-wrap:hover .msg-delete-btn { display: flex !important; }
+        .msg-row-wrap:hover .msg-more-btn { display: flex !important; }
         .conv-item:hover { background: rgba(255,255,255,0.03) !important; }
         .conv-item-active { background: rgba(255,255,255,0.06) !important; }
         .search-inp { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; color: #fff; font-size: 13px; outline: none; padding: 9px 14px 9px 36px; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
@@ -949,98 +962,25 @@ const dismissRequestSheet = () => {
           style={{ display: 'flex', flexDirection: 'column', width: '100%', borderRight: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, background: '#0d0d0d', ...(active ? { display: 'none' } : {}) }}
           className="inbox-sidebar"
         >
-          <div style={{ padding: '18px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <h1 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.4px' }}>Messages</h1>
-              {starting && <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.15)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
-            </div>
-            {(userResults.length > 0 || searchingUsers) && (
-              <div style={{ marginTop: 8, background: '#161616', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden' }}>
-                {searchingUsers && <div style={{ padding: '12px 16px', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Searching...</div>}
-                {userResults.map(user => (
-                  <button key={user.id} onClick={() => startConversation(user)} className="conv-item" style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <Avatar user={user} size={36} />
-                    <div>
-                      <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{user.name}</p>
-                      <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, margin: 0 }}>@{user.username}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-            {!userSearch && conversations.length > 3 && (
-              <div style={{ position: 'relative', marginTop: 8 }}>
-                <RiSearchLine size={14} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                <input value={convSearch} onChange={e => setConvSearch(e.target.value)} placeholder="Filter conversations..." className="search-inp" />
-              </div>
-            )}
-          </div>
-          <button
-    onClick={() => {
-        setNotifUnread(false)
-        router.visit('/notifications')
-    }}
-    className="conv-item"
-    style={{
-        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-        padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer',
-        borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left',
-    }}
->
-    <div style={{ position: 'relative', flexShrink: 0 }}>
-        <div style={{
-            width: 48, height: 48, borderRadius: '50%',
-            background: notifUnread
-                ? 'linear-gradient(135deg, rgba(255,92,0,0.2), rgba(255,140,0,0.1))'
-                : 'rgba(255,255,255,0.05)',
-            border: `1.5px solid ${notifUnread ? 'rgba(255,92,0,0.3)' : 'rgba(255,255,255,0.08)'}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-            <RiBellLine size={22} color={notifUnread ? '#FF6B35' : 'rgba(255,255,255,0.4)'} />
-        </div>
-        {notifUnread && (
-            <span style={{
-                position: 'absolute', bottom: 1, right: -1,
-                width: 12, height: 12, borderRadius: '50%',
-                background: '#FF6B35', border: '2px solid #0d0d0d',
-            }} />
-        )}
-    </div>
+          <InboxSidebarHeader
+    notifCount={latestNotif ? 1 : 0}
+    requestsCount={pendingRequestsCount}
+    search={convSearch}
+    onSearchChange={setConvSearch}
+    onOpenNewMessage={() => setShowNewMessage(true)}
+/>
+{showNewMessage && (
+    <NewMessageOverlay
+        onClose={() => setShowNewMessage(false)}
+        onStarted={(conv) => {
+            setConversations(prev => prev.find(c => c.id === conv.id) ? prev : [conv, ...prev])
+            setActive(conv)
+            setShowNewMessage(false)
+        }}
+    />
+)}
+      
 
-    <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-            <p style={{ color: '#fff', fontSize: 14, fontWeight: notifUnread ? 700 : 600, margin: 0 }}>
-                Notifications
-            </p>
-            {latestNotif && (
-                <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, flexShrink: 0, margin: 0 }}>
-                    {timeAgo(latestNotif.created_at)}
-                </p>
-            )}
-        </div>
-        <p style={{
-            color: notifUnread ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)',
-            fontSize: 12, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            fontWeight: notifUnread ? 500 : 400,
-        }}>
-            {latestNotif ? latestNotif.body : 'No notifications yet'}
-        </p>
-    </div>
-</button>
-
-<button
-    onClick={() => router.visit('/inbox/requests')}
-    className="conv-item"
-    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left' }}
->
-    <div style={{ width: 48, height: 48, borderRadius: '50%', background: pendingRequestsCount > 0 ? 'rgba(255,92,0,0.15)' : 'rgba(255,255,255,0.05)', border: `1.5px solid ${pendingRequestsCount > 0 ? 'rgba(255,92,0,0.3)' : 'rgba(255,255,255,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <RiInboxUnarchiveLine size={20} color={pendingRequestsCount > 0 ? '#FF6B35' : 'rgba(255,255,255,0.4)'} />
-    </div>
-    <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: pendingRequestsCount > 0 ? 700 : 600 }}>Message Requests</p>
-        <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{pendingRequestsCount > 0 ? `${pendingRequestsCount} pending` : 'No pending requests'}</p>
-    </div>
-</button>
 
           <div style={{ flex: 1, overflowY: 'auto', scrollbarWidth: 'none' }}>
             {filteredConvs.length === 0 && !starting && (
@@ -1072,9 +1012,10 @@ const dismissRequestSheet = () => {
                   <div style={{ flex: 1, minWidth: 0 }}>
                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
   <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-    <p style={{ color: blocked ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 14, fontWeight: unread > 0 ? 700 : 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal' }}>
-      {displayName}
-    </p>
+    <p style={{ color: blocked ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 14, fontWeight: unread > 0 ? 700 : 600, margin: 0, display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, fontStyle: blocked ? 'italic' : 'normal' }}>
+  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+  {!blocked && other?.is_verified && <RiVerifiedBadgeFill size={12} color="#FF6B35" style={{ flexShrink: 0 }} />}
+</p>
     {conv.is_support && (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 7px', borderRadius: 999, background: 'rgba(255,107,53,0.15)', color: '#FF6B35', fontSize: 9, fontWeight: 800, marginLeft: 6, flexShrink: 0 }}>
        Flockr AI 
@@ -1134,9 +1075,10 @@ const dismissRequestSheet = () => {
                   <button onClick={() => !blocked && router.visit(`/@${other?.username}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: blocked ? 'default' : 'pointer', flex: 1, minWidth: 0, textAlign: 'left' }}>
                     <Avatar user={other} size={38} showStatus={!blocked} isBlocked={blocked} />
                     <div style={{ minWidth: 0 }}>
-                      <p style={{ color: blocked ? 'rgba(255,255,255,0.4)' : '#fff', fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal' }}>
-                        {displayName}
-                      </p>
+                      <p style={{ color: blocked ? 'rgba(255,255,255,0.4)' : '#fff', fontSize: 14, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, fontStyle: blocked ? 'italic' : 'normal' }}>
+  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+  {!blocked && other?.is_verified && <RiVerifiedBadgeFill size={13} color="#FF6B35" style={{ flexShrink: 0 }} />}
+</p>
                       {!blocked && (
                         <p style={{ color: other?.is_online ? '#10B981' : 'rgba(255,255,255,0.35)', fontSize: 11, margin: 0, fontWeight: other?.is_online ? 600 : 400 }}>
                           {lastSeenText(other?.last_seen_at, other?.is_online)}
@@ -1207,73 +1149,30 @@ const dismissRequestSheet = () => {
     )}
   </div>
 )}
-                  {filteredMsgs.map((msg, i) => {
-                    const mine    = isMine(msg)
-                    const first   = isFirst(filteredMsgs, i)
-                    const last    = isLast(filteredMsgs, i)
-                    const showAv  = showAvatar(filteredMsgs, i)
-
+  {filteredMsgs.map((msg, i) => {
+    const mine = isMine(msg)
+    const first = isFirst(filteredMsgs, i)
+    const last = isLast(filteredMsgs, i)
+    const highlight = msgSearch && msg.body?.toLowerCase().includes(msgSearch.toLowerCase())
     const msgDate = msg.created_at ? new Date(msg.created_at).toDateString() : null
     const prevDate = i > 0 && filteredMsgs[i-1].created_at ? new Date(filteredMsgs[i-1].created_at).toDateString() : null
     const showDate = i === 0 || msgDate !== prevDate
 
-                    const highlight = msgSearch && msg.body?.toLowerCase().includes(msgSearch.toLowerCase())
-                    const br      = mine
-                      ? `18px ${first ? 18 : 4}px ${last ? 18 : 4}px 18px`
-                      : `${first ? 18 : 4}px 18px 18px ${last ? 18 : 4}px`
-
-                    const senderIsBlocked = !mine && blocked
-
-                    return (
+    return (
         <div key={msg.id}>
             {showDate && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 8px', padding: '0 4px' }}>
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
-                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', padding: '3px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 999, border: '1px solid rgba(255,255,255,0.06)' }}>
-                        {fmtDate(msg.created_at)}
-                    </span>
+                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, whiteSpace: 'nowrap', padding: '3px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 999 }}>{fmtDate(msg.created_at)}</span>
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
                 </div>
             )}
-
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, justifyContent: mine ? 'flex-end' : 'flex-start', marginTop: first && !showDate ? 8 : 0 }}>
-                {!mine && (
-                    <div style={{ width: 28, flexShrink: 0 }}>
-                        {showAv && <Avatar user={senderIsBlocked ? null : (msg.sender ?? other)} size={28} isBlocked={senderIsBlocked} />}
-                    </div>
-                )}
-                <div className="msg-bubble msg-row-wrap" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }}>
-    {mine && !msg._optimistic && !msg.is_deleted && (
-        <button
-            onClick={() => deleteMessage(msg)}
-            className="msg-delete-btn"
-            style={{ position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', border: 'none', color: 'rgba(255,255,255,0.7)', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}
-        >
-            <RiCloseLine size={12} />
-        </button>
-    )}
-    <div style={{ padding: '9px 14px', background: mine ? (highlight ? '#e85200' : '#ff5c00') : (highlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'), border: mine ? 'none' : '1px solid rgba(255,255,255,0.08)', borderRadius: br, color: '#fff', fontSize: 14, lineHeight: 1.5, opacity: msg._optimistic ? 0.6 : 1, boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.2)' : 'none' }}>
-        {msg.is_deleted ? (
-            <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: 13 }}>This message was deleted</p>
-        ) : (
-            <>
-                {msg.media_url && (
-                    msg.media_type === 'video'
-                        ? <video src={msg.media_url} controls style={{ maxWidth: 220, borderRadius: 12, display: 'block', marginBottom: msg.body ? 6 : 0 }} />
-                        : <img src={msg.media_url} alt="" style={{ maxWidth: 220, borderRadius: 12, display: 'block', marginBottom: msg.body ? 6 : 0 }} />
-                )}
-                {msg.body && renderMessageBody(msg.body)}
-            </>
-        )}
-    </div>
-                    {last && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
-                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
-                            {mine && (msg._optimistic ? <RiCheckLine size={11} color="rgba(255,255,255,0.25)" /> : <RiCheckDoubleLine size={11} color={msg.read_at ? '#ff5c00' : 'rgba(255,255,255,0.3)'} />)}
-                        </div>
-                    )}
-                </div>
-            </div>
+            <ChatMessageBubble
+                msg={msg} mine={mine} first={first} last={last}
+                showAvatar={showAvatar(filteredMsgs, i)} avatarUser={other} highlight={highlight}
+                fmtTime={fmtTime} onDelete={deleteMessage}
+                onReply={(m) => setReplyingTo(m)} showToast={showToast}
+            />
         </div>
     )
 })}
@@ -1317,6 +1216,26 @@ const dismissRequestSheet = () => {
                       <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>You can't reply to this conversation.</span>
                     </div>
                   ) : (
+                    <>
+
+{pendingMedia && (
+    <MediaComposerPreview
+        file={pendingMedia.file} previewUrl={pendingMedia.previewUrl} caption={pendingCaption}
+        onCaptionChange={setPendingCaption} onSend={confirmSendMedia}
+        onCancel={() => setPendingMedia(null)} sending={sendingMedia}
+    />
+)}
+
+                    {replyingTo && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: 'rgba(255,255,255,0.03)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ flex: 1, borderLeft: '2px solid #FF6B35', paddingLeft: 8, overflow: 'hidden' }}>
+            <p style={{ margin: 0, color: '#FF6B35', fontSize: 11, fontWeight: 700 }}>Replying to</p>
+            <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{replyingTo.body || 'Media'}</p>
+        </div>
+        <button onClick={() => setReplyingTo(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
+    </div>
+)}
+
                     <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '6px 14px', gap: 8, maxHeight: 132, overflow: 'hidden' }}>
     <textarea
@@ -1342,13 +1261,14 @@ const dismissRequestSheet = () => {
     ref={mediaInputRef}
     type="file"
     accept="image/*,video/*"
-    onChange={e => e.target.files?.[0] && sendMediaMessage(e.target.files[0])}
+    onChange={e => e.target.files?.[0] && selectMedia(e.target.files[0])}
     style={{ display: 'none' }}
 />
                       <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
                         <RiSendPlaneFill size={17} color={body.trim() ? '#fff' : 'rgba(255,255,255,0.25)'} />
                       </button>
                     </form>
+                    </>
                   )}
                 </div>
               </>

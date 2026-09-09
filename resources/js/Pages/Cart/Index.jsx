@@ -22,7 +22,7 @@ import {
     RiShoppingCart2Line,
     RiSubtractLine,
     RiTruckLine,
-    RiVerifiedBadgeLine,
+    RiVerifiedBadgeFill,
 } from 'react-icons/ri';
 import VerifiedBadge from '@/Components/VerifiedBadge';
 
