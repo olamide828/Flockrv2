@@ -35,7 +35,7 @@ private function buildSellerMentionContext(string $messageBody): string
 {
     if (!preg_match('/@([a-zA-Z0-9_.]+)/', $messageBody, $m)) return '';
 
-    $seller = \App\Models\User::where('username', $m[1])->where('role', 'seller')->first();
+    $seller = User::where('username', $m[1])->where('role', 'seller')->first();
     if (!$seller) return '';
 
     $trust = app(\App\Services\SellerTrustService::class)->build($seller);
@@ -52,7 +52,7 @@ private function buildSellerMentionContext(string $messageBody): string
 private function buildUserLookupContext(string $messageBody): string
 {
     if (!preg_match('/@([a-zA-Z0-9_.]+)/', $messageBody, $m)) return '';
-    $user = \App\Models\User::where('username', $m[1])->first();
+    $user = User::where('username', $m[1])->first();
     if (!$user) return "The user mentioned @{$m[1]}, but no Flockr account with that username was found. Say so plainly — do not invent details about this account.";
     if ($user->role === 'seller') return ''; 
 
@@ -144,6 +144,18 @@ try {
     Log::warning('GenerateSupportReply failed: ' . $e->getMessage());
     $reply = "Sorry, I'm having trouble responding right now — please try again in a moment.";
 }
+        $message = $conversation->messages()->create([
+            'sender_id' => $support->id,
+            'body'      => $reply,
+        ]);
+        $message->load('sender:id,name,username,avatar,last_seen_at');
+        $conversation->touch();
+
+        try {
+            broadcast(new MessageSent($message, $conversation))->toOthers();
+            broadcast(new NewMessageToast($message, $buyer, $conversation->id));
+        } catch (\Throwable) {}
+    }
 
     /**
      * Pulls the buyer's OWN recent orders/payouts only when their message
