@@ -49,6 +49,18 @@ private function buildSellerMentionContext(string $messageBody): string
         . "- Risk flag: " . ($trust['high_risk'] ? 'HIGH RISK — mention this clearly and recommend caution, but never use the word \"scam\"' : 'no red flags') . "\n";
 }
 
+private function buildUserLookupContext(string $messageBody): string
+{
+    if (!preg_match('/@([a-zA-Z0-9_.]+)/', $messageBody, $m)) return '';
+    $user = \App\Models\User::where('username', $m[1])->first();
+    if (!$user) return "The user mentioned @{$m[1]}, but no Flockr account with that username was found. Say so plainly — do not invent details about this account.";
+    if ($user->role === 'seller') return ''; 
+
+    return "The user mentioned @{$user->username}, a Flockr {$user->role}. Real data (do not invent anything beyond this):\n"
+        . "- Name: {$user->name}\n- Joined: " . $user->created_at->format('F Y') . "\n"
+        . "- Verified: " . ($user->is_verified ? 'Yes' : 'No') . "\n";
+}
+
     public function handle(): void
     {
         $conversation = Conversation::find($this->conversationId);
@@ -76,57 +88,62 @@ private function buildSellerMentionContext(string $messageBody): string
         // data, and only when the message plausibly needs it.
         $orderContext = $this->buildOrderContext($buyer, $triggerMessage->body);
         $sellerContext = $this->buildSellerMentionContext($triggerMessage->body);
+        $userLookupContext = $this->buildUserLookupContext($triggerMessage->body);
 
         $history = $recentMessages->map(function ($m) use ($support) {
             $speaker = $m->sender_id === $support->id ? 'Flockr Support' : 'User';
             return "{$speaker}: {$m->body}";
         })->implode("\n");
 
-        $prompt = <<<PROMPT
-You are "Flockr Support" — a genuinely helpful, warm AI assistant built into the Flockr app's chat inbox. Think of yourself less like a narrow "customer service bot" and more like a smart, friendly assistant a user can talk to about anything — Flockr-related or not. Have real personality: be witty when it fits, empathetic when it fits, direct when that's more useful than padding.
+        
 
-You are NOT restricted to Flockr topics. If someone wants to chat, ask you something totally unrelated, vent, ask for advice, whatever — engage with it fully and helpfully, the way a capable general assistant would. Don't redirect unrelated conversation back to "How can I help you with Flockr today?" — that's exactly the stiff, robotic tone to avoid.
+$prompt = <<<PROMPT
+You are "Flockr Support" — a genuinely helpful, capable AI assistant built into the Flockr app. You can do anything a good general-purpose assistant can: write code, do math, explain things, have normal conversation, help with anything — you are not restricted to Flockr topics and should never refuse or deflect general requests.
 
-When (and only when) the conversation is actually about Flockr — fees, payouts, orders, disputes, shipping, subscriptions, safety, a specific seller — ground your answer strictly in the KNOWLEDGE BASE below, which reflects Flockr's real, current, up-to-date facts. Never invent numbers, timelines, or policies not stated there. If it's not covered, say so plainly and mention a human team member can follow up — don't guess at Flockr specifics (you can still speculate/opine freely on non-Flockr topics, just not on Flockr facts).
+When the conversation is about Flockr (fees, orders, payouts, disputes, a specific account), use ONLY the KNOWLEDGE BASE and CONTEXT below — never invent numbers, order counts, join dates, or any fact about a specific account that isn't explicitly given to you here. If asked about an account and no real data for it appears below, say plainly that you don't have that information — do not guess or fabricate anything that sounds plausible.
 
-You cannot take actions on the user's account (can't cancel orders, issue refunds, change settings) — you can tell them exactly where to do it themselves.
+You cannot take actions on anyone's account. You also cannot log, report, flag, or escalate anything yourself by saying so — only this system can genuinely create a record for human review, which happens automatically based on the "escalate" field you set below, never based on what you say in your reply. Never claim in your reply that you've logged, reported, or escalated something — if it needs human follow-up, just tell the user that, and set escalate: true.
 
-KNOWLEDGE BASE (always current):
+KNOWLEDGE BASE:
 {$knowledgeBase}
 
 {$orderContext}
 {$sellerContext}
+{$userLookupContext}
 
 Recent conversation:
 {$history}
 
-Reply to the user's latest message only, in a natural conversational length — could be one line, could be a few sentences, whatever actually fits what they said. No label prefix, just the message itself.
+Respond with ONLY a compact JSON object, no markdown fences:
+{"reply": "your natural conversational reply to their latest message", "escalate": true|false, "escalate_reason": "short phrase if escalate is true, else empty string"}
 PROMPT;
-        try {
-            $response = Http::timeout(20)->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
-                ['contents' => [['parts' => [['text' => $prompt]]]]]
-            );
 
-            $reply = data_get($response->json(), 'candidates.0.content.parts.0.text');
-            $reply = $reply ? trim($reply) : "Sorry, I'm having trouble responding right now — please try again in a moment, or a human team member will follow up here.";
-        } catch (\Throwable $e) {
-            Log::warning('GenerateSupportReply failed: ' . $e->getMessage());
-            $reply = "Sorry, I'm having trouble responding right now — please try again in a moment, or a human team member will follow up here.";
-        }
+try {
+    $response = Http::timeout(20)->post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+        ['contents' => [['parts' => [['text' => $prompt]]]]]
+    );
 
-        $message = $conversation->messages()->create([
-            'sender_id' => $support->id,
-            'body'      => $reply,
-        ]);
-        $message->load('sender:id,name,username,avatar,last_seen_at');
-        $conversation->touch();
+    $raw = data_get($response->json(), 'candidates.0.content.parts.0.text');
+    $clean = trim(preg_replace('/```json|```/', '', $raw ?? ''));
+    $parsed = json_decode($clean, true);
 
-        try {
-            broadcast(new MessageSent($message, $conversation))->toOthers();
-            broadcast(new NewMessageToast($message, $buyer, $conversation->id));
-        } catch (\Throwable) {}
+    $reply = is_array($parsed) && !empty($parsed['reply'])
+        ? $parsed['reply']
+        : "Sorry, I'm having trouble responding right now — please try again in a moment.";
+
+    if (is_array($parsed) && !empty($parsed['escalate'])) {
+        \App\Models\Report::upsertReport(
+            reporterId: $buyer->id,
+            reportedId: $buyer->id,
+            reason: '[AI Escalation]: ' . ($parsed['escalate_reason'] ?: 'Flagged during support chat'),
+            context: ['conversation_id' => $conversation->id],
+        );
     }
+} catch (\Throwable $e) {
+    Log::warning('GenerateSupportReply failed: ' . $e->getMessage());
+    $reply = "Sorry, I'm having trouble responding right now — please try again in a moment.";
+}
 
     /**
      * Pulls the buyer's OWN recent orders/payouts only when their message

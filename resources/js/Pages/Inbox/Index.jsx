@@ -323,7 +323,7 @@ const [lightboxIndex, setLightboxIndex] = useState(null)
 const [msgAction, setMsgAction] = useState(null)
 
 
-const canUsePro = auth?.user?.role === 'seller' && auth?.user?.has_active_subscription
+const canUsePro = auth?.user?.role === 'seller' && auth?.user?.is_subscriber
 
 // ── Off-platform payment safety ────────────────────────────────────────────
 const [showWarningSheet, setShowWarningSheet]   = useState(false)

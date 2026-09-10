@@ -41,14 +41,18 @@ class SellerTrustService
             ->count();
 
         $reports30d = (int) Report::where('reported_id', $seller->id)
-            ->where('created_at', '>=', now()->subDays(30))
-            ->sum('report_count');
+    ->where('reporter_id', '!=', $seller->id)
+    ->where('created_at', '>=', now()->subDays(30))
+    ->sum('report_count');
 
-        $reportsAllTime = (int) Report::where('reported_id', $seller->id)->sum('report_count');
+$reportsAllTime = (int) Report::where('reported_id', $seller->id)
+    ->where('reporter_id', '!=', $seller->id)
+    ->sum('report_count');
 
-        $lastReportAt = Report::where('reported_id', $seller->id)
-            ->latest('created_at')
-            ->value('created_at');
+$lastReportAt = Report::where('reported_id', $seller->id)
+    ->where('reporter_id', '!=', $seller->id)
+    ->latest('created_at')
+    ->value('created_at');
 
         $continuedWarnings = OffPlatformWarning::where('seller_id', $seller->id)
             ->where('action', 'continued')

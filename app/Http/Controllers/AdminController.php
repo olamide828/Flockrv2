@@ -446,6 +446,7 @@ public function reports(Request $request): Response
         'appeal' => $query->where('reason', 'like', '[Suspension Appeal]%'),
         'verification' => $query->where('reason', 'like', '[Verification Request]%'),
         'bug'          => $query->where('reason', 'like', '[Bug Report]%'),
+        'ai_escalation' => $query->where('reason', 'like', '[AI Escalation]%'),
         default => null,
     };
 

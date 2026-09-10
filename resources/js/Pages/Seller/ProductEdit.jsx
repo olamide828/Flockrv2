@@ -454,7 +454,7 @@ export default function ProductEdit({ product, categories = [] }) {
                                 <p style={{ margin: '0 0 3px', color: '#fff', fontSize: 13, fontWeight: 700 }}>Delivery handled by TShip</p>
                                 <p style={{ margin: 0, color: 'rgba(255,255,255,0.45)', fontSize: 12, lineHeight: 1.6 }}>
                                     Courier rates are calculated at checkout automatically. No need to set a delivery fee.
-                                    Ensure your <a href="/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>pickup address</a> is set in Settings → Addresses.
+                                    Ensure your <a href="/profile/settings" style={{ color: '#FF6B35', textDecoration: 'none', fontWeight: 600 }}>pickup address</a> is set in Settings → Addresses.
                                 </p>
                             </div>
                         </div>

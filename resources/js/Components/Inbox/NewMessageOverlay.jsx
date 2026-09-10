@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { RiArrowLeftLine, RiSearchLine } from 'react-icons/ri'
+import { RiArrowLeftLine, RiSearchLine,RiVerifiedBadgeFill } from 'react-icons/ri'
 
 export default function NewMessageOverlay({ onClose, onStarted }) {
     const [search, setSearch] = useState('')

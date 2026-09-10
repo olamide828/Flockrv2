@@ -580,6 +580,36 @@ Route::post('/self-reports', function (Request $request) {
     return response()->json(['ok' => true]);
 });
 
+
+Route::get('/verification-eligibility', function () {
+    $user = Auth::user();
+
+    $totalOrders = \App\Models\Order::where('seller_id', $user->id)
+        ->whereNotNull('paid_at')->where('status', '!=', 'refunded')->count();
+    $disputedOrders = \App\Models\Order::where('seller_id', $user->id)->where('status', 'disputed')->count();
+    $disputeRate = $totalOrders > 0 ? round(($disputedOrders / $totalOrders) * 100, 1) : 0;
+
+    $hasPost = class_exists(\App\Models\Post::class)
+        ? \App\Models\Post::where('user_id', $user->id)->exists()
+        : false;
+
+    $criteria = [
+        ['key' => 'avatar',      'label' => 'Profile picture added',      'met' => !empty($user->avatar)],
+        ['key' => 'username',    'label' => 'Username set',               'met' => !empty($user->username)],
+        ['key' => 'name',        'label' => 'Full name set',              'met' => !empty($user->name)],
+        ['key' => 'onboarding',  'label' => 'Seller onboarding completed', 'met' => !empty($user->bank_name)],
+        ['key' => 'orders',      'label' => 'At least 5 orders completed', 'met' => $totalOrders >= 5, 'value' => "{$totalOrders} completed"],
+        ['key' => 'disputes',    'label' => 'Dispute rate under 2%',      'met' => $disputeRate < 2, 'value' => "{$disputeRate}%"],
+        ['key' => 'rating',      'label' => 'Rating 4.2 or higher',       'met' => (float) ($user->avg_rating ?? 0) >= 4.2, 'value' => number_format($user->avg_rating ?? 0, 1)],
+        ['key' => 'post',        'label' => 'At least one community post', 'met' => $hasPost],
+    ];
+
+    return response()->json([
+        'criteria' => $criteria,
+        'all_met' => collect($criteria)->every(fn($c) => $c['met']),
+    ]);
+});
+
 Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
     if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
         return response()->json(['message' => 'Unauthorized.'], 403);

@@ -53,10 +53,8 @@ class Product extends Model
         'shipping_fee'     => 'decimal:2',
     ];
 
-    // primary_image, is_in_stock, and discount_percent are safe to append:
-    // all three are guarded against MissingAttributeException.
-    // is_in_stock MUST be in $appends so ProductCard always receives it.
-    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls'];
+
+    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls', 'event_price', 'active_event'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -221,4 +219,24 @@ public function getHasSkusAttribute(): bool
         return false;
     }
 }
+
+public function getActiveEventAttribute()
+{
+    return Event::currentlyActive()
+        ->whereHas('participants', fn($q) => $q->where('seller_id', $this->seller_id))
+        ->with(['participants' => fn($q) => $q->where('seller_id', $this->seller_id)])
+        ->first();
+}
+
+public function getEventPriceAttribute(): ?float
+{
+    $event = $this->active_event;
+    if (!$event) return null;
+
+    $discount = $event->participants->first()?->discount_percent;
+    if (!$discount) return null;
+
+    return round($this->price * (1 - $discount / 100), 2);
+}
+
 }
