@@ -3,7 +3,7 @@ import {
     RiCloseLine, RiUserLine, RiSettings4Line, RiBarChart2Line,
     RiShoppingBasketLine, RiShareForwardLine, RiLogoutBoxLine,
     RiArrowRightSLine, RiWallet3Line, RiVerifiedBadgeFill,
-    RiVipDiamondLine, RiVerifiedBadgeFill, RiBugLine,
+    RiVipDiamondLine, RiBugLine,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
 import ShareProfileSheet from '@/Components/ShareProfileSheet';

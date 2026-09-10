@@ -529,7 +529,7 @@ Route::get('/users/{user}/mutual-follows', function (\App\Models\User $user) {
         ->pluck('f2.follower_id');
 
     $users = \App\Models\User::whereIn('id', $mutualIds)
-        ->select('id', 'name', 'username', 'avatar')
+        ->select('id', 'name', 'username', 'avatar', 'is_verified')
         ->limit(30)
         ->get();
 
@@ -760,3 +760,5 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
             ->select('id', 'name', 'username', 'avatar', 'role', 'is_verified')
             ->limit(8)
             ->get();
+    });
+});
