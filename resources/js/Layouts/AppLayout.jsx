@@ -6,6 +6,7 @@ import ConfirmModal from '@/Components/Community/ConfirmModal';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import NewBadgeModal from '@/Components/NewBadgeModal';
 import MessageToast from '@/Components/MessageToast'
+import EventAnnounceModal from '@/Components/EventAnnounceModal'
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
     RiHome5Line,
@@ -17,6 +18,7 @@ import {
     RiUserLine,
     RiAddLine,
     RiArrowDownSLine,
+    RiCalendarEventLine,
 } from 'react-icons/ri';
 
 import { TiGroupOutline } from "react-icons/ti";
@@ -40,6 +42,9 @@ export default function AppLayout({ children }) {
     const [messageToasts, setMessageToasts] = useState([])
     const [activeToast, setActiveToast] = useState(null)
     const toastTimeoutRef = useRef(null)
+
+    const [announceEvent, setAnnounceEvent] = useState(null)
+
 
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
@@ -65,6 +70,22 @@ export default function AppLayout({ children }) {
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, []);
+
+    
+useEffect(() => {
+  if (!auth?.user) return
+  axios.get('/api/events').then(r => {
+    const active = (r.data ?? []).find(e => e.status === 'active')
+    if (!active) return
+    const seenKey = `flockr_event_seen_${active.id}`
+    if (!localStorage.getItem(seenKey)) setAnnounceEvent(active)
+  }).catch(() => {})
+}, [auth?.user])
+
+const dismissEventAnnounce = () => {
+  if (announceEvent) localStorage.setItem(`flockr_event_seen_${announceEvent.id}`, '1')
+  setAnnounceEvent(null)
+}
 
    // Replace the messageToasts array state + effect + render with this "single,
 // always-replaced" version — no more stacking/duplicating per message.
@@ -473,6 +494,31 @@ const replyToToast = (toast) => {
                     </Link>
 
                     <Link
+                        href='/events'
+                        onMouseEnter={() => handlePrefetch('/events')}
+                        onClick={() => handleNavClick('/events')}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            marginBottom: 2,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: isActive('/events') ? 600 : 400,
+                            color: isActive('/events') ? 'var(--flockr-orange)' : 'var(--flockr-muted)',
+                            background: isActive('/events') ? 'rgba(255,92,0,0.08)' : 'transparent',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <RiCalendarEventLine size={20} />
+                        Events
+                    </Link>
+
+
+
+                    <Link
                         href={profileHref}
                         onMouseEnter={() => handlePrefetch(profileHref)}
                         onClick={() => handleNavClick(profileHref)}
@@ -610,6 +656,10 @@ const replyToToast = (toast) => {
                                     <RiSearchLine size={20} />
                                 </Link>
                             )}
+                            <Link href="/events" onTouchStart={() => handlePrefetch('/events')} onClick={() => handleNavClick('/events')}
+                            style={{ color: isActive('/events') ? '#ff5c00' : 'rgba(255,255,255,0.5)', display: 'flex', padding: 4 }}>
+                            <RiCalendarEventLine size={20} />
+                            </Link>
                             <Link
                                 href="/orders"
                                 onTouchStart={() => handlePrefetch('/orders')}
@@ -767,6 +817,8 @@ const replyToToast = (toast) => {
                     onClose={() => setShowLogoutConfirm(false)}
                 />
             )}
+
+            {announceEvent && <EventAnnounceModal event={announceEvent} onClose={dismissEventAnnounce} />}
 
             <style>{`
                 @media (min-width: 768px) {

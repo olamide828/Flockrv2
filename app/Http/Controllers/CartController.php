@@ -279,7 +279,17 @@ class CartController extends Controller
                 $sellerRate = $ratesBySeller[(string) $sellerId] ?? null;
                 $courierFee = (float) ($sellerRate['amount'] ?? 0);
 
-                $subtotal    = $sellerItems->sum(fn($i) => $i->product->price * $i->quantity);
+                $sellerActiveEvent = null;
+                $eventDiscountAmount = 0;
+
+                $subtotal = $sellerItems->sum(function ($i) use (&$sellerActiveEvent, &$eventDiscountAmount) {
+                $unitPrice = $i->product->event_price ?? $i->product->price;
+                if ($i->product->active_event) {
+                $sellerActiveEvent = $i->product->active_event; // last one wins if items span differing events, an edge case worth noting but not blocking
+                $eventDiscountAmount += ($i->product->price - $unitPrice) * $i->quantity;
+                }
+                return $unitPrice * $i->quantity;
+                });
                 $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
 
                 // Flockr's own delivery-management fee still only applies once
@@ -314,6 +324,8 @@ class CartController extends Controller
                     'courier_fee'         => $courierFee,
                     'terminal_rate_id'    => $sellerRate['rate_id'] ?? null,
                     'estimated_delivery'  => $validated['delivery_date'] ?? null,
+                    'event_id'              => $sellerActiveEvent?->id,
+                    'event_discount_amount' => $eventDiscountAmount > 0 ? $eventDiscountAmount : null,
                 ]);
 
                 foreach ($sellerItems as $item) {
@@ -321,9 +333,9 @@ class CartController extends Controller
                         'order_id'     => $order->id,
                         'product_id'   => $item->product_id,
                         'product_name' => $item->product->name,
-                        'unit_price'   => $item->product->price,
+                        'unit_price'   => $item->product->event_price ?? $item->product->price,
                         'quantity'     => $item->quantity,
-                        'total'        => $item->product->price * $item->quantity,
+                        'total'        => $item->product->event_price ?? $item->product->price * $item->quantity,
                     ]);
                 }
 

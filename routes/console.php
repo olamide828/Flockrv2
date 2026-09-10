@@ -60,3 +60,7 @@ Artisan::command('terminal:register-webhook', function() {
     ])->json();
     $this->info(json_encode($response, JSON_PRETTY_PRINT));
 })->purpose('Register Flockr webhook with Terminal Africa');
+
+Schedule::command('events:award-champions')->hourly();
+
+Schedule::command('events:activate-scheduled')->everyFiveMinutes();

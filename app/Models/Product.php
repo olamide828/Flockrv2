@@ -225,6 +225,7 @@ public function getActiveEventAttribute()
     return Event::currentlyActive()
         ->whereHas('participants', fn($q) => $q->where('seller_id', $this->seller_id))
         ->with(['participants' => fn($q) => $q->where('seller_id', $this->seller_id)])
+        ->orderBy('ends_at')
         ->first();
 }
 

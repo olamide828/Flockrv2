@@ -23,7 +23,7 @@ class Order extends Model
     'shipping_address', 'tracking_number', 'courier',
     'shipped_at', 'delivered_at', 'last_rating_reminder_at',
     'cancellation_reason', 'delivery_address_id', 'courier_name', 'courier_fee', 'terminal_rate_id',
-    'terminal_shipment_id', 'escrow_released_at', 'checkout_batch_id',
+    'terminal_shipment_id', 'escrow_released_at', 'checkout_batch_id', 'event_id', 'event_discount_amount',
 ];
 
     protected $casts = [
@@ -138,55 +138,11 @@ class Order extends Model
                 ]);
             }
 
-            // 4. Try to create Terminal shipment
-            try {
-                $terminal = app(\App\Services\TerminalService::class);
-                $seller   = $this->seller;
-                $address  = \App\Models\UserAddress::find($this->delivery_address_id);
-
-                if ($this->terminal_rate_id && $seller->pickup_street && $address) {
-                    $shipment = $terminal->createShipment(
-    order:    $this,
-    rateId:   $this->terminal_rate_id,
-    pickup:   [
-        'name'        => $seller->name,
-        'phone'       => $seller->phone,
-        'email'       => $seller->email,
-        'address'     => $seller->pickup_street,
-        'city'        => $seller->pickup_city,
-        'state'       => $seller->pickup_state,
-        'country'     => 'NG',
-        'postal_code' => $seller->pickup_postal_code ?? '000000',
-    ],
-    delivery: array_merge($address->toTerminalFormat(), ['email' => $this->buyer->email]),
-    parcel:   [
-        'weight'      => 0.5,
-        'items_count' => $this->items->count(),
-        'description' => 'Flockr order ' . $this->reference,
-    ],
-);
-
-                    $this->update([
-                        'terminal_shipment_id' => $shipment['shipment_id'],
-                        'tracking_number'      => $shipment['tracking_number'],
-                        'courier'              => $shipment['carrier'],
-                    ]);
-
-                    Log::info('Terminal shipment created', [
-                        'order'       => $this->reference,
-                        'shipment_id' => $shipment['shipment_id'],
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                // Don't fail the payment if shipment creation fails
-                Log::error('Terminal createShipment failed after payment', [
-                    'order' => $this->reference,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
+            
             // 6. Update seller stats
             $this->seller->increment('total_sales');
+
+            app(\App\Services\EventService::class)->checkScavengerHunt($this);
 
             // 7. Mark coupon as used now that payment is confirmed
             Coupon::where('used_on_order_id', $this->id)

@@ -129,14 +129,18 @@ class OrderController extends Controller
         }
 
         // Clean subtotal — no SKU reference
-        $subtotal            = $product->price * $qty;
-        $courierFee          = (float) ($validated['courier_fee'] ?? $product->shipping_fee ?? 0);
-        $deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
-        $feePercent = $product->seller->hasActiveSubscription()
+        $activeEvent = $product->active_event;
+$unitPrice   = $product->event_price ?? $product->price;
+$subtotal    = $unitPrice * $qty;
+$eventDiscountAmount = $activeEvent ? ($product->price - $unitPrice) * $qty : null;
+
+$courierFee          = (float) ($validated['courier_fee'] ?? $product->shipping_fee ?? 0);
+$deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
+$feePercent = $product->seller->hasActiveSubscription()
     ? config('flockr.pro_platform_fee_percent', 3)
     : config('flockr.platform_fee_percent', 5);
 $platformFee = round($subtotal * $feePercent / 100, 2);
-        $total               = $subtotal + $courierFee + $deliveryPlatformFee;
+$total       = $subtotal + $courierFee + $deliveryPlatformFee;
 
         // ── Coupon auto-apply ─────────────────────────────────────────────────
         $coupon         = null;
@@ -180,13 +184,15 @@ $platformFee = round($subtotal * $feePercent / 100, 2);
         ? \App\Models\UserAddress::find($validated['address_id'])?->toTerminalFormat()
         : ($validated['shipping_address'] ?? null),
     'estimated_delivery'  => $validated['delivery_date'] ?? null,
+    'event_id'               => $activeEvent?->id,
+    'event_discount_amount'  => $eventDiscountAmount,
 ]);
 
             OrderItem::create([
                 'order_id'     => $order->id,
                 'product_id'   => $product->id,
                 'product_name' => $product->name,
-                'unit_price'   => $product->price,
+                'unit_price' => $unitPrice,
                 'quantity'     => $qty,
                 'total'        => $subtotal,
             ]);
@@ -448,25 +454,72 @@ public function cancel(Order $order, Request $request): JsonResponse
     /**
      * PATCH /api/orders/{order}/status
      */
-    public function updateStatus(Request $request, Order $order): JsonResponse
-    {
-        if (Auth::id() !== $order->seller_id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
-        }
-
-        $validated = $request->validate([
-            'status' => 'required|in:processing,shipped,delivered,cancelled',
-        ]);
-
-        $updates = ['status' => $validated['status']];
-
-        if ($validated['status'] === 'delivered' && !$order->delivered_at) {
-            $updates['delivered_at'] = now();
-        }
-
-        $order->update($updates);
-        return response()->json(['status' => $order->status]);
+ public function updateStatus(Request $request, Order $order): JsonResponse
+{
+    if (Auth::id() !== $order->seller_id) {
+        return response()->json(['message' => 'Unauthorized.'], 403);
     }
+
+    $validated = $request->validate([
+        'status' => 'required|in:processing,shipped,delivered,cancelled',
+    ]);
+
+
+    if ($validated['status'] === 'processing' && !$order->terminal_shipment_id) {
+        try {
+            $terminal = app(\App\Services\TerminalService::class);
+            $seller   = $order->seller;
+            $address  = \App\Models\UserAddress::find($order->delivery_address_id);
+
+            if (!$order->terminal_rate_id || !$seller->pickup_street || !$address) {
+                return response()->json([
+                    'message' => 'Missing shipping details for this order — cannot book courier yet.',
+                ], 422);
+            }
+
+            $shipment = $terminal->createShipment(
+                order:    $order,
+                rateId:   $order->terminal_rate_id,
+                pickup:   [
+                    'name'        => $seller->name,
+                    'phone'       => $seller->phone,
+                    'email'       => $seller->email,
+                    'address'     => $seller->pickup_street,
+                    'city'        => $seller->pickup_city,
+                    'state'       => $seller->pickup_state,
+                    'country'     => 'NG',
+                    'postal_code' => $seller->pickup_postal_code ?? '000000',
+                ],
+                delivery: array_merge($address->toTerminalFormat(), ['email' => $order->buyer->email]),
+                parcel:   [
+                    'weight'      => 0.5,
+                    'items_count' => $order->items()->count(),
+                    'description' => 'Flockr order ' . $order->reference,
+                ],
+            );
+
+            $order->update([
+                'terminal_shipment_id' => $shipment['shipment_id'],
+                'tracking_number'      => $shipment['tracking_number'],
+                'courier'              => $shipment['carrier'],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Courier booking failed on mark-ready', ['order' => $order->reference, 'error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Could not book a courier for this order right now. Please try again.',
+            ], 503);
+        }
+    }
+
+    $updates = ['status' => $validated['status']];
+
+    if ($validated['status'] === 'delivered' && !$order->delivered_at) {
+        $updates['delivered_at'] = now();
+    }
+
+    $order->update($updates);
+    return response()->json(['status' => $order->status]);
+}
 
     /**
      * POST /api/orders/resume-payment

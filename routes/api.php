@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CommentController;
 use App\Http\Controllers\ConversationController;
+use App\Http\Controllers\EventController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
@@ -350,7 +351,7 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::get('/orders/{order}/status',   [OrderController::class, 'getStatus']);
     Route::get('/orders/{order}/tracking', [OrderController::class, 'getTrackingEvents']);
     Route::post('/orders/{order}/confirm-receipt', [OrderController::class, 'confirmReceipt']);
-    Route::get('/coupons/available', function (\Illuminate\Http\Request $request) {
+    Route::get('/coupons/available', function (Request $request) {
         $total  = (float) $request->input('total', 0);
         $userId = Auth::id();
 
@@ -379,6 +380,12 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::patch('/cart/{item}', [CartController::class, 'update']);
     Route::delete('/cart/{item}', [CartController::class, 'remove']);
     Route::delete('/cart', [CartController::class, 'clear']);
+
+    //Event
+    Route::get('/events', [EventController::class, 'index']);
+Route::get('/events/{event}', [EventController::class, 'show']);
+Route::post('/events/{event}/join', [EventController::class, 'join']);
+Route::delete('/events/{event}/join', [EventController::class, 'leave']);
 
     Route::get('/notifications', [NotificationController::class, 'apiIndex']);
     Route::get('/notifications/count', [NotificationController::class, 'count']);

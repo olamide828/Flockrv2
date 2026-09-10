@@ -15,15 +15,6 @@ class TerminalWebhookController extends Controller
      * Terminal Africa sends shipment status updates here.
      * Map their events to Flockr order statuses.
      *
-     * Terminal event types:
-     *   shipment.pickup_scheduled   → order: confirmed
-     *   shipment.picked_up          → order: shipped
-     *   shipment.in_transit         → order: shipped (already)
-     *   shipment.out_for_delivery   → order: shipped
-     *   shipment.delivered          → order: delivered
-     *   shipment.pickup_failed      → order: pickup_failed
-     *   shipment.delivery_failed    → order: delivery_failed
-     *   shipment.returned           → order: returned
      */
     public function handle(Request $request): JsonResponse
     {
@@ -64,19 +55,21 @@ class TerminalWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        // Map Terminal event to Flockr order status
         $statusMap = [
-            'shipment.pickup_scheduled'  => 'confirmed',
-            'shipment.picked_up'         => 'shipped',
-            'shipment.in_transit'        => 'shipped',
-            'shipment.out_for_delivery'  => 'shipped',
-            'shipment.delivered'         => 'delivered',
-            'shipment.pickup_failed'     => 'pickup_failed',
-            'shipment.delivery_failed'   => 'delivery_failed',
-            'shipment.returned'          => 'returned',
+            'shipment.in-transit' => 'shipped',
+            'shipment.delivered'  => 'delivered',
         ];
 
-        $newStatus = $statusMap[$event] ?? null;
+$newStatus = $statusMap[$event] ?? null;
+
+if ($event === 'shipment.cancelled' && $order) {
+    Log::warning('Terminal webhook: shipment cancelled by courier', ['order' => $order->reference]);
+    try {
+        $order->seller->notify(new \App\Notifications\OrderStatusNotification(
+            $order, 'Shipment cancelled', "Terminal cancelled the shipment for order #{$order->reference}. Please review and reschedule."
+        ));
+    } catch (\Throwable) {}
+}
 
         if ($newStatus) {
             $updates = ['status' => $newStatus];

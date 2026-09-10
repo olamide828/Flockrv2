@@ -49,6 +49,9 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
   const [drawerOpen,  setDrawerOpen]  = useState(false)
   const debounceRef = useRef(null)
   const sortRef     = useRef(null)
+const [activeEvent, setActiveEvent] = useState(null)
+const [countdown,   setCountdown]   = useState('')
+
 
   // Close sort on outside click
   useEffect(() => {
@@ -63,6 +66,8 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
   }
 
   useEffect(() => { fetchProducts(true) }, [selectedCat, sort, condition, priceMax])
+
+
 
   const fetchProducts = async (reset = false, q = search) => {
     setLoading(true)
@@ -85,6 +90,29 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
       if (!reset) setPage(p => p + 1)
     } catch {/**/ } finally { setLoading(false) }
   }
+
+  useEffect(() => {
+  axios.get('/api/events').then(r => {
+    const active = (r.data ?? []).find(e => e.status === 'active')
+    if (active) setActiveEvent(active)
+  }).catch(() => {})
+}, [])
+
+useEffect(() => {
+  if (!activeEvent) return
+  const tick = () => {
+    const diff = new Date(activeEvent.ends_at).getTime() - Date.now()
+    if (diff <= 0) { setCountdown('Ended'); return }
+    const h = Math.floor(diff / 3600000)
+    const m = Math.floor((diff % 3600000) / 60000)
+    const s = Math.floor((diff % 60000) / 1000)
+    setCountdown(`${h}h ${m}m ${s}s`)
+  }
+  tick()
+  const id = setInterval(tick, 1000)
+  return () => clearInterval(id)
+}, [activeEvent])
+
 
   const activeSort         = SORT_OPTIONS.find(o => o.value === sort)
   const activeFiltersCount = [selectedCat !== null, condition !== '', priceMax !== 500000].filter(Boolean).length
@@ -116,6 +144,18 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
           </div>
         </div>
       )}
+
+      {activeEvent && (
+  <Link href={`/events/${activeEvent.id}`} style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: `linear-gradient(90deg, ${activeEvent.theme_color ?? '#FF6B35'}, #7a2f0f)`, textDecoration: 'none', overflow: 'hidden' }}>
+    <span style={{ padding: '3px 10px', borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>LIVE</span>
+    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+      <span style={{ display: 'block', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        🎉 {activeEvent.title} is live — {activeEvent.description ?? 'shop the deals now'}
+      </span>
+    </div>
+    <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>⏱ {countdown}</span>
+  </Link>
+)}      
 
       <div className="h-screen flex bg-flockr-black overflow-hidden">
 

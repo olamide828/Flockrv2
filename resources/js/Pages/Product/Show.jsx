@@ -523,7 +523,8 @@ const [showTrust, setShowTrust] = useState(false)
         return [];
     })();
 
-    const totalPrice = (Number(product.price) * quantity).toLocaleString();
+    const effectivePrice = Number(product.event_price ?? product.price);
+const totalPrice = (effectivePrice * quantity).toLocaleString();
 
     useEffect(() => {
         if (!product.seller?.id) return;
@@ -695,10 +696,27 @@ const [showTrust, setShowTrust] = useState(false)
 
                             {/* Price + rating */}
                             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-                                    <span className="text-flockr-orange font-display text-3xl font-bold">₦{Number(product.price).toLocaleString()}</span>
-                                    {product.compare_price && <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.compare_price).toLocaleString()}</span>}
-                                </div>
+                            
+<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+        {product.event_price ? (
+            <>
+                <span className="font-display text-3xl font-bold" style={{ color: product.active_event?.theme_color ?? '#FF6B35' }}>₦{Number(product.event_price).toLocaleString()}</span>
+                <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.price).toLocaleString()}</span>
+            </>
+        ) : (
+            <>
+                <span className="text-flockr-orange font-display text-3xl font-bold">₦{Number(product.price).toLocaleString()}</span>
+                {product.compare_price && <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.compare_price).toLocaleString()}</span>}
+            </>
+        )}
+    </div>
+    {product.active_event && (
+        <span style={{ alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 999, background: `${product.active_event.theme_color ?? '#FF6B35'}22`, border: `1px solid ${product.active_event.theme_color ?? '#FF6B35'}55`, color: product.active_event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700 }}>
+            {product.active_event.title}
+        </span>
+    )}
+</div>
                                 {showRating && (
                                     <button onClick={() => handleTabClick('reviews')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                                         <StarsDisplay rating={avgRating} size={13} />
@@ -915,10 +933,27 @@ const [showTrust, setShowTrust] = useState(false)
                 {/* Mobile sticky buy bar */}
                 <div className="glass-dark fixed right-0 bottom-16 left-0 z-30 border-t border-white/[0.06] p-4 md:hidden">
                     <div className="flex items-center gap-3">
-                        <div>
-                            <p className="text-flockr-orange text-lg font-bold">₦{Number(product.price).toLocaleString()}</p>
-                            {product.compare_price && <p className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</p>}
-                        </div>
+                    
+<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+        {product.event_price ? (
+            <>
+                <span className="font-display text-3xl font-bold" style={{ color: product.active_event?.theme_color ?? '#FF6B35' }}>₦{Number(product.event_price).toLocaleString()}</span>
+                <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.price).toLocaleString()}</span>
+            </>
+        ) : (
+            <>
+                <span className="text-flockr-orange font-display text-3xl font-bold">₦{Number(product.price).toLocaleString()}</span>
+                {product.compare_price && <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.compare_price).toLocaleString()}</span>}
+            </>
+        )}
+    </div>
+    {product.active_event && (
+        <span style={{ alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 999, background: `${product.active_event.theme_color ?? '#FF6B35'}22`, border: `1px solid ${product.active_event.theme_color ?? '#FF6B35'}55`, color: product.active_event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700 }}>
+            {product.active_event.title}
+        </span>
+    )}
+</div>
                         <button onClick={handleAddToCart} disabled={!product.is_in_stock || addingToCart} className="btn-ghost flex items-center justify-center gap-2 rounded-2xl px-4 py-3 disabled:opacity-60">
                             {addedToCart ? '✓' : <RiShoppingCart2Line size={18} />}
                         </button>
@@ -935,7 +970,7 @@ const [showTrust, setShowTrust] = useState(false)
     <CheckoutModal
         items={[{ id: null, product: { ...product, seller: product.seller }, quantity }]}
         addresses={addresses}  
-        subtotal={Number(product.price) * quantity}
+        subtotal={effectivePrice * quantity}
         onClose={() => setShowCheckout(false)}
         showToast={showToast}
         singleProduct={{ productId: product.id, quantity }}
