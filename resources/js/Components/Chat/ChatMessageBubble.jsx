@@ -1,8 +1,5 @@
-import { useState } from 'react'
-import { RiMoreFill } from 'react-icons/ri'
+import { useRef } from 'react'
 import RoomMediaPlayer from '@/Components/Community/RoomMediaPlayer'
-import MediaLightbox from './MediaLightbox'
-import MessageActionSheet from './MessageActionSheet'
 
 function renderMessageBody(text) {
     return text.split(/(@[a-zA-Z0-9_.]+)/g).map((part, i) =>
@@ -10,75 +7,93 @@ function renderMessageBody(text) {
     )
 }
 
-export default function ChatMessageBubble({ msg, mine, first, last, showAvatar, avatarUser, highlight, fmtTime, onDelete, onReply, showToast }) {
-    const [showLightbox, setShowLightbox] = useState(false)
-    const [showActions, setShowActions] = useState(false)
+export default function ChatMessageBubble({ msg, mine, showName, showAv, avatarUser, fmtTime, onOpenLightbox, onPressAction }) {
+    const swipeRef = useRef({})
+    const pressTimer = useRef(null)
 
-    const br = mine
-        ? `18px ${first ? 18 : 4}px ${last ? 18 : 4}px 18px`
-        : `${first ? 18 : 4}px 18px 18px ${last ? 18 : 4}px`
+    const onTouchStart = (e) => { swipeRef.current = { startX: e.touches[0].clientX, el: e.currentTarget } }
+    const onTouchMove = (e) => {
+        const dx = e.touches[0].clientX - (swipeRef.current.startX ?? 0)
+        if (dx > 0) {
+            const el = swipeRef.current.el
+            if (el) el.style.transform = `translateX(${Math.min(dx * 0.5, 60)}px)`
+        }
+    }
+    const onTouchEnd = (e) => {
+        const dx = e.changedTouches[0].clientX - (swipeRef.current.startX ?? 0)
+        const el = swipeRef.current.el
+        if (el) el.style.transform = 'translateX(0)'
+        if (dx > 50 && !msg.is_deleted) onPressAction('reply', msg)
+        swipeRef.current = {}
+    }
+    const onPressStart = (e) => {
+        if (msg.is_deleted) return
+        const rect = e.currentTarget?.getBoundingClientRect()
+        if (!rect) return
+        pressTimer.current = setTimeout(() => onPressAction('menu', msg, rect.top), 900)
+    }
+    const onPressEnd = () => clearTimeout(pressTimer.current)
 
     return (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+        <div
+            onTouchStart={e => { onTouchStart(e); onPressStart(e) }}
+            onTouchMove={onTouchMove}
+            onTouchEnd={e => { onTouchEnd(e); onPressEnd() }}
+            onMouseDown={onPressStart}
+            onMouseUp={onPressEnd}
+            onMouseLeave={onPressEnd}
+            style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', padding: `${showAv ? 8 : 2}px 12px 2px`, alignItems: 'flex-end', gap: 8, opacity: msg._optimistic ? 0.6 : 1, transition: 'transform 0.15s ease', userSelect: 'none' }}
+        >
             {!mine && (
-                <div style={{ width: 28, flexShrink: 0 }}>
-                    {showAvatar && (avatarUser?.avatar_url
-                        ? <img src={avatarUser.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                        : <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#333' }} />
+                <div style={{ width: 32, flexShrink: 0, alignSelf: 'flex-end' }}>
+                    {showAv && (avatarUser?.avatar_url
+                        ? <img src={avatarUser.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
+                        : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#333' }} />
                     )}
                 </div>
             )}
 
-            <div className="msg-row-wrap" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2, maxWidth: '72%' }}>
-                {!msg.is_deleted && !msg._optimistic && (
-                    <button onClick={() => setShowActions(true)} className="msg-more-btn" style={{ position: 'absolute', top: -4, [mine ? 'left' : 'right']: -28, width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.4)', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                        <RiMoreFill size={14} />
-                    </button>
+            <div style={{ maxWidth: '72%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }}>
+                {msg.reply_to && !msg.is_deleted && (
+                    <div style={{ padding: '5px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', borderLeft: '2px solid #FF6B35', maxWidth: '100%', marginBottom: 2 }}>
+                        <p style={{ margin: 0, color: '#FF6B35', fontSize: 10, fontWeight: 700 }}>{msg.reply_to.sender?.name ?? 'Reply'}</p>
+                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.5)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{msg.reply_to.body || (msg.reply_to.media_type ? `📎 ${msg.reply_to.media_type}` : '')}</p>
+                    </div>
                 )}
 
-                <div style={{ padding: '9px 14px', background: mine ? (highlight ? '#e85200' : '#ff5c00') : (highlight ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'), border: mine ? 'none' : '1px solid rgba(255,255,255,0.08)', borderRadius: br, color: '#fff', fontSize: 14, lineHeight: 1.5, opacity: msg._optimistic ? 0.6 : 1, boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.2)' : 'none' }}>
-                    {msg.is_deleted ? (
-                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: 13 }}>This message was deleted</p>
-                    ) : (
-                        <>
-                            {msg.reply_to && (
-                                <div style={{ borderLeft: '2px solid rgba(255,255,255,0.3)', paddingLeft: 8, marginBottom: 6, opacity: 0.75 }}>
-                                    <p style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>{msg.reply_to.sender_id === msg.sender_id ? 'themselves' : 'Reply'}</p>
-                                    <p style={{ margin: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.reply_to.body || (msg.reply_to.media_type ? `📎 ${msg.reply_to.media_type}` : '')}</p>
-                                </div>
-                            )}
-                            {msg.media_url && (
-                                <div onClick={() => setShowLightbox(true)} style={{ width: 200, borderRadius: 12, overflow: 'hidden', cursor: 'pointer', marginBottom: msg.body ? 6 : 0 }}>
-                                    {msg.media_type === 'video'
-                                        ? <div style={{ aspectRatio: '9/16', maxHeight: 260 }}><RoomMediaPlayer src={msg.media_url} /></div>
-                                        : <img src={msg.media_url} alt="" style={{ width: '100%', display: 'block' }} />
-                                    }
-                                </div>
-                            )}
-                            {msg.body && renderMessageBody(msg.body)}
-                        </>
-                    )}
-                </div>
-
-                {last && !msg.is_deleted && (
-                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
+                {msg.is_deleted ? (
+                    <div style={{ padding: '9px 14px', background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.12)', borderRadius: mine ? '18px 5px 5px 18px' : '5px 18px 18px 5px', color: 'rgba(255,255,255,0.35)', fontSize: 13, fontStyle: 'italic' }}>
+                        This message was deleted
+                    </div>
+                ) : msg.media_url ? (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.10)', backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                        border: '1px solid rgba(255,255,255,0.22)',
+                        borderRadius: mine ? `22px ${showName ? 22 : 8}px 8px 22px` : `${showName ? 22 : 8}px 22px 22px 8px`,
+                        boxShadow: '0 8px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)',
+                        overflow: 'hidden', color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word',
+                    }}>
+                        <div onClick={() => onOpenLightbox(msg)} style={{ cursor: 'pointer', width: 220, height: 220, overflow: 'hidden' }}>
+                            {msg.media_type === 'video'
+                                ? <RoomMediaPlayer src={msg.media_url} maxHeight={220} />
+                                : <img src={msg.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            }
+                        </div>
+                        {msg.body && <p style={{ margin: '8px 14px 10px' }}>{msg.body}</p>}
+                    </div>
+                ) : (
+                    <div style={{
+                        padding: '9px 14px', background: mine ? '#ff5c00' : 'rgba(255,255,255,0.09)',
+                        borderRadius: mine ? `18px ${showName ? 18 : 5}px 5px 18px` : `${showName ? 18 : 5}px 18px 18px 5px`,
+                        color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word', overflow: 'hidden',
+                        boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.3)' : 'none',
+                    }}>
+                        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{renderMessageBody(msg.body)}</p>
+                    </div>
                 )}
+
+                <span style={{ color: 'rgba(255,255,255,0.22)', fontSize: 10, padding: mine ? '0 4px 0 0' : '0 0 0 4px' }}>{fmtTime(msg.created_at)}</span>
             </div>
-
-            {showLightbox && msg.media_url && (
-                <MediaLightbox url={msg.media_url} type={msg.media_type} onClose={() => setShowLightbox(false)} />
-            )}
-
-            {showActions && (
-                <MessageActionSheet
-                    message={msg}
-                    isMine={mine}
-                    onReply={() => { setShowActions(false); onReply(msg) }}
-                    onDelete={() => { setShowActions(false); onDelete(msg) }}
-                    onCopy={() => { setShowActions(false); navigator.clipboard?.writeText(msg.body); showToast?.('Copied', 'success') }}
-                    onClose={() => setShowActions(false)}
-                />
-            )}
         </div>
     )
 }

@@ -29,6 +29,7 @@ use App\Http\Controllers\SafetyController;
 use App\Http\Controllers\SellerTrustController;
 use App\Http\Controllers\ChatWallpaperController;
 use App\Http\Controllers\DisputeController;
+use Illuminate\Http\Request;
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
@@ -500,7 +501,7 @@ Route::get('/users/suggested', function () {
 
     $users = \App\Models\User::whereIn('id', $recentPartnerIds)
         ->where('is_active', true)
-        ->select('id', 'name', 'username', 'avatar', 'role')
+        ->select('id', 'name', 'username', 'avatar', 'role', 'is_verified')
         ->get();
 
     return response()->json($users->sortBy(fn($u) => $recentPartnerIds->search($u->id))->values());
@@ -551,6 +552,32 @@ Route::get('/users/me/wishlist-products', function () {
         ->with('seller:id,name,username,avatar,is_verified')
         ->latest('product_saves.created_at')
         ->get();
+});
+
+
+Route::get('/subscriptions/me', function () {
+    $sub = \App\Models\Subscription::where('user_id', Auth::id())->latest('expires_at')->first();
+    $user = Auth::user();
+    return response()->json([
+        'has_active' => $user->hasActiveSubscription(),
+        'plan' => $sub?->plan,
+        'status' => $sub?->status,
+        'amount_paid' => $sub?->amount_paid,
+        'starts_at' => $sub?->starts_at,
+        'expires_at' => $sub?->expires_at,
+        'fee_percent' => $user->hasActiveSubscription() ? config('flockr.pro_platform_fee_percent') : config('flockr.platform_fee_percent'),
+    ]);
+});
+
+Route::post('/self-reports', function (Request $request) {
+    $request->validate(['type' => 'required|in:verification,bug', 'message' => 'required|string|max:1000']);
+    $prefix = $request->type === 'verification' ? '[Verification Request]' : '[Bug Report]';
+    \App\Models\Report::upsertReport(
+        reporterId: Auth::id(),
+        reportedId: Auth::id(),
+        reason: "{$prefix}: {$request->message}",
+    );
+    return response()->json(['ok' => true]);
 });
 
 Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
@@ -730,8 +757,6 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
                     ->orWhere('username', 'ilike', "%{$q}%");
             })
             ->where('is_active', true)
-            ->select('id', 'name', 'username', 'avatar', 'role')
+            ->select('id', 'name', 'username', 'avatar', 'role', 'is_verified')
             ->limit(8)
             ->get();
-    });
-});

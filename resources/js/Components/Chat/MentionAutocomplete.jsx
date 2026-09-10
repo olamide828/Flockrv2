@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AvatarImage } from '@/Layouts/AppLayout'
-import { RiSearchLine } from 'react-icons/ri'
+import { RiSearchLine, RiVerifiedBadgeFill } from 'react-icons/ri'
 
 export default function MentionAutocomplete({ initialQuery, onSelect, onClose }) {
     const [search, setSearch] = useState(initialQuery ?? '')
@@ -63,7 +63,10 @@ export default function MentionAutocomplete({ initialQuery, onSelect, onClose })
                         <button key={u.id} onClick={() => onSelect(u)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                             <AvatarImage user={u} size={30} />
                             <div style={{ minWidth: 0 }}>
-                                <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</p>
+                                <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',  display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    {u.name}
+                                    {u.is_verified && <RiVerifiedBadgeFill size={11} color="#FF6B35" />}
+                                    </p>
                                 <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>@{u.username}{u.role === 'seller' ? ' · Seller' : ''}</p>
                             </div>
                         </button>

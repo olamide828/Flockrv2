@@ -51,7 +51,10 @@ export default function NewMessageOverlay({ onClose, onStarted }) {
                     <button key={u.id} onClick={() => start(u)} disabled={starting === u.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                         <img src={u.avatar_url} alt={u.name} style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover' }} />
                         <div>
-                            <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 600 }}>{u.name}</p>
+                            <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+    {u.name}
+    {u.is_verified && <RiVerifiedBadgeFill size={11} color="#FF6B35" />}
+</p>
                             <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{u.username}</p>
                         </div>
                     </button>

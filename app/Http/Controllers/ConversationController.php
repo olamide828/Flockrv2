@@ -147,7 +147,7 @@ class ConversationController extends Controller
         }
 
         $messages = $conversation->messages()
-    ->with('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type')
+    ->with('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name')
     ->orderBy('created_at', 'asc')
     ->get()
     ->map(function ($m) {
@@ -235,7 +235,7 @@ class ConversationController extends Controller
     'reply_to_id' => $request->input('reply_to_id'),
 ]);
 
-        $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type');
+        $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name');
         if ($message->media_path) {
             $message->setAttribute('media_url', app(StorageService::class)->url($message->media_path));
         }

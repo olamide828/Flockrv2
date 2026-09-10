@@ -816,6 +816,9 @@ const replyToToast = (toast) => {
                     body.chat-open .mobile-bottom-nav { display: none !important; }
                     body.chat-open .page-content       { overflow: hidden !important; }
                 }
+                input[type="text"], input[type="search"], input[type="email"], input[type="password"], input[type="number"], input:not([type]), textarea {
+                font-size: 16px !important;
+                }
             `}</style>
         </div>
     );

@@ -21,6 +21,9 @@ import ChatMessageBubble from '@/Components/Chat/ChatMessageBubble'
 import MediaComposerPreview from '@/Components/Chat/MediaComposerPreview'
 import InboxSidebarHeader from '@/Components/Inbox/InboxSidebarHeader'
 import NewMessageOverlay from '@/Components/Inbox/NewMessageOverlay'
+import MediaLightbox from '@/Components/Chat/MediaLightbox'
+import MessageActionSheet from '@/Components/Chat/MessageActionSheet'
+
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
 const OFF_PLATFORM_KEYWORDS = [
@@ -316,6 +319,9 @@ const [replyingTo, setReplyingTo] = useState(null)
 const [pendingMedia, setPendingMedia] = useState(null)
 const [pendingCaption, setPendingCaption] = useState('')
 const [sendingMedia, setSendingMedia] = useState(false)
+const [lightboxIndex, setLightboxIndex] = useState(null)
+const [msgAction, setMsgAction] = useState(null)
+
 
 const canUsePro = auth?.user?.role === 'seller' && auth?.user?.has_active_subscription
 
@@ -328,6 +334,17 @@ const [bannerConversations, setBannerConversations] = useState({})
 const [showPayFlockrSheet, setShowPayFlockrSheet]   = useState(false)
 const [payFlockrSeller, setPayFlockrSeller]         = useState(null)
 const scannedMsgIdsRef = useRef(new Set())
+
+const mediaMessages = messages.filter(m => m.media_url && !m.is_deleted)
+const openLightbox = (msg) => {
+    const i = mediaMessages.findIndex(m => m.id === msg.id)
+    if (i !== -1) setLightboxIndex(i)
+}
+
+const handlePressAction = (type, msg, y) => {
+    if (type === 'reply') setReplyingTo(msg)
+    else setMsgAction(msg)
+}
 
 
 const handleFollowFromChat = async () => {
@@ -923,6 +940,29 @@ const dismissRequestSheet = () => {
   <ProPlansSheet onClose={() => setShowProSheet(false)} />
 )}
 
+{lightboxIndex !== null && (
+    <MediaLightbox
+        mediaMessages={mediaMessages}
+        startIndex={lightboxIndex}
+        senderName={otherUser(active)?.name}
+        canDeleteMsg={(m) => m.sender_id === auth?.user?.id}
+        fmtTime={fmtTime}
+        onReply={(msg) => setReplyingTo(msg)}
+        onDelete={(msg) => deleteMessage(msg)}
+        onClose={() => setLightboxIndex(null)}
+    />
+)}
+
+{msgAction && (
+    <MessageActionSheet
+        msg={msgAction}
+        canDelete={msgAction.sender_id === auth?.user?.id}
+        onReply={() => { setReplyingTo(msgAction); setMsgAction(null) }}
+        onDelete={() => { deleteMessage(msgAction); setMsgAction(null) }}
+        onClose={() => setMsgAction(null)}
+    />
+)}
+
 {ToastComponent}
 
       <style>{`
@@ -1168,11 +1208,11 @@ const dismissRequestSheet = () => {
                 </div>
             )}
             <ChatMessageBubble
-                msg={msg} mine={mine} first={first} last={last}
-                showAvatar={showAvatar(filteredMsgs, i)} avatarUser={other} highlight={highlight}
-                fmtTime={fmtTime} onDelete={deleteMessage}
-                onReply={(m) => setReplyingTo(m)} showToast={showToast}
-            />
+    msg={msg} mine={mine} showName={false}
+    showAv={showAvatar(filteredMsgs, i)} avatarUser={other} fmtTime={fmtTime}
+    onOpenLightbox={openLightbox} onPressAction={handlePressAction}
+/>
+
         </div>
     )
 })}

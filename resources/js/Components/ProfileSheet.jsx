@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react';
 import {
     RiCloseLine, RiUserLine, RiSettings4Line, RiBarChart2Line,
     RiShoppingBasketLine, RiShareForwardLine, RiLogoutBoxLine,
-    RiArrowRightSLine, RiWallet3Line,
+    RiArrowRightSLine, RiWallet3Line, RiVerifiedBadgeFill,
+    RiVipDiamondLine, RiVerifiedBadgeFill, RiBugLine,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
 import ShareProfileSheet from '@/Components/ShareProfileSheet';
+import ProSubscriptionSheet from '@/Components/ProSubscriptionSheet';
+import RequestVerificationSheet from '@/Components/RequestVerificationSheet';
+import ReportBugSheet from '@/Components/ReportBugSheet';
+import Toast, { useToast } from '@/Components/Toast';
 
 function Row({ Icon, label, onClick, danger }) {
     return (
@@ -33,6 +38,10 @@ function fmtCount(n) {
 export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick }) {
     const [closing, setClosing] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
+    const [showProSheet, setShowProSheet] = useState(false);
+    const [showVerifySheet, setShowVerifySheet] = useState(false);
+    const [showBugSheet, setShowBugSheet] = useState(false);
+    const { showToast, ToastComponent } = useToast();
 
     const handleClose = () => {
         setClosing(true);
@@ -64,7 +73,10 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                         <AvatarImage user={user} size={80} />
                     </div>
 
-                    <h2 className="pf-name">{user.name}</h2>
+                    <h2 className="pf-name" style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                        {user.name}
+                        {user.is_verified && <RiVerifiedBadgeFill size={18} color="#FF6B35" />}
+                    </h2>
                     <p className="pf-username">@{user.username}</p>
 
                     <div className="pf-stats">
@@ -113,6 +125,23 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                         )}
                     </div>
 
+                    {isSeller && (
+                        <>
+                            <GroupLabel>Subscription</GroupLabel>
+                            <div className="pf-group">
+                                <Row Icon={RiVipDiamondLine} label="Pro" onClick={() => setShowProSheet(true)} />
+                            </div>
+                        </>
+                    )}
+
+                    <GroupLabel>Support & Feedback</GroupLabel>
+                    <div className="pf-group">
+                        {!user.is_verified && (
+                            <Row Icon={RiVerifiedBadgeFill} label="Request Verification" onClick={() => setShowVerifySheet(true)} />
+                        )}
+                        <Row Icon={RiBugLine} label="Report a Bug" onClick={() => setShowBugSheet(true)} />
+                    </div>
+
                     <GroupLabel>Share</GroupLabel>
                     <div className="pf-group">
                         <Row Icon={RiShareForwardLine} label="Share Profile" onClick={() => setShowShareSheet(true)} />
@@ -124,42 +153,19 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                 </div>
             </div>
 
-            {/* ShareProfileSheet opens directly on top with high z-index */}
-            {showShareSheet && (
-                <ShareProfileSheet user={user} onClose={() => setShowShareSheet(false)} />
-            )}
+            {showShareSheet && <ShareProfileSheet user={user} onClose={() => setShowShareSheet(false)} />}
+            {showProSheet && <ProSubscriptionSheet onClose={() => setShowProSheet(false)} />}
+            {showVerifySheet && <RequestVerificationSheet onClose={() => setShowVerifySheet(false)} showToast={showToast} />}
+            {showBugSheet && <ReportBugSheet onClose={() => setShowBugSheet(false)} showToast={showToast} />}
+            {ToastComponent}
 
             <style>{`
-                .pf-screen {
-                    position: fixed; inset: 0; z-index: 970;
-                    background: #000000;
-                    display: flex; flex-direction: column;
-                    overflow-y: auto;
-                    animation: pfSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-                }
+                .pf-screen { position: fixed; inset: 0; z-index: 970; background: #000000; display: flex; flex-direction: column; overflow-y: auto; animation: pfSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
                 .pf-screen-out { animation: pfSlideDown 0.18s ease forwards; }
-                .pf-hero {
-                    position: relative;
-                    padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px;
-                    display: flex; flex-direction: column; align-items: center;
-                    text-align: center;
-                    background: #0a0a0c;
-                    border-bottom: 1px solid rgba(255,255,255,0.08);
-                    flex-shrink: 0;
-                }
-                .pf-close {
-                    position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px;
-                    width: 34px; height: 34px; border-radius: 50%;
-                    background: rgba(255,255,255,0.08); border: none; color: #fff;
-                    display: flex; align-items: center; justify-content: center; cursor: pointer;
-                    z-index: 2; transition: background 0.15s;
-                }
+                .pf-hero { position: relative; padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; background: #0a0a0c; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+                .pf-close { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.08); border: none; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; transition: background 0.15s; }
                 .pf-close:active { background: rgba(255,255,255,0.16); }
-                .pf-avatar-wrapper {
-                    padding: 3px;
-                    border-radius: 50%;
-                    background: rgba(255,255,255,0.1);
-                }
+                .pf-avatar-wrapper { padding: 3px; border-radius: 50%; background: rgba(255,255,255,0.1); }
                 .pf-name { margin: 14px 0 0; color: #ffffff; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
                 .pf-username { margin: 2px 0 0; color: rgba(255,255,255,0.45); font-size: 13px; font-weight: 400; }
                 .pf-stats { display: flex; align-items: center; gap: 24px; margin-top: 20px; }
@@ -177,13 +183,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                 .pf-row-icon { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.06); color: #ffffff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
                 .pf-row-label { flex: 1; color: #ffffff; font-size: 14px; font-weight: 500; }
                 .pf-row-chevron { color: rgba(255,255,255,0.25); flex-shrink: 0; }
-                .pf-logout-btn {
-                    width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
-                    margin-top: 24px; padding: 14px;
-                    background: #121214; border: 1px solid rgba(255,255,255,0.08);
-                    border-radius: 16px; color: #ffffff; font-size: 14px; font-weight: 600;
-                    cursor: pointer; transition: background 0.15s;
-                }
+                .pf-logout-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 24px; padding: 14px; background: #121214; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; color: #ffffff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
                 .pf-logout-btn:active { background: rgba(255,255,255,0.08); }
                 @keyframes pfSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
                 @keyframes pfSlideDown { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }

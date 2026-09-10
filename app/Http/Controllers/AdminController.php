@@ -444,6 +444,8 @@ public function reports(Request $request): Response
               ->where('reason', 'not like', '[Video:%');
         }),
         'appeal' => $query->where('reason', 'like', '[Suspension Appeal]%'),
+        'verification' => $query->where('reason', 'like', '[Verification Request]%'),
+        'bug'          => $query->where('reason', 'like', '[Bug Report]%'),
         default => null,
     };
 
