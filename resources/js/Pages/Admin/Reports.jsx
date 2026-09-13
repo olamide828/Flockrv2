@@ -5,7 +5,7 @@ import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
   RiAlertLine, RiBarChartLine, RiArrowRightLine,
   RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine,
-  RiChat1Line, RiLoader4Line, RiArrowDownSLine,
+  RiChat1Line, RiLoader4Line, RiArrowDownSLine, RiAlertLine, 
 } from 'react-icons/ri'
 
 function AdminLayout({ children, active }) {
@@ -18,6 +18,7 @@ function AdminLayout({ children, active }) {
     { href: '/admin/reports',   icon: RiAlertLine,       label: 'Reports'   },
     { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
     { href: '/admin/disputes', icon: RiAlertLine, label: 'Disputes' },
+    { href: '/admin/events', icon: RiAlertLine, label: 'Events' }, 
   ]
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>

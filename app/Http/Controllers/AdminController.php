@@ -562,4 +562,9 @@ public function disputesPage(): Response
     return Inertia::render('Admin/Disputes');
 }
 
+public function eventsPage(): Response
+{
+    return Inertia::render('Admin/Events');
+}
+
 }

@@ -932,36 +932,28 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
 
                 {/* Mobile sticky buy bar */}
                 <div className="glass-dark fixed right-0 bottom-16 left-0 z-30 border-t border-white/[0.06] p-4 md:hidden">
-                    <div className="flex items-center gap-3">
-                    
-<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-        {product.event_price ? (
-            <>
-                <span className="font-display text-3xl font-bold" style={{ color: product.active_event?.theme_color ?? '#FF6B35' }}>₦{Number(product.event_price).toLocaleString()}</span>
-                <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.price).toLocaleString()}</span>
-            </>
-        ) : (
-            <>
-                <span className="text-flockr-orange font-display text-3xl font-bold">₦{Number(product.price).toLocaleString()}</span>
-                {product.compare_price && <span className="text-flockr-muted mb-0.5 text-lg line-through">₦{Number(product.compare_price).toLocaleString()}</span>}
-            </>
-        )}
+    <div className="flex items-center gap-3">
+        <div>
+            {product.event_price ? (
+                <>
+                    <p className="text-lg font-bold" style={{ color: product.active_event?.theme_color ?? '#FF6B35' }}>₦{Number(product.event_price).toLocaleString()}</p>
+                    <p className="text-flockr-muted text-xs line-through">₦{Number(product.price).toLocaleString()}</p>
+                </>
+            ) : (
+                <>
+                    <p className="text-flockr-orange text-lg font-bold">₦{Number(product.price).toLocaleString()}</p>
+                    {product.compare_price && <p className="text-flockr-muted text-xs line-through">₦{Number(product.compare_price).toLocaleString()}</p>}
+                </>
+            )}
+        </div>
+        <button onClick={handleAddToCart} disabled={!product.is_in_stock || addingToCart} className="btn-ghost flex items-center justify-center gap-2 rounded-2xl px-4 py-3 disabled:opacity-60">
+            {addedToCart ? '✓' : <RiShoppingCart2Line size={18} />}
+        </button>
+        <button onClick={handleBuy} disabled={!product.is_in_stock || buying} className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3 disabled:opacity-60">
+            {buying ? 'Processing...' : product.is_in_stock ? `Buy Now · ₦${totalPrice}` : 'Out of Stock'}
+        </button>
     </div>
-    {product.active_event && (
-        <span style={{ alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 999, background: `${product.active_event.theme_color ?? '#FF6B35'}22`, border: `1px solid ${product.active_event.theme_color ?? '#FF6B35'}55`, color: product.active_event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700 }}>
-            {product.active_event.title}
-        </span>
-    )}
 </div>
-                        <button onClick={handleAddToCart} disabled={!product.is_in_stock || addingToCart} className="btn-ghost flex items-center justify-center gap-2 rounded-2xl px-4 py-3 disabled:opacity-60">
-                            {addedToCart ? '✓' : <RiShoppingCart2Line size={18} />}
-                        </button>
-                        <button onClick={handleBuy} disabled={!product.is_in_stock || buying} className="btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3 disabled:opacity-60">
-                            {buying ? 'Processing...' : product.is_in_stock ? `Buy Now · ₦${totalPrice}` : 'Out of Stock'}
-                        </button>
-                    </div>
-                </div>
             </div>
 
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

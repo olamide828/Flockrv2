@@ -6,6 +6,7 @@ use App\Http\Controllers\BuyerOnboardingController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\ConversationController;
+use App\Http\Controllers\EventController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
@@ -29,6 +30,8 @@ Route::get('/@{username}/products/{product:slug}', [ProductController::class, 's
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
 Route::get('/community', [CommunityController::class, 'index'])->name('community');
 Route::get('/community/posts/{post}', [CommunityController::class, 'showPostPage'])->name('community.post');
+Route::get('/events', [EventController::class, 'indexPage'])->name('events.index');
+Route::get('/events/{event}', [EventController::class, 'showPage']);
 
 Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
 Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
@@ -136,6 +139,7 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     Route::get('/analytics',  [AdminController::class, 'analyticsPage'])->name('admin.analytics');
 Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name('flagged-sellers');
 Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
+Route::get('/admin/events', [AdminController::class, 'eventsPage'])->name('admin.events');
     });
 });
 

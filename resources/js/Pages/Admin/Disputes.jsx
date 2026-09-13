@@ -3,7 +3,7 @@ import { Head, Link, router } from '@inertiajs/react'
 import axios from 'axios'
 import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
-  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line,
+  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line, RiAlertLine, 
 } from 'react-icons/ri'
 import DisputeLightbox from "../Order/DisputeLightBox"
 
@@ -17,6 +17,7 @@ function AdminLayout({ children, active }) {
     { href: '/admin/reports',   icon: RiAlertLine,       label: 'Reports'   },
     { href: '/admin/disputes',  icon: RiAlertLine,       label: 'Disputes'  },
     { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
+    { href: '/admin/events', icon: RiAlertLine, label: 'Events' },
   ]
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>

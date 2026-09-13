@@ -749,6 +749,12 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
         Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
         Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
 
+        Route::get('/events', [EventController::class, 'adminIndex']);
+Route::post('/events', [EventController::class, 'adminStore']);
+Route::put('/events/{event}', [EventController::class, 'adminUpdate']);
+Route::post('/events/{event}/publish', [EventController::class, 'adminPublish']);
+Route::post('/events/{event}/end', [EventController::class, 'adminEnd']);
+
     Route::get('/users/{user}/details', function (\App\Models\User $user) {
         return response()->json([
         'user' => [
@@ -783,7 +789,7 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
 
         });
 
-    Route::get('/users/search', function (\Illuminate\Http\Request $request) {
+    Route::get('/users/search', function (Request $request) {
         $q = $request->input('q', '');
         if (strlen($q) < 2)
             return response()->json([]);

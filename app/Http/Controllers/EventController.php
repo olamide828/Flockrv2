@@ -90,4 +90,93 @@ class EventController extends Controller
 
         return response()->json(['message' => 'You have left the event.']);
     }
+
+    public function indexPage(): \Inertia\Response
+{
+    return \Inertia\Inertia::render('Events/Index');
+}
+
+public function showPage(Event $event): \Inertia\Response
+{
+    $productIds = \App\Models\Product::whereIn(
+        'seller_id',
+        $event->participants()->pluck('seller_id')
+    )->where('status', 'active')->pluck('id');
+
+    $products = \App\Models\Product::whereIn('id', $productIds)
+        ->with('seller:id,name,username,avatar')
+        ->get();
+
+    $myParticipation = Auth::check()
+        ? $event->participants()->where('seller_id', Auth::id())->first()
+        : null;
+
+    return \Inertia\Inertia::render('Events/Show', [
+        'event'           => $event->loadCount('participants'),
+        'products'        => $products,
+        'myParticipation' => $myParticipation,
+    ]);
+}
+
+// ── Admin CRUD ──────────────────────────────────────────────────────────
+public function adminIndex(): JsonResponse
+{
+    return response()->json(Event::withCount('participants')->latest()->get());
+}
+
+public function adminStore(Request $request): JsonResponse
+{
+    $validated = $request->validate([
+        'title'                        => 'required|string|max:150',
+        'description'                  => 'nullable|string|max:1000',
+        'theme_color'                  => 'nullable|string|max:7',
+        'banner_image'                 => 'nullable|string',
+        'starts_at'                    => 'required|date',
+        'ends_at'                      => 'required|date|after:starts_at',
+        'discount_tiers'               => 'required|array|min:1',
+        'discount_tiers.*'             => 'integer|min:1|max:90',
+        'scavenger_hunt_target'        => 'nullable|integer|min:2',
+        'scavenger_hunt_coupon_amount' => 'nullable|numeric|min:0',
+        'event_fee_percent'            => 'nullable|integer|min:0|max:100',
+    ]);
+
+    $event = Event::create(array_merge($validated, ['status' => 'draft']));
+    return response()->json($event, 201);
+}
+
+public function adminUpdate(Request $request, Event $event): JsonResponse
+{
+    $validated = $request->validate([
+        'title'                        => 'sometimes|string|max:150',
+        'description'                  => 'nullable|string|max:1000',
+        'theme_color'                  => 'nullable|string|max:7',
+        'banner_image'                 => 'nullable|string',
+        'starts_at'                    => 'sometimes|date',
+        'ends_at'                      => 'sometimes|date|after:starts_at',
+        'discount_tiers'               => 'sometimes|array|min:1',
+        'discount_tiers.*'             => 'integer|min:1|max:90',
+        'scavenger_hunt_target'        => 'nullable|integer|min:2',
+        'scavenger_hunt_coupon_amount' => 'nullable|numeric|min:0',
+        'event_fee_percent'            => 'nullable|integer|min:0|max:100',
+    ]);
+
+    $event->update($validated);
+    return response()->json($event);
+}
+
+public function adminPublish(Event $event): JsonResponse
+{
+    if ($event->status !== 'draft') {
+        return response()->json(['message' => 'Only draft events can be published.'], 422);
+    }
+    $event->update(['status' => $event->starts_at->isPast() ? 'active' : 'scheduled']);
+    return response()->json($event);
+}
+
+public function adminEnd(Event $event): JsonResponse
+{
+    $event->update(['status' => 'ended', 'ends_at' => now()]);
+    return response()->json($event);
+}
+
 }
