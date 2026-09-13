@@ -5,7 +5,7 @@ import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
   RiAlertLine, RiBarChartLine, RiArrowRightLine,
   RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine,
-  RiChat1Line, RiLoader4Line, RiArrowDownSLine, RiAlertLine, 
+  RiChat1Line, RiLoader4Line, RiArrowDownSLine,  
 } from 'react-icons/ri'
 
 function AdminLayout({ children, active }) {

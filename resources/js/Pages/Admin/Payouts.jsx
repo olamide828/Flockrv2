@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
   RiAlertLine, RiBarChartLine, RiArrowRightLine, RiSearchLine,
-  RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine, RiMoneyDollarCircleLine, RiAlertLine, 
+  RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine, RiMoneyDollarCircleLine,  
 } from 'react-icons/ri'
 
 function AdminLayout({ children, active }) {
