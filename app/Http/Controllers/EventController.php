@@ -7,6 +7,7 @@ use App\Models\EventParticipant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class EventController extends Controller
 {
@@ -104,8 +105,21 @@ public function showPage(Event $event): \Inertia\Response
     )->where('status', 'active')->pluck('id');
 
     $products = \App\Models\Product::whereIn('id', $productIds)
-        ->with('seller:id,name,username,avatar')
+        ->with(['seller:id,name,username,avatar', 'category:id,name'])
         ->get();
+
+    $userId = Auth::id();
+    if ($userId) {
+        $savedIds = \DB::table('product_saves')
+            ->where('user_id', $userId)
+            ->whereIn('product_id', $products->pluck('id')->toArray())
+            ->pluck('product_id')
+            ->flip()
+            ->toArray();
+        $products->each(fn($p) => $p->is_saved = isset($savedIds[$p->id]));
+    } else {
+        $products->each(fn($p) => $p->is_saved = false);
+    }
 
     $myParticipation = Auth::check()
         ? $event->participants()->where('seller_id', Auth::id())->first()
@@ -169,8 +183,22 @@ public function adminPublish(Event $event): JsonResponse
     if ($event->status !== 'draft') {
         return response()->json(['message' => 'Only draft events can be published.'], 422);
     }
-    $event->update(['status' => $event->starts_at->isPast() ? 'active' : 'scheduled']);
+
+    $goingLive = $event->starts_at->isPast();
+    $event->update(['status' => $goingLive ? 'active' : 'scheduled']);
+
+    $service = app(\App\Services\EventService::class);
+    $goingLive ? $service->notifyEventLive($event) : $service->notifySellersUpcoming($event);
+
     return response()->json($event);
+}
+
+public function adminUploadBanner(Request $request): JsonResponse
+{
+    $request->validate(['image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120']);
+    $storage = app(\App\Services\StorageService::class);
+    $key = $storage->uploadImage($request->file('image'), 'events');
+    return response()->json(['url' => $storage->url($key)]);
 }
 
 public function adminEnd(Event $event): JsonResponse

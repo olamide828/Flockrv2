@@ -65,4 +65,37 @@ class EventService
             } catch (\Throwable) {}
         }
     }
+
+    public function notifySellersUpcoming(Event $event): void
+{
+    \App\Models\User::where('role', 'seller')->where('is_active', true)
+        ->chunk(200, function ($sellers) use ($event) {
+            foreach ($sellers as $seller) {
+                try {
+                    $seller->notify(new \App\Notifications\EventAnnouncementNotification(
+                        $event,
+                        "📅 {$event->title} is coming!",
+                        "Join now and pick your discount tier before it goes live on " . $event->starts_at->format('M j, g:ia') . "."
+                    ));
+                } catch (\Throwable) {}
+            }
+        });
+}
+
+public function notifyEventLive(Event $event): void
+{
+    \App\Models\User::where('is_active', true)
+        ->chunk(200, function ($users) use ($event) {
+            foreach ($users as $user) {
+                try {
+                    $user->notify(new \App\Notifications\EventAnnouncementNotification(
+                        $event,
+                        "🎉 {$event->title} is live now!",
+                        $event->description ?? 'Check out the deals before they end.'
+                    ));
+                } catch (\Throwable) {}
+            }
+        });
+}
+
 }

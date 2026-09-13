@@ -43,6 +43,24 @@ const STATUS_CFG = {
   ended:     { label: 'Ended',     color: '#9CA3AF', bg: 'rgba(156,163,175,0.12)' },
 }
 
+const [uploadingBanner, setUploadingBanner] = useState(false)
+
+const handleBannerUpload = async (e) => {
+  const file = e.target.files?.[0]
+  if (!file) return
+  setUploadingBanner(true)
+  try {
+    const fd = new FormData()
+    fd.append('image', file)
+    const { data } = await axios.post('/api/admin/events/upload-banner', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    set('banner_image', data.url)
+  } catch {
+    alert('Failed to upload banner.')
+  } finally {
+    setUploadingBanner(false)
+  }
+}
+
 function EventForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial ?? {
     title: '', description: '', theme_color: '#FF6B35', banner_image: '',
@@ -78,7 +96,20 @@ function EventForm({ initial, onSave, onCancel }) {
       <div><label style={lbl}>Description</label><textarea style={{ ...inp, resize: 'none' }} rows={2} value={form.description} onChange={e => set('description', e.target.value)} /></div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div><label style={lbl}>Theme color</label><input type="color" style={{ ...inp, height: 40, padding: 4 }} value={form.theme_color} onChange={e => set('theme_color', e.target.value)} /></div>
-        <div><label style={lbl}>Banner image URL</label><input style={inp} value={form.banner_image ?? ''} onChange={e => set('banner_image', e.target.value)} /></div>
+<div>
+  <label style={lbl}>Banner image</label>
+  {form.banner_image ? (
+    <div style={{ position: 'relative', marginBottom: 8 }}>
+      <img src={form.banner_image} alt="" style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 10 }} />
+      <button onClick={() => set('banner_image', '')} style={{ position: 'absolute', top: 6, right: 6, width: 26, height: 26, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+    </div>
+  ) : (
+    <label style={{ ...inp, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80, cursor: uploadingBanner ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.4)' }}>
+      {uploadingBanner ? 'Uploading…' : 'Click to upload banner image'}
+      <input type="file" accept="image/*" disabled={uploadingBanner} onChange={handleBannerUpload} style={{ display: 'none' }} />
+    </label>
+  )}
+</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div><label style={lbl}>Starts at</label><input type="datetime-local" style={inp} value={form.starts_at?.slice(0,16) ?? ''} onChange={e => set('starts_at', e.target.value)} /></div>

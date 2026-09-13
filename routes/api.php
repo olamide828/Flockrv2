@@ -754,6 +754,7 @@ Route::post('/events', [EventController::class, 'adminStore']);
 Route::put('/events/{event}', [EventController::class, 'adminUpdate']);
 Route::post('/events/{event}/publish', [EventController::class, 'adminPublish']);
 Route::post('/events/{event}/end', [EventController::class, 'adminEnd']);
+Route::post('/events/upload-banner', [EventController::class, 'adminUploadBanner']);
 
     Route::get('/users/{user}/details', function (\App\Models\User $user) {
         return response()->json([
