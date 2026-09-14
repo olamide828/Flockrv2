@@ -1,6 +1,6 @@
 // Shop/Index.jsx — Refined
 import { useState, useEffect, useRef } from 'react'
-import { Head } from '@inertiajs/react'
+import { Head, Link } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import ProductCard from '@/Components/Product/ProductCard'
 import axios from 'axios'
