@@ -712,10 +712,10 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
         )}
     </div>
     {product.active_event && (
-        <span style={{ alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 999, background: `${product.active_event.theme_color ?? '#FF6B35'}22`, border: `1px solid ${product.active_event.theme_color ?? '#FF6B35'}55`, color: product.active_event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700 }}>
-            {product.active_event.title}
-        </span>
-    )}
+    <span style={{ alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 999, background: `${product.active_event.theme_color ?? '#FF6B35'}22`, border: `1px solid ${product.active_event.theme_color ?? '#FF6B35'}55`, color: product.active_event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700 }}>
+        {product.event_discount_percent}% off · {product.active_event.title}
+    </span>
+)}
 </div>
                                 {showRating && (
                                     <button onClick={() => handleTabClick('reviews')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>

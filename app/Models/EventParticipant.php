@@ -7,7 +7,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EventParticipant extends Model
 {
-    protected $fillable = ['event_id', 'seller_id', 'discount_percent'];
+    protected $fillable = [
+        'event_id', 
+        'seller_id', 
+        'discount_percent', 
+        'final_stats'
+    ];
+
+    /**
+     * 
+     *
+     * @var array
+     */
+    protected $casts = [
+        'final_stats' => 'array',
+    ];
 
     public function event(): BelongsTo
     {

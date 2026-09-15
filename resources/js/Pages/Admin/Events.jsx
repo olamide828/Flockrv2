@@ -5,6 +5,8 @@ import {
   RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
   RiAlertLine, RiBarChartLine, RiArrowRightLine, RiAddLine, RiCloseLine,
 } from 'react-icons/ri'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
+import { useToast } from '@/Components/Toast'
 
 function AdminLayout({ children, active }) {
   const links = [
@@ -43,9 +45,20 @@ const STATUS_CFG = {
   ended:     { label: 'Ended',     color: '#9CA3AF', bg: 'rgba(156,163,175,0.12)' },
 }
 
-const [uploadingBanner, setUploadingBanner] = useState(false)
 
-const handleBannerUpload = async (e) => {
+
+function EventForm({ initial, onSave, onCancel }) {
+  const [form, setForm] = useState(initial ?? {
+    title: '', description: '', theme_color: '#FF6B35', banner_image: '',
+    starts_at: '', ends_at: '', discount_tiers: '5,10,15', max_sellers: '',
+    scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [uploadingBanner, setUploadingBanner] = useState(false) 
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  const handleBannerUpload = async (e) => {
   const file = e.target.files?.[0]
   if (!file) return
   setUploadingBanner(true)
@@ -55,21 +68,11 @@ const handleBannerUpload = async (e) => {
     const { data } = await axios.post('/api/admin/events/upload-banner', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     set('banner_image', data.url)
   } catch {
-    alert('Failed to upload banner.')
+    showToast('Failed to upload banner.', 'error')
   } finally {
     setUploadingBanner(false)
   }
 }
-
-function EventForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial ?? {
-    title: '', description: '', theme_color: '#FF6B35', banner_image: '',
-    starts_at: '', ends_at: '', discount_tiers: '5,10,15',
-    scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '',
-  })
-  const [saving, setSaving] = useState(false)
-
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   const submit = async () => {
     setSaving(true)
@@ -80,6 +83,7 @@ function EventForm({ initial, onSave, onCancel }) {
         scavenger_hunt_target: form.scavenger_hunt_target || null,
         scavenger_hunt_coupon_amount: form.scavenger_hunt_coupon_amount || null,
         event_fee_percent: form.event_fee_percent || null,
+        max_sellers: form.max_sellers || null,
       }
       await onSave(payload)
     } finally {
@@ -116,6 +120,7 @@ function EventForm({ initial, onSave, onCancel }) {
         <div><label style={lbl}>Ends at</label><input type="datetime-local" style={inp} value={form.ends_at?.slice(0,16) ?? ''} onChange={e => set('ends_at', e.target.value)} /></div>
       </div>
       <div><label style={lbl}>Discount tiers (comma-separated %)</label><input style={inp} value={form.discount_tiers} onChange={e => set('discount_tiers', e.target.value)} placeholder="5,10,15" /></div>
+      <div><label style={lbl}>Max sellers (min 5, leave blank for unlimited)</label><input type="number" style={inp} value={form.max_sellers ?? ''} onChange={e => set('max_sellers', e.target.value)} placeholder="e.g. 10" /></div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <div><label style={lbl}>Scavenger hunt: sellers</label><input type="number" style={inp} value={form.scavenger_hunt_target ?? ''} onChange={e => set('scavenger_hunt_target', e.target.value)} placeholder="e.g. 3" /></div>
         <div><label style={lbl}>Hunt reward (₦)</label><input type="number" style={inp} value={form.scavenger_hunt_coupon_amount ?? ''} onChange={e => set('scavenger_hunt_coupon_amount', e.target.value)} placeholder="e.g. 500" /></div>
@@ -154,11 +159,20 @@ export default function AdminEvents() {
     load()
   }
 
-  const endNow = async (event) => {
-    if (!confirm(`End "${event.title}" now?`)) return
-    await axios.post(`/api/admin/events/${event.id}/end`)
+ const { showToast, ToastComponent } = useToast()
+const [confirmEnd, setConfirmEnd] = useState(null) 
+
+const endNow = (event) => setConfirmEnd(event)
+
+const handleConfirmEnd = async () => {
+  try {
+    await axios.post(`/api/admin/events/${confirmEnd.id}/end`)
+    showToast(`"${confirmEnd.title}" has been ended.`, 'success')
     load()
+  } catch {
+    showToast('Failed to end event.', 'error')
   }
+}
 
   return (
     <AdminLayout active="/admin/events">
@@ -212,6 +226,17 @@ export default function AdminEvents() {
         })}
         {events.length === 0 && <p style={{ textAlign: 'center', padding: 48, color: 'rgba(255,255,255,0.3)' }}>No events yet.</p>}
       </div>
+      {ToastComponent}
+{confirmEnd && (
+  <ConfirmModal
+    title="End this event?"
+    message={`"${confirmEnd.title}" will be marked as ended immediately, and all seller discounts will revert.`}
+    confirmLabel="End Event"
+    danger
+    onConfirm={handleConfirmEnd}
+    onClose={() => setConfirmEnd(null)}
+  />
+)}
     </AdminLayout>
   )
 }

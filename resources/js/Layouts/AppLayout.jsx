@@ -82,6 +82,17 @@ useEffect(() => {
   }).catch(() => {})
 }, [auth?.user])
 
+useEffect(() => {
+  if (!auth?.user) return
+  axios.get('/api/events').then(r => {
+    const events = r.data ?? []
+    const candidate = events.find(e => e.status === 'active') ?? events.find(e => e.status === 'scheduled')
+    if (!candidate) return
+    const seenKey = `flockr_event_seen_${candidate.id}`
+    if (!localStorage.getItem(seenKey)) setAnnounceEvent(candidate)
+  }).catch(() => {})
+}, [auth?.user])
+
 const dismissEventAnnounce = () => {
   if (announceEvent) localStorage.setItem(`flockr_event_seen_${announceEvent.id}`, '1')
   setAnnounceEvent(null)

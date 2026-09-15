@@ -14,7 +14,9 @@ export default function EventAnnounceModal({ event, onClose }) {
           : <div style={{ width: '100%', height: 140, background: `linear-gradient(135deg, ${event.theme_color ?? '#FF6B35'}, #111)` }} />
         }
         <div style={{ padding: '20px 22px 24px' }}>
-          <p style={{ margin: '0 0 6px', color: event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Happening now</p>
+          <p style={{ margin: '0 0 6px', color: event.theme_color ?? '#FF6B35', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+  {event.status === 'active' ? 'Happening now' : 'Coming soon'}
+</p>
           <h2 style={{ margin: '0 0 8px', color: '#fff', fontSize: 21, fontWeight: 800 }}>{event.title}</h2>
           {event.description && <p style={{ margin: '0 0 18px', color: 'rgba(255,255,255,0.5)', fontSize: 13, lineHeight: 1.6 }}>{event.description}</p>}
           <Link href={`/events/${event.id}`} onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', background: event.theme_color ?? '#FF6B35', borderRadius: 14, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>

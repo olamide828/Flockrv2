@@ -1,28 +1,45 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Head, usePage } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import ProductCard from '@/Components/Product/ProductCard'
 import axios from 'axios'
-import { RiCheckLine, RiLoader4Line, RiArrowLeftLine } from 'react-icons/ri'
+import { RiCheckLine, RiLoader4Line, RiArrowLeftLine, RiArrowLeftSLine, RiArrowRightSLine } from 'react-icons/ri'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
+import { useToast } from '@/Components/Toast'
+
+function HScroller({ children }) {
+  const ref = useRef(null)
+  const scroll = (dir) => ref.current?.scrollBy({ left: dir * 320, behavior: 'smooth' })
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => scroll(-1)} className="hscroller-arrow hscroller-left"><RiArrowLeftSLine size={18} /></button>
+      <div ref={ref} style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
+        {children}
+      </div>
+      <button onClick={() => scroll(1)} className="hscroller-arrow hscroller-right"><RiArrowRightSLine size={18} /></button>
+    </div>
+  )
+}
 
 export default function EventShow({ event, products = [], myParticipation }) {
   const { auth } = usePage().props
   const [countdown, setCountdown]   = useState('')
   const [joining, setJoining]       = useState(false)
   const [joined, setJoined]         = useState(myParticipation)
+const { showToast, ToastComponent } = useToast()
+const [confirmLeave, setConfirmLeave] = useState(false)
+
 
   const [leaving, setLeaving] = useState(false)
 
+
 const handleLeave = async () => {
-  if (!confirm('Leave this event? Your prices will return to normal.')) return
-  setLeaving(true)
   try {
     await axios.delete(`/api/events/${event.id}/join`)
     setJoined(null)
+    showToast('You left the event.', 'success')
   } catch (e) {
-    alert(e.response?.data?.message ?? 'Failed to leave event.')
-  } finally {
-    setLeaving(false)
+    showToast(e.response?.data?.message ?? 'Failed to leave event.', 'error')
   }
 }
 
@@ -50,16 +67,17 @@ const byCategory = products.reduce((acc, p) => {
   const isSeller = auth?.user?.role === 'seller'
 
   const handleJoin = async (percent) => {
-    setJoining(true)
-    try {
-      const { data } = await axios.post(`/api/events/${event.id}/join`, { discount_percent: percent })
-      setJoined(data.participant)
-    } catch (e) {
-      alert(e.response?.data?.message ?? 'Failed to join event.')
-    } finally {
-      setJoining(false)
-    }
+  setJoining(true)
+  try {
+    const { data } = await axios.post(`/api/events/${event.id}/join`, { discount_percent: percent })
+    setJoined(data.participant)
+    showToast(`You're in with ${percent}% off!`, 'success')
+  } catch (e) {
+    showToast(e.response?.data?.message ?? 'Failed to join event.', 'error')
+  } finally {
+    setJoining(false)
   }
+}
 
   return (
     <>
@@ -88,7 +106,11 @@ const byCategory = products.reduce((acc, p) => {
 
           <h1 style={{ margin: '0 0 10px', fontSize: 26, fontWeight: 800 }}>{event.title}</h1>
           {event.description && <p style={{ margin: '0 0 20px', color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 1.6 }}>{event.description}</p>}
-
+          {event.max_sellers && (
+  <p style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+    {event.participants_count}/{event.max_sellers} sellers joined{event.participants_count >= event.max_sellers ? ' — full' : ''}
+  </p>
+)}
           {isSeller && event.status !== 'ended' && (
   <div style={{ padding: '18px', background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, marginBottom: 24 }}>
     {joined ? (
@@ -98,9 +120,9 @@ const byCategory = products.reduce((acc, p) => {
           <span style={{ fontSize: 14, fontWeight: 600 }}>You're in with {joined.discount_percent}% off — your prices update automatically for this event.</span>
         </div>
         {event.status !== 'active' && (
-          <button onClick={handleLeave} disabled={leaving} style={{ padding: '9px 16px', borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            {leaving ? 'Leaving…' : 'Leave event'}
-          </button>
+          <button onClick={() => setConfirmLeave(true)} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+  Leave event
+</button>
         )}
       </div>
     ) : (
@@ -147,9 +169,9 @@ const byCategory = products.reduce((acc, p) => {
   <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>No sellers have joined yet — check back soon.</p>
 ) : (
   <>
-    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none', marginBottom: 32 }}>
+    <HScroller>
       {products.map(p => <div key={p.id} style={{ flexShrink: 0, width: 160 }}><ProductCard product={p} /></div>)}
-    </div>
+    </HScroller>
 
     {Object.entries(byCategory).map(([catName, catProducts]) => (
       <div key={catName} style={{ marginBottom: 32 }}>
@@ -161,9 +183,29 @@ const byCategory = products.reduce((acc, p) => {
     ))}
   </>
 )}
+
+{ToastComponent}
+{confirmLeave && (
+  <ConfirmModal
+    title="Leave this event?"
+    message="You can rejoin later if it hasn't started yet."
+    confirmLabel="Leave Event"
+    danger
+    onConfirm={handleLeave}
+    onClose={() => setConfirmLeave(false)}
+  />
+)}
         </div>
       </div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+      @keyframes spin{to{transform:rotate(360deg)}}
+     .hscroller-arrow { display: none; }
+@media (min-width: 768px) {
+  .hscroller-arrow { display: flex; align-items: center; justify-content: center; position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); color: #fff; cursor: pointer; z-index: 2; }
+  .hscroller-left { left: -6px; }
+  .hscroller-right { right: -6px; }
+}
+      `}</style>
     </>
   )
 }

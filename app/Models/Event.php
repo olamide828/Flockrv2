@@ -10,7 +10,7 @@ class Event extends Model
     protected $fillable = [
         'title', 'description', 'theme_color', 'banner_image',
         'starts_at', 'ends_at', 'status', 'discount_tiers',
-        'scavenger_hunt_target', 'scavenger_hunt_coupon_amount', 'event_fee_percent',
+        'scavenger_hunt_target', 'scavenger_hunt_coupon_amount', 'event_fee_percent', 'max_sellers', 
     ];
 
     protected $casts = [

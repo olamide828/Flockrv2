@@ -1,10 +1,7 @@
 import { RiCloseLine } from 'react-icons/ri'
 
-/**
- * Generic confirm dialog — replaces window.confirm() calls, which look
- * jarring and inconsistent against the rest of the app's UI.
- */
-// NEW signature:
+
+
 export default function ConfirmModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = true, onConfirm, onClose, children }) {
   return (
     <>

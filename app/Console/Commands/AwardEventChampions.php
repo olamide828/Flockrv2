@@ -22,33 +22,56 @@ class AwardEventChampions extends Command
             ->get();
 
         foreach ($endedEvents as $event) {
-            $topSellerId = Order::whereIn('seller_id', $event->participants()->pluck('seller_id'))
-                ->whereNotIn('status', ['pending', 'cancelled', 'refunded'])
-                ->whereBetween('created_at', [$event->starts_at, $event->ends_at])
-                ->select('seller_id', DB::raw('SUM(total - platform_fee) as revenue'))
-                ->groupBy('seller_id')
-                ->orderByDesc('revenue')
-                ->value('seller_id');
+    $participants = $event->participants()->get();
 
-            if ($topSellerId) {
-                $badgeKey = 'event_champion_' . $event->id;
+    $statsBySeller = Order::whereIn('seller_id', $participants->pluck('seller_id'))
+        ->whereNotIn('status', ['pending', 'cancelled', 'refunded'])
+        ->whereBetween('created_at', [$event->starts_at, $event->ends_at])
+        ->select('seller_id', DB::raw('COUNT(*) as orders_count'), DB::raw('SUM(total - platform_fee) as revenue'))
+        ->groupBy('seller_id')
+        ->get()
+        ->keyBy('seller_id');
 
-                $badge = Badge::firstOrCreate(
-                    ['key' => $badgeKey],
-                    ['label' => "{$event->title} Champion", 'description' => "Top seller during {$event->title}"]
-                );
+    $ranked = $statsBySeller->sortByDesc('revenue')->values();
+    $topSellerId = $ranked->first()?->seller_id;
 
-                UserBadge::firstOrCreate(
-                    ['user_id' => $topSellerId, 'badge_id' => $badge->id],
-                    ['awarded_at' => now()]
-                );
+    foreach ($participants as $participant) {
+        $stat = $statsBySeller->get($participant->seller_id);
+        $rankIndex = $ranked->search(fn($s) => $s->seller_id === $participant->seller_id);
 
-                $this->info("Awarded '{$badge->label}' to seller #{$topSellerId}");
-            }
+        $finalStats = [
+            'orders_count'  => (int) ($stat->orders_count ?? 0),
+            'revenue'       => (float) ($stat->revenue ?? 0),
+            'rank'          => $rankIndex !== false ? $rankIndex + 1 : null,
+            'total_sellers' => $participants->count(),
+        ];
 
-            $event->update(['status' => 'ended']);
-        }
+        $participant->update(['final_stats' => $finalStats]);
 
+        try {
+            $participant->seller->notify(new \App\Notifications\EventNotification(
+                $event,
+                "{$event->title} has ended",
+                "You made {$finalStats['orders_count']} sale(s) worth ₦" . number_format($finalStats['revenue'], 0) . " — ranked #{$finalStats['rank']} of {$finalStats['total_sellers']} participating sellers."
+            ));
+        } catch (\Throwable) {}
+    }
+
+    if ($topSellerId) {
+        $badgeKey = 'event_champion_' . $event->id;
+        $badge = Badge::firstOrCreate(
+            ['key' => $badgeKey],
+            ['label' => "{$event->title} Champion", 'description' => "Top seller during {$event->title}"]
+        );
+        UserBadge::firstOrCreate(
+            ['user_id' => $topSellerId, 'badge_id' => $badge->id],
+            ['awarded_at' => now()]
+        );
+        $this->info("Awarded '{$badge->label}' to seller #{$topSellerId}");
+    }
+
+    $event->update(['status' => 'ended']);
+}
         $this->info('Done. ' . $endedEvents->count() . ' event(s) processed.');
     }
 }

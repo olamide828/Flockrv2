@@ -45,7 +45,7 @@ export default function Shop({ categories = [], featuredProducts = [] }) {
   const [page,        setPage]        = useState(1)
   const [hasMore,     setHasMore]     = useState(true)
   const [sortOpen,    setSortOpen]    = useState(false)
-  const [search,      setSearch]      = useState('')
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q') || '')
   const [drawerOpen,  setDrawerOpen]  = useState(false)
   const debounceRef = useRef(null)
   const sortRef     = useRef(null)
@@ -144,20 +144,23 @@ useEffect(() => {
           </div>
         </div>
       )}
+   
 
-      {activeEvent && (
-  <Link href={`/events/${activeEvent.id}`} style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: `linear-gradient(90deg, ${activeEvent.theme_color ?? '#FF6B35'}, #7a2f0f)`, textDecoration: 'none', overflow: 'hidden' }}>
-    <span style={{ padding: '3px 10px', borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>LIVE</span>
-    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-      <span style={{ display: 'block', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        🎉 {activeEvent.title} is live — {activeEvent.description ?? 'shop the deals now'}
-      </span>
-    </div>
-    <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>⏱ {countdown}</span>
-  </Link>
-)}      
+      <div className="h-screen flex flex-col bg-flockr-black overflow-hidden">
 
-      <div className="h-screen flex bg-flockr-black overflow-hidden">
+        {activeEvent && (
+          <Link href={`/events/${activeEvent.id}`} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: `linear-gradient(90deg, ${activeEvent.theme_color ?? '#FF6B35'}, #7a2f0f)`, textDecoration: 'none', overflow: 'hidden' }}>
+            <span style={{ padding: '3px 10px', borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>LIVE</span>
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <span style={{ display: 'block', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                🎉 {activeEvent.title} is live — {activeEvent.description ?? 'shop the deals now'}
+              </span>
+            </div>
+            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>⏱ {countdown}</span>
+          </Link>
+        )}
+
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
 
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-white/[0.06] overflow-y-auto scroll-hidden">
@@ -346,6 +349,7 @@ useEffect(() => {
               </>
             )}
           </div>
+        </div>
         </div>
       </div>
     </>

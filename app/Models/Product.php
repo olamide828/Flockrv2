@@ -54,7 +54,7 @@ class Product extends Model
     ];
 
 
-    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls', 'event_price', 'active_event'];
+    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls', 'event_price', 'active_event', 'event_discount_percent'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -238,6 +238,11 @@ public function getEventPriceAttribute(): ?float
     if (!$discount) return null;
 
     return round($this->price * (1 - $discount / 100), 2);
+}
+
+public function getEventDiscountPercentAttribute(): ?int
+{
+    return $this->active_event?->participants->first()?->discount_percent;
 }
 
 }
