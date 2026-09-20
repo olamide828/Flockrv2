@@ -2,7 +2,7 @@ import ProductCard from '@/Components/Product/ProductCard';
 import AppLayout from '@/Layouts/AppLayout';
 import CheckoutModal from '@/Components/CheckoutModal';
 import TrustScoreModal from '@/Components/TrustScoreModal';
-import ReportProductModal from '@/Components/ReportProductModal';
+import ReportProductModal from '@/Components/Product/ReportProductModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
