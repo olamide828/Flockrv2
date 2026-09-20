@@ -26,9 +26,9 @@ export default function EventsIndex() {
             <RiCalendarEventLine size={40} color="rgba(255,255,255,0.15)" style={{ margin: '0 auto 14px', display: 'block' }} />
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15 }}>No events right now — check back soon.</p>
           </div>
-        ) : (
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {events.map(e => (
+            {events.filter(e => e.state !== 'ended').map(e => (
               <Link key={e.id} href={`/events/${e.id}`} style={{ display: 'block', borderRadius: 20, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', textDecoration: 'none' }}>
                 {e.banner_image
                   ? <img src={e.banner_image} alt={e.title} style={{ width: '100%', height: 140, objectFit: 'cover' }} />
@@ -48,6 +48,25 @@ export default function EventsIndex() {
                 </div>
               </Link>
             ))}
+
+               {events.some(e => e.state === 'ended') && (
+              <>
+                <p style={{ margin: '20px 0 4px', color: 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 700 }}>Past Events</p>
+                {events.filter(e => e.state === 'ended').map(e => (
+                  <Link key={e.id} href={`/events/${e.id}`} style={{ display: 'block', borderRadius: 20, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none', opacity: 0.5, filter: 'grayscale(1)' }}>
+                    {e.banner_image
+                      ? <img src={e.banner_image} alt={e.title} style={{ width: '100%', height: 100, objectFit: 'cover' }} />
+                      : <div style={{ width: '100%', height: 80, background: '#1a1a1a' }} />
+                    }
+                    <div style={{ padding: '12px 16px', background: '#111' }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#fff' }}>{e.title}</p>
+                      <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Ended</p>
+                    </div>
+                  </Link>
+                ))}
+              </>
+            )}
+
           </div>
         )}
       </div>

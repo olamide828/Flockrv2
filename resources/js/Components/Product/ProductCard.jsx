@@ -102,6 +102,18 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     <span className="badge badge-orange absolute top-2 left-2">-{product.discount_percent}%</span>
                 )}
 
+                 <>
+                 {product.discount_percent ? (
+                                 <span className="badge badge-orange absolute top-2 left-2">
+                                 -{product.discount_percent}% OFF
+                                 </span>
+                                ) : product.event_discount_percent ? (
+                                 <span className="badge badge-orange absolute top-2 left-2">
+                                 -{product.event_discount_percent}% OFF 
+                                 </span>
+                                ) : null}
+                           </>
+
                 {/* Sold out overlay */}
                 {!product.is_in_stock && (
                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -163,27 +175,24 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     </div>
                 )}
 
+               
+
                 {/* Price row */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 6 }}>
                     <div style={{ minWidth: 0 }}>
                         <div style={{ color: '#FF6B35', fontWeight: 700, fontSize: 14, lineHeight: 1 }}>
-                            ₦{Number(product.price).toLocaleString()}
+                            ₦{Number(product.event_price ?? product.price).toLocaleString()}
                         </div>
-                        {product.compare_price && (
+                        {product.event_price ? (
+                            <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, textDecoration: 'line-through', marginTop: 2 }}>
+                                ₦{Number(product.price).toLocaleString()}
+                            </div>
+                        ) : product.compare_price && (
                             <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, textDecoration: 'line-through', marginTop: 2 }}>
                                 ₦{Number(product.compare_price).toLocaleString()}
                             </div>
                         )}
                     </div>
-                    {product.is_in_stock && (
-                        <button
-                            onClick={handleBuy}
-                            style={{ padding: '6px 12px', background: '#ff5c00', border: 'none', borderRadius: 999, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
-                        >
-                            Buy
-                        </button>
-                    )}
-                </div>
 
                 {/* Sold + rating */}
                 {(product.orders_count > 0 || showRating) && (

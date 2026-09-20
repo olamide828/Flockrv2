@@ -119,12 +119,28 @@ function EventForm({ initial, onSave, onCancel }) {
         <div><label style={lbl}>Starts at</label><input type="datetime-local" style={inp} value={form.starts_at?.slice(0,16) ?? ''} onChange={e => set('starts_at', e.target.value)} /></div>
         <div><label style={lbl}>Ends at</label><input type="datetime-local" style={inp} value={form.ends_at?.slice(0,16) ?? ''} onChange={e => set('ends_at', e.target.value)} /></div>
       </div>
-      <div><label style={lbl}>Discount tiers (comma-separated %)</label><input style={inp} value={form.discount_tiers} onChange={e => set('discount_tiers', e.target.value)} placeholder="5,10,15" /></div>
-      <div><label style={lbl}>Max sellers (min 5, leave blank for unlimited)</label><input type="number" style={inp} value={form.max_sellers ?? ''} onChange={e => set('max_sellers', e.target.value)} placeholder="e.g. 10" /></div>
+        <div>
+        <label style={lbl}>Discount tiers (comma-separated %)</label>
+        <input style={inp} value={form.discount_tiers} onChange={e => set('discount_tiers', e.target.value)} placeholder="5,10,15" />
+        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Sellers pick ONE of these percentages when they join — this is how much their prices drop for the whole event.</p>
+      </div>
+      <div>
+        <label style={lbl}>Max sellers (min 5, leave blank for unlimited)</label>
+        <input type="number" style={inp} value={form.max_sellers ?? ''} onChange={e => set('max_sellers', e.target.value)} placeholder="e.g. 10" />
+        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Caps how many sellers can join, to keep the event exclusive. Leave blank for no limit.</p>
+        </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <div><label style={lbl}>Scavenger hunt: sellers</label><input type="number" style={inp} value={form.scavenger_hunt_target ?? ''} onChange={e => set('scavenger_hunt_target', e.target.value)} placeholder="e.g. 3" /></div>
+        <div>
+          <label style={lbl}>Scavenger hunt: sellers</label>
+          <input type="number" style={inp} value={form.scavenger_hunt_target ?? ''} onChange={e => set('scavenger_hunt_target', e.target.value)} placeholder="e.g. 3" />
+          <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Buyers who purchase from this many DIFFERENT participating sellers automatically earn the reward coupon below.</p>
+          </div>
         <div><label style={lbl}>Hunt reward (₦)</label><input type="number" style={inp} value={form.scavenger_hunt_coupon_amount ?? ''} onChange={e => set('scavenger_hunt_coupon_amount', e.target.value)} placeholder="e.g. 500" /></div>
-        <div><label style={lbl}>Event fee % (optional)</label><input type="number" style={inp} value={form.event_fee_percent ?? ''} onChange={e => set('event_fee_percent', e.target.value)} placeholder="e.g. 2" /></div>
+        <div>
+          <label style={lbl}>Event fee % (optional)</label>
+        <input type="number" style={inp} value={form.event_fee_percent ?? ''} onChange={e => set('event_fee_percent', e.target.value)} placeholder="e.g. 2" />
+        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Lowers Flockr's normal 5% commission to this number for participating sellers, as an incentive to join. Leave blank to keep it at 5%.</p>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <button onClick={submit} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, background: '#FF6B35', border: 'none', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>

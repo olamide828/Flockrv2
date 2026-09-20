@@ -30,7 +30,15 @@ class EventController extends Controller
         ->get()
         ->each(fn($e) => $e->state = 'upcoming');
 
-    return response()->json($active->concat($upcoming)->values());
+    $ended = Event::where('status', 'ended')
+        ->orderByDesc('ends_at')
+        ->limit(10)
+        ->withCount('participants')
+        ->get()
+        ->each(fn($e) => $e->state = 'ended');
+
+    return response()->json($active->concat($upcoming)->concat($ended)->values());
+}
 }
 
     /**

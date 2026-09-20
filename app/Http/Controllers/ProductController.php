@@ -133,7 +133,7 @@ class ProductController extends Controller
         $productTotalReviews = (int)   ($product->total_reviews ?? 0);
 
         // ── Initial reviews for this specific product ─────────────────────────
-        $reviews = \App\Models\Review::where('product_id', $product->id)
+        $reviews = Review::where('product_id', $product->id)
             ->with('buyer:id,name,avatar')
             ->latest()
             ->limit(10)
@@ -149,7 +149,7 @@ class ProductController extends Controller
         $userOrderId = null;
         try {
             if ($user = Auth::user()) {
-                $eligibleOrder = \App\Models\Order::where('buyer_id', $user->id)
+                $eligibleOrder = Order::where('buyer_id', $user->id)
                     ->where('seller_id', $product->seller_id)
                     ->where('status', 'delivered')
                     ->whereHas('items', fn($q) => $q->where('product_id', $product->id))
@@ -264,6 +264,30 @@ class ProductController extends Controller
         }
 
         return response()->json($products);
+    }
+
+        public function report(Request $request, Product $product): JsonResponse
+    {
+        if (Auth::id() === $product->seller_id) {
+            return response()->json(['message' => 'You cannot report your own product.'], 422);
+        }
+
+        $validated = $request->validate([
+            'reason'      => 'required|string|max:200',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $fullReason = "[Product: {$product->slug}] {$validated['reason']}"
+            . ($validated['description'] ? ": {$validated['description']}" : '');
+
+        \App\Models\Report::create([
+            'reporter_id' => Auth::id(),
+            'reported_id' => $product->seller_id,
+            'reason'      => $fullReason,
+            'status'      => 'pending',
+        ]);
+
+        return response()->json(['message' => 'Report submitted. Our team will review it.']);
     }
 
 
@@ -387,25 +411,7 @@ public function update(Request $request, Product $product): JsonResponse
         return response()->json(['saved' => !$saved]);
     }
 
-    /** POST /api/products/{product}/images */
-    /**
- * REPLACE your existing uploadImages() method in ProductController with this.
- * Everything else in ProductController stays the same.
- *
- * Also add this import at the top of ProductController:
- *   use App\Jobs\ProcessProductImage;
- */
- 
-    /**
-     * POST /api/products/{product}/images
-     *
-     * What changed from original:
-     * - After saving each image, dispatches ProcessProductImage job
-     * - Job runs async (database queue) — remove.bg + Intervention Image
-     * - Returns immediately with the original image URLs
-     * - Frontend polls or user sees "processing" state
-     * - If remove.bg fails, original image stays — graceful degradation
-     */
+   
     public function uploadImages(Request $request, Product $product): JsonResponse
     {
         if (Auth::id() !== $product->seller_id) {
@@ -438,8 +444,8 @@ public function update(Request $request, Product $product): JsonResponse
             if ($removeBgEnabled) {
                 foreach ($newKeys as $i => $key) {
                     $imageIndex = count($existingImages) + $i; // position in full array
-                    ProcessProductImage::dispatch($product->id, $key, $imageIndex)
-                        ->onQueue('images'); // separate queue so it doesn't block other jobs
+                    ProcessProductImage::dispatch($product->id, $key, $imageIndex);
+                        // <!-- ->onQueue('images'); // separate queue so it doesn't block other jobs -->
                 }
             }
  

@@ -334,7 +334,7 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
     Route::get('/products/{product}/images', [ProductController::class, 'getImages']);
     Route::get('/seller/products/{product}/edit', [ProductController::class, 'edit'])->name('api.seller.products.edit');
-
+    Route::post('/products/{product}/report', [ProductController::class, 'report']);
     // Orders & checkout
     // Route::middleware('verified')->group(function () {
     //     Route::post('/orders/checkout', [OrderController::class, 'checkout']);

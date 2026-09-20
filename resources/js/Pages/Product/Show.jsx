@@ -2,6 +2,7 @@ import ProductCard from '@/Components/Product/ProductCard';
 import AppLayout from '@/Layouts/AppLayout';
 import CheckoutModal from '@/Components/CheckoutModal';
 import TrustScoreModal from '@/Components/TrustScoreModal';
+import ReportProductModal from '@/Components/ReportProductModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
@@ -17,6 +18,7 @@ import {
     RiCheckLine,
     RiCloseLine,
     RiFlashlightLine,
+    RiFlagLine,
     RiImageAddLine,
     RiImageLine,
     RiLoader4Line,
@@ -503,6 +505,7 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
 const [addresses,    setAddresses]    = useState([]);
 const [addrLoading,  setAddrLoading]  = useState(false);
 const [showTrust, setShowTrust] = useState(false)
+const [showReport, setShowReport] = useState(false);
 
     const { showToast, ToastComponent } = useToast();
 
@@ -647,6 +650,10 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                     <button onClick={handleSave} className="rounded-full p-2 transition-colors hover:bg-white/[0.06]">
                         {saved ? <RiBookmarkFill size={20} color="#FBBF24" /> : <RiBookmarkLine size={20} className="text-flockr-muted" />}
                     </button>
+                    <button onClick={e => { e.preventDefault(); e.stopPropagation(); setShowReport(true); }} 
+                    className="rounded-full p-2 transition-colors hover:bg-white/[0.06]">
+                        <RiFlagLine size={14} color="text-flockr-muted" />
+                    </button>
                 </div>
 
                 <div className="mx-auto max-w-5xl px-4 py-6 pb-32 md:pb-8">
@@ -662,7 +669,17 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                                 {allImages.length > 0 && (
                                     <button onClick={() => openLightbox(activeImg)} style={{ position: 'absolute', top: 12, right: 12, width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', backdropFilter: 'blur(4px)' }}><RiZoomInLine size={16} /></button>
                                 )}
-                                {product.discount_percent && <span className="badge badge-orange absolute top-3 left-3 text-sm">-{product.discount_percent}% OFF</span>}
+                                <>
+                             {product.discount_percent ? (
+                                 <span className="badge badge-orange absolute top-3 left-3 text-sm">
+                                 -{product.discount_percent}% OFF
+                                 </span>
+                                ) : product.event_discount_percent ? (
+                                 <span className="badge badge-orange absolute top-3 left-3 text-sm">
+                                 -{product.event_discount_percent}% OFF EVENT LIMITED TIME OFFER
+                                 </span>
+                                ) : null}
+                           </>
                                 {allImages.length > 1 && (<>
                                     <button onClick={prevImg} className="absolute top-1/2 left-3 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"><RiArrowLeftSLine size={22} /></button>
                                     <button onClick={nextImg} className="absolute top-1/2 right-3 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"><RiArrowRightSLine size={22} /></button>
@@ -968,6 +985,8 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
         singleProduct={{ productId: product.id, quantity }}
     />
 )}
+
+{showReport && <ReportProductModal product={product} onClose={() => setShowReport(false)} />}
             {ToastComponent}
         </>
     );
