@@ -39,7 +39,7 @@ class EventController extends Controller
 
     return response()->json($active->concat($upcoming)->concat($ended)->values());
 }
-}
+
 
     /**
      * GET /api/events/{event} — single event with the seller's own

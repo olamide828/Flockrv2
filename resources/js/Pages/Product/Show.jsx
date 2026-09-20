@@ -652,7 +652,7 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                     </button>
                     <button onClick={e => { e.preventDefault(); e.stopPropagation(); setShowReport(true); }} 
                     className="rounded-full p-2 transition-colors hover:bg-white/[0.06]">
-                        <RiFlagLine size={14} color="text-flockr-muted" />
+                        <RiFlagLine size={20} color="text-flockr-muted" />
                     </button>
                 </div>
 
