@@ -28,6 +28,7 @@ export default function EventShow({ event, products = [], myParticipation }) {
   const [joined, setJoined]         = useState(myParticipation)
 const { showToast, ToastComponent } = useToast()
 const [confirmLeave, setConfirmLeave] = useState(false)
+const [showJoinSheet, setShowJoinSheet] = useState(false);
 
 
   const [leaving, setLeaving] = useState(false)
@@ -114,74 +115,79 @@ const byCategory = products.reduce((acc, p) => {
           {isSeller && event.status !== 'ended' && (
   <div style={{ padding: '18px', background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18, marginBottom: 24 }}>
     {joined ? (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10B981', marginBottom: event.status !== 'active' ? 14 : 0 }}>
-          <RiCheckLine size={18} />
-          <span style={{ fontSize: 14, fontWeight: 600 }}>You're in with {joined.discount_percent}% off — your prices update automatically for this event.</span>
-        </div>
-        {event.status !== 'active' && (
-          <button onClick={() => setConfirmLeave(true)} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-  Leave event
-</button>
-        )}
-      </div>
-    ) : (
-      <>
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ margin: '0 0 8px', color: '#fff', fontSize: 14, fontWeight: 700 }}>Why join {event.title}?</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <p style={{ margin: 0, color: 'rgba(255,255,255,0.55)', fontSize: 12.5 }}>🔥 Guaranteed placement in the event's discovery page — buyers browsing this event see your products, discount-free browsing doesn't</p>
-            <p style={{ margin: 0, color: 'rgba(255,255,255,0.55)', fontSize: 12.5 }}>🏆 Top seller during the event wins an exclusive "{event.title} Champion" badge on their profile — permanently</p>
-            {event.event_fee_percent != null && (
-              <p style={{ margin: 0, color: 'rgba(255,255,255,0.55)', fontSize: 12.5 }}>💰 Reduced platform fee of {event.event_fee_percent}% during the event (instead of your normal rate)</p>
-            )}
-            {event.scavenger_hunt_target && (
-              <p style={{ margin: 0, color: 'rgba(255,255,255,0.55)', fontSize: 12.5 }}>🎯 Buyers are encouraged to shop {event.scavenger_hunt_target} different event sellers to unlock a reward — meaning more buyers are actively browsing beyond just one shop</p>
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10 }}>
-          <p style={{ margin: 0, color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.6 }}>
-            Picking a tier automatically discounts <strong style={{ color: '#fff' }}>all your active products</strong> for the event's duration only. You never edit prices manually, and everything reverts to your normal price the instant the event ends.
-          </p>
-        </div>
-
-        <p style={{ margin: '0 0 10px', color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600 }}>Choose your discount tier:</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {(event.discount_tiers ?? []).map(p => (
-            <button key={p} onClick={() => handleJoin(p)} disabled={joining} style={{ textAlign: 'left', padding: '12px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <p style={{ margin: 0, color: event.theme_color ?? '#FF6B35', fontSize: 15, fontWeight: 800 }}>{p}% off</p>
-                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{tierNote(p)}</p>
-              </div>
-              {joining && <RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-            </button>
-          ))}
-        </div>
-      </>
+  <div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10B981', marginBottom: event.status === 'scheduled' ? 10 : 0 }}>
+      <RiCheckLine size={18} />
+      <span style={{ fontSize: 14, fontWeight: 600 }}>
+        You're in with {joined.discount_percent}% off — your prices update automatically for this event.
+      </span>
+    </div>
+    {event.status === 'scheduled' && (
+      <button
+        onClick={() => setConfirmLeave(true)}
+        style={{
+          padding: '8px 14px',
+          borderRadius: 10,
+          background: 'rgba(239,68,68,0.1)',
+          border: '1px solid rgba(239,68,68,0.25)',
+          color: '#EF4444',
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: 'pointer',
+        }}
+      >
+        Leave event
+      </button>
     )}
+  </div>
+) : (
+  <button
+    onClick={() => setShowJoinSheet(true)}
+    style={{
+      padding: '11px 24px',
+      borderRadius: 12,
+      background: event.theme_color ?? '#FF6B35',
+      border: 'none',
+      color: '#fff',
+      fontWeight: 700,
+      fontSize: 14,
+      cursor: 'pointer',
+    }}
+  >
+    Join Event
+  </button>
+)}
   </div>
 )}
 
-<h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700 }}>Deals in this event</h2>
-{products.length === 0 ? (
-  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>No sellers have joined yet — check back soon.</p>
-) : (
+{event.status !== 'ended' && (
   <>
-    <HScroller>
-      {products.map(p => <div key={p.id} style={{ flexShrink: 0, width: 160 }}><ProductCard product={p} /></div>)}
-    </HScroller>
+    <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700 }}>Deals in this event</h2>
+    {products.length === 0 ? (
+      <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>No sellers have joined yet — check back soon.</p>
+    ) : (
+      <>
+        <HScroller>
+          {products.map(p => <div key={p.id} style={{ flexShrink: 0, width: 160 }}><ProductCard product={p} /></div>)}
+        </HScroller>
 
-    {Object.entries(byCategory).map(([catName, catProducts]) => (
-      <div key={catName} style={{ marginBottom: 32 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{catName}</h3>
-        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
-          {catProducts.map(p => <div key={p.id} style={{ flexShrink: 0, width: 160 }}><ProductCard product={p} /></div>)}
-        </div>
-      </div>
-    ))}
+        {Object.entries(byCategory).map(([catName, catProducts]) => (
+          <div key={catName} style={{ marginBottom: 32 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{catName}</h3>
+            <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
+              {catProducts.map(p => <div key={p.id} style={{ flexShrink: 0, width: 160 }}><ProductCard product={p} /></div>)}
+            </div>
+          </div>
+        ))}
+      </>
+    )}
   </>
+)}
+
+{event.status === 'ended' && (
+  <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,0.35)' }}>
+    <p style={{ margin: 0, fontSize: 14 }}>This event has ended — thanks to everyone who joined!</p>
+  </div>
 )}
 
 {ToastComponent}
@@ -194,6 +200,63 @@ const byCategory = products.reduce((acc, p) => {
     onConfirm={handleLeave}
     onClose={() => setConfirmLeave(false)}
   />
+)}
+
+{showJoinSheet && (
+  <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+    {/* Backdrop */}
+    <div onClick={() => setShowJoinSheet(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)' }} />
+
+    {/* Sheet Content */}
+    <div style={{ position: 'relative', width: '100%', maxWidth: 480, background: '#111', borderRadius: '24px 24px 0 0', padding: '24px 20px 32px', zIndex: 1 }}>
+      <h3 style={{ margin: '0 0 12px', color: '#fff', fontSize: 17, fontWeight: 800 }}>Why join {event.title}?</h3>
+
+      {/* Perks List */}
+      <ul style={{ margin: '0 0 18px', paddingLeft: 18, color: 'rgba(255,255,255,0.65)', fontSize: 12.5, lineHeight: 1.8 }}>
+        <li>🔥 Guaranteed placement on the event page & main shop banner</li>
+        <li>🏆 Top seller wins an exclusive <strong style={{ color: '#fff' }}>"{event.title} Champion"</strong> badge</li>
+        {event.event_fee_percent != null && (
+          <li>💰 Reduced platform fee of <strong style={{ color: '#fff' }}>{event.event_fee_percent}%</strong> during the event</li>
+        )}
+        {event.scavenger_hunt_target && (
+          <li>🎯 Buyers encouraged to shop across <strong style={{ color: '#fff' }}>{event.scavenger_hunt_target}</strong> sellers</li>
+        )}
+      </ul>
+
+      {/* Information Box */}
+      <div style={{ marginBottom: 16, padding: '10px 12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10 }}>
+        <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12, lineHeight: 1.5 }}>
+          Picking a tier automatically discounts <strong style={{ color: '#fff' }}>all active listings</strong> for the event duration and reverts instantly when it ends.
+        </p>
+      </div>
+
+      <p style={{ margin: '0 0 10px', color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600 }}>Select discount tier:</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {(event.discount_tiers ?? []).map(p => (
+          <button
+            key={p}
+            onClick={() => {
+              handleJoin(p);
+              setShowJoinSheet(false);
+            }}
+            disabled={joining}
+            style={{
+              padding: '10px 20px',
+              borderRadius: 12,
+              background: event.theme_color ?? '#FF6B35',
+              border: 'none',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            {p}% off
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
 )}
         </div>
       </div>

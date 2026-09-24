@@ -76,7 +76,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
                 display: 'block',
                 textDecoration: 'none',
                 borderRadius: 16,
-                overflow: 'hidden',
+                overflow: 'hidden',          
                 background: 'var(--flockr-card)',
                 border: '1px solid rgba(255,255,255,0.06)',
                 position: 'relative',
@@ -98,15 +98,21 @@ export default function ProductCard({ product, layout = 'grid' }) {
                 )}
 
                 {/* Discount badge */}
-                {product.discount_percent ? (
-                    <span className="badge badge-orange absolute top-2 left-2">
-                        -{product.discount_percent}% OFF
-                    </span>
-                ) : product.event_discount_percent ? (
-                    <span className="badge badge-orange absolute top-2 left-2">
-                        -{product.event_discount_percent}% OFF 
-                    </span>
-                ) : null}
+                   {product.discount_percent && (
+                    <span className="badge badge-orange absolute top-2 left-2">-{product.discount_percent}%</span>
+                )}
+
+                 <>
+                 {product.discount_percent ? (
+                                 <span className="badge badge-orange absolute top-2 left-2">
+                                 -{product.discount_percent}% OFF
+                                 </span>
+                                ) : product.event_discount_percent ? (
+                                 <span className="badge badge-orange absolute top-2 left-2">
+                                 -{product.event_discount_percent}% OFF 
+                                 </span>
+                                ) : null}
+                           </>
 
                 {/* Sold out overlay */}
                 {!product.is_in_stock && (
@@ -115,7 +121,12 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     </div>
                 )}
 
-                {/* Save button */}
+                {/*
+                    Save button — always visible on mobile (touch devices can't hover).
+                    On desktop it fades in on hover via CSS class.
+                    We use inline style for the base state + a className for the
+                    hover behaviour so both work without JS detection.
+                */}
                 <button
                     onClick={handleSave}
                     className="product-save-btn"
@@ -134,6 +145,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
                         justifyContent: 'center',
                         cursor: 'pointer',
                         flexShrink: 0,
+                        // Always visible — desktop hover handled by CSS below
                     }}
                 >
                     {saved
@@ -163,6 +175,8 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     </div>
                 )}
 
+               
+
                 {/* Price row */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 6 }}>
                     <div style={{ minWidth: 0 }}>
@@ -179,7 +193,6 @@ export default function ProductCard({ product, layout = 'grid' }) {
                             </div>
                         )}
                     </div>
-                </div>
 
                 {/* Sold + rating */}
                 {(product.orders_count > 0 || showRating) && (
@@ -199,7 +212,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
                 )}
             </div>
 
-            {/* CSS styling */}
+            {/* CSS: on desktop, save button fades in on card hover. On mobile it's always visible. */}
             <style>{`
                 @media (hover: hover) {
                     .product-save-btn {
@@ -217,6 +230,7 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     }
                 }
             `}</style>
+            </div>
         </Link>
     );
 }

@@ -577,10 +577,17 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
     setShowCheckout(true);
   };
 
-    const handleSave = async () => {
+        const handleSave = async () => {
         if (!auth?.user) { router.visit('/login'); return; }
-        setSaved(s => !s);
-        await axios.post(`/api/products/${product.id}/save`).catch(() => setSaved(s => !s));
+        const next = !saved;
+        setSaved(next);
+        try {
+            await axios.post(`/api/products/${product.id}/save`);
+            showToast(next ? 'Added to your wishlist' : 'Removed from wishlist', 'success');
+        } catch {
+            setSaved(!next);
+            showToast('Something went wrong', 'error');
+        }
     };
 
     const handleAddToCart = async () => {
