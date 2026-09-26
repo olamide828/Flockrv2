@@ -211,6 +211,7 @@ export default function VideoCard({ video, isActive }) {
   const isSeeking       = useRef(false)
   const likeBtnRef      = useRef(null)
   const userPausedRef = useRef(false)
+  const swipeStartRef = useRef(null)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
@@ -396,7 +397,10 @@ export default function VideoCard({ video, isActive }) {
     await axios.post(`/api/users/${video.user?.id}/follow`, {}, { withCredentials: true }).catch(() => setFollowed(false))
   }, [followed, auth, video.user?.id])
 
-  const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m }) }, [])
+    const toggleMute = useCallback(() => {
+    markInteracted()
+    setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m })
+  }, [])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
@@ -429,7 +433,17 @@ export default function VideoCard({ video, isActive }) {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
       />
 
-      <div onClick={handleVideoTap} style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }} />
+        <div
+        onClick={handleVideoTap}
+        onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
+        onTouchEnd={e => {
+          if (swipeStartRef.current == null) return
+          const dx = e.changedTouches[0].clientX - swipeStartRef.current
+          swipeStartRef.current = null
+          if (dx > 90) router.visit(`/@${video.user?.username}`)
+        }}
+        style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
+      />
 
       {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
         <span key={overlay.id} style={{

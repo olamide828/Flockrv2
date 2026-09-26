@@ -367,7 +367,7 @@ useEffect(() => {
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 16px calc(14px + env(safe-area-inset-bottom, 0px))', background: 'linear-gradient(0deg, rgba(0,0,0,0.88), rgba(0,0,0,0.35) 65%, transparent)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {slideActiveItemIsVideo && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button onPointerDown={() => setMuted(m => !m)} style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.14)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                    <button onPointerDown={() => { markInteracted(); setMuted(m => !m) }} style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.14)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
                       {muted ? <RiVolumeMuteLine size={14} /> : <RiVolumeUpLine size={14} />}
                     </button>
                     <div ref={seekBarRef}

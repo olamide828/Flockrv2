@@ -368,6 +368,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const likeBtnRef      = useRef(null);
     const lastTap         = useRef(0);
     const userPausedRef   = useRef(false);
+    const swipeStartRef = useRef(null);
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);
@@ -514,7 +515,10 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         catch { setFollowed(false); }
     }, [followed, auth, video.user?.id]);
 
-    const toggleMute = useCallback(() => { setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; }); }, []);
+        const toggleMute = useCallback(() => {
+        markInteracted();
+        setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; });
+    }, []);
     const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
     const showToast = (msg, type = 'success') => {
         setToast({ msg, type })
@@ -559,6 +563,13 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     onStalled={() => { if (isActive) ensurePlaying(videoRef.current) }}
                     onClick={handleVideoTap}
                     onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
+                    onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
+                    onTouchEnd={e => {
+                        if (swipeStartRef.current == null) return;
+                        const dx = e.changedTouches[0].clientX - swipeStartRef.current;
+                        swipeStartRef.current = null;
+                        if (dx > 90) router.visit(`/@${video.user?.username}`);
+                    }}
                     onLoadedMetadata={e => setDuration(e.target.duration)}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
                 />

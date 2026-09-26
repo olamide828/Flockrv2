@@ -32,7 +32,7 @@ export function useHlsVideo(videoRef, src) {
     loadHls().then(Hls => {
       if (cancelled || !videoRef.current) return
       if (!Hls.isSupported()) { el.src = src; return }
-      const hls = new Hls({ maxBufferLength: 15 })
+      const hls = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60 })
       hls.loadSource(src)
       hls.attachMedia(el)
       hlsRef.current = hls
