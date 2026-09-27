@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import { RiCloseLine, RiSendPlaneFill, RiLoader4Line, RiPlayFill, RiPauseFill } from 'react-icons/ri'
 import { createPortal } from 'react-dom'
 
-
 export default function MediaComposerPreview({ file, previewUrl, caption, onCaptionChange, onSend, onCancel, sending }) {
     const isVideo = file.type.startsWith('video')
     const [playing, setPlaying] = useState(false)
@@ -47,7 +46,7 @@ export default function MediaComposerPreview({ file, previewUrl, caption, onCapt
                 </button>
             </div>
             <style>{`@keyframes mcpSpin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-    document.body
-)
+        </div>,
+        document.body
+    )
 }
