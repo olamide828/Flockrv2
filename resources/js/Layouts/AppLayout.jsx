@@ -3,6 +3,7 @@ import axios from 'axios';
 import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import ProfileSheet from '@/Components/ProfileSheet';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
+import CreateSheet from '@/Components/CreateSheet';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import NewBadgeModal from '@/Components/NewBadgeModal';
 import MessageToast from '@/Components/MessageToast'
@@ -41,6 +42,7 @@ export default function AppLayout({ children }) {
     const [badgeQueue, setBadgeQueue] = useState([]);
     const [messageToasts, setMessageToasts] = useState([])
     const [activeToast, setActiveToast] = useState(null)
+    const [showCreateSheet, setShowCreateSheet] = useState(false);
     const toastTimeoutRef = useRef(null)
 
     const [announceEvent, setAnnounceEvent] = useState(null)
@@ -70,6 +72,15 @@ export default function AppLayout({ children }) {
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, []);
+
+    useEffect(() => {
+    if (isSeller && typeof router.prefetch === 'function') {
+        try {
+            router.prefetch('/seller/upload', { method: 'get' }, { cacheFor: 30000 });
+            router.prefetch('/seller/products/create', { method: 'get' }, { cacheFor: 30000 });
+        } catch {}
+    }
+}, [isSeller]);
 
     
 useEffect(() => {
@@ -765,24 +776,22 @@ const replyToToast = (toast) => {
                         }}
                     >
                         {isSeller ? (
-                            <>
-                                {sellerLeftItems.map(renderNavLink)}
-                                <Link
-                                    href="/seller/upload"
-                                    onTouchStart={() => handlePrefetch('/seller/upload')}
-                                    onClick={() => handleNavClick('/seller/upload')}
-                                    aria-label="Upload video"
-                                    style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', textDecoration: 'none' }}
-                                >
-                                    <div className="upload-fab rounded-[15px]">
-                                        <RiAddLine size={24} color="#fff" />
-                                    </div>
-                                </Link>
-                                {sellerRightItems.map(renderNavLink)}
-                            </>
-                        ) : (
-                            defaultMobileItems.map(renderNavLink)
-                        )}
+    <>
+        {sellerLeftItems.map(renderNavLink)}
+        <button
+            onClick={() => setShowCreateSheet(true)}
+            aria-label="Create post"
+            style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'none', border: 'none', padding: 0 }}
+        >
+            <div className="upload-fab rounded-[15px]">
+                <RiAddLine size={24} color="#fff" />
+            </div>
+        </button>
+        {sellerRightItems.map(renderNavLink)}
+    </>
+) : (
+    defaultMobileItems.map(renderNavLink)
+)}
                     </nav>
                 )}
             </main>
@@ -830,6 +839,10 @@ const replyToToast = (toast) => {
             )}
 
             {announceEvent && <EventAnnounceModal event={announceEvent} onClose={dismissEventAnnounce} />}
+
+            {showCreateSheet && (
+    <CreateSheet onClose={() => setShowCreateSheet(false)} />
+)}
 
             <style>{`
                 @media (min-width: 768px) {
