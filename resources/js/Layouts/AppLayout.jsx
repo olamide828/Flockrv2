@@ -774,7 +774,7 @@ const replyToToast = (toast) => {
                                     aria-label="Upload video"
                                     style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', textDecoration: 'none' }}
                                 >
-                                    <div className="upload-fab">
+                                    <div className="upload-fab rounded-[15px]">
                                         <RiAddLine size={24} color="#fff" />
                                     </div>
                                 </Link>
@@ -847,14 +847,13 @@ const replyToToast = (toast) => {
                     100% { transform: scale(1); }
                 }
                 .upload-fab {
-                    width: 48px;
-                    height: 48px;
-                    border-radius: 9999px;
+                    width: 45px;
+                    height: 35px;
                     background: #ff5c00;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    margin-top: -12px;
+                    margin-top: 1px;
                     box-shadow: 0 4px 18px rgba(255, 92, 0, 0.45);
                     transition: transform 0.15s ease;
                 }
