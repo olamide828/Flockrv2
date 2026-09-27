@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { RiCloseLine, RiSendPlaneFill, RiLoader4Line, RiPlayFill, RiPauseFill } from 'react-icons/ri'
 import { createPortal } from 'react-dom'
 
-return createPortal(
+
 export default function MediaComposerPreview({ file, previewUrl, caption, onCaptionChange, onSend, onCancel, sending }) {
     const isVideo = file.type.startsWith('video')
     const [playing, setPlaying] = useState(false)
@@ -14,7 +14,7 @@ export default function MediaComposerPreview({ file, previewUrl, caption, onCapt
         if (v.paused) { v.play(); setPlaying(true) } else { v.pause(); setPlaying(false) }
     }
 
-    return (
+    return createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 970, background: '#000', display: 'flex', flexDirection: 'column' }}>
             <button onClick={onCancel} style={{ position: 'absolute', top: 'calc(16px + env(safe-area-inset-top,0px))', left: 16, width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}>
                 <RiCloseLine size={20} />
@@ -48,7 +48,6 @@ export default function MediaComposerPreview({ file, previewUrl, caption, onCapt
             </div>
             <style>{`@keyframes mcpSpin { to { transform: rotate(360deg); } }`}</style>
         </div>
-    )
-}
-document.body
+    document.body
 )
+}
