@@ -140,6 +140,7 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
 Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name('flagged-sellers');
 Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
 Route::get('/events', [AdminController::class, 'eventsPage'])->name('admin.events');
+Route::get('/support-tickets', [AdminController::class, 'supportTickets'])->name('admin.support-tickets');
     });
 });
 

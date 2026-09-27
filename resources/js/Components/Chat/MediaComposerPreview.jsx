@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react'
 import { RiCloseLine, RiSendPlaneFill, RiLoader4Line, RiPlayFill, RiPauseFill } from 'react-icons/ri'
+import { createPortal } from 'react-dom'
 
+return createPortal(
 export default function MediaComposerPreview({ file, previewUrl, caption, onCaptionChange, onSend, onCancel, sending }) {
     const isVideo = file.type.startsWith('video')
     const [playing, setPlaying] = useState(false)
@@ -48,3 +50,5 @@ export default function MediaComposerPreview({ file, previewUrl, caption, onCapt
         </div>
     )
 }
+document.body
+)

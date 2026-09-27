@@ -17,7 +17,7 @@ export default function RequestVerificationSheet({ onClose, showToast }) {
         if (!message.trim()) return
         setSubmitting(true)
         try {
-            await axios.post('/api/self-reports', { type: 'verification', message: message.trim() })
+            await axios.post('/api/support-tickets', { type: 'verification_request', message: message.trim() })
             setDone(true)
         } catch { showToast?.('Could not submit request.', 'error') }
         finally { setSubmitting(false) }

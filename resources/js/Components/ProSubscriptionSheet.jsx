@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { router } from '@inertiajs/react'
 import { RiCloseLine, RiVipDiamondLine, RiLoader4Line } from 'react-icons/ri'
+import ProPlansSheet from '@/Components/ProPlansSheet'
 
 function fmtDate(iso) {
     if (!iso) return '—'
@@ -10,6 +11,7 @@ function fmtDate(iso) {
 
 export default function ProSubscriptionSheet({ onClose }) {
     const [data, setData] = useState(null)
+    const [showPlans, setShowPlans] = useState(false)
     useEffect(() => { axios.get('/api/subscriptions/me').then(({ data }) => setData(data)).catch(() => setData({})) }, [])
 
     return (
@@ -43,17 +45,19 @@ export default function ProSubscriptionSheet({ onClose }) {
                                     </div>
                                 ))}
                                 <p style={{ margin: '10px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11.5 }}>Subscriptions don't auto-renew — resubscribe before it expires to keep your Pro perks.</p>
-                                <button onClick={() => router.visit('/subscriptions/plans')} style={{ marginTop: 8, width: '100%', padding: 13, borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Manage Subscription</button>
+                                <button onClick={() => setShowPlans(true)} style={{ marginTop: 8, width: '100%', padding: 13, borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Manage Subscription</button>
                             </div>
                         ) : (
                             <div style={{ textAlign: 'center', padding: '10px 0' }}>
                                 <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 18 }}>You're not currently subscribed to Flockr Pro.</p>
-                                <button onClick={() => router.visit('/subscriptions/plans')} style={{ width: '100%', padding: 13, borderRadius: 999, background: '#FF6B35', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>View Plans</button>
+                                <button onClick={() => setShowPlans(true)} style={{ width: '100%', padding: 13, borderRadius: 999, background: '#FF6B35', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>View Plans</button>
                             </div>
                         )}
                     </>
                 )}
             </div>
+
+            {showPlans && <ProPlansSheet onClose={() => setShowPlans(false)} />}
         </>
     )
 }

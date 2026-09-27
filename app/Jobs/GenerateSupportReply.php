@@ -133,13 +133,13 @@ try {
         : "Sorry, I'm having trouble responding right now — please try again in a moment.";
 
     if (is_array($parsed) && !empty($parsed['escalate'])) {
-        \App\Models\Report::upsertReport(
-            reporterId: $buyer->id,
-            reportedId: $buyer->id,
-            reason: '[AI Escalation]: ' . ($parsed['escalate_reason'] ?: 'Flagged during support chat'),
-            context: ['conversation_id' => $conversation->id],
-        );
-    }
+    \App\Models\SupportTicket::create([
+        'user_id' => $buyer->id,
+        'conversation_id' => $conversation->id,
+        'type' => 'ai_escalation',
+        'message' => $parsed['escalate_reason'] ?: 'Flagged during support chat',
+    ]);
+}
 } catch (\Throwable $e) {
     Log::warning('GenerateSupportReply failed: ' . $e->getMessage());
     $reply = "Sorry, I'm having trouble responding right now — please try again in a moment.";

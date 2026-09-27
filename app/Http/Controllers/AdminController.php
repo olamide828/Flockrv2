@@ -443,10 +443,6 @@ public function reports(Request $request): Response
               ->whereNull('order_id')
               ->where('reason', 'not like', '[Video:%');
         }),
-        'appeal' => $query->where('reason', 'like', '[Suspension Appeal]%'),
-        'verification' => $query->where('reason', 'like', '[Verification Request]%'),
-        'bug'          => $query->where('reason', 'like', '[Bug Report]%'),
-        'ai_escalation' => $query->where('reason', 'like', '[AI Escalation]%'),
         default => null,
     };
 
@@ -555,6 +551,27 @@ public function clearFlag(User $user): JsonResponse
 {
     $user->update(['is_flagged_for_review' => false, 'flagged_at' => null]);
     return response()->json(['message' => "Flag cleared for @{$user->username}."]);
+}
+
+
+public function supportTickets(Request $request): Response
+{
+    $query = \App\Models\SupportTicket::with('user:id,name,username,avatar')->latest();
+    if ($request->filled('type')) $query->where('type', $request->type);
+    if ($request->filled('status')) $query->where('status', $request->status);
+    return Inertia::render('Admin/SupportTickets', ['tickets' => $query->paginate(30), 'filters' => $request->only('type', 'status')]);
+}
+
+public function resolveTicket(\App\Models\SupportTicket $ticket): JsonResponse
+{
+    $ticket->update(['status' => 'resolved']);
+    if ($ticket->type === 'suspension_appeal') {
+        $ticket->user->update(['is_active' => true, 'suspension_reason' => null, 'suspended_at' => null]);
+    }
+    if ($ticket->type === 'verification_request') {
+        $ticket->user->update(['is_verified' => true]);
+    }
+    return response()->json(['message' => 'Ticket resolved.']);
 }
 
 public function disputesPage(): Response

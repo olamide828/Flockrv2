@@ -61,7 +61,7 @@ Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class,
 Route::get('/videos/download/status', [VideoDownloadController::class, 'status']);
 Route::delete('/videos/download/cleanup', [VideoDownloadController::class, 'cleanup']);
 
-Route::get('/products/{product:slug}/reviews', function (Product $product, \Illuminate\Http\Request $request) {
+Route::get('/products/{product:slug}/reviews', function (Product $product, Request $request) {
     $page    = max(1, (int) $request->input('page', 1));
     $perPage = min((int) $request->input('per_page', 10), 50);
 
@@ -88,7 +88,7 @@ Route::get('/products/{product:slug}/reviews', function (Product $product, \Illu
     ]);
 });
 
-Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
+Route::get('/search/suggest', function (Request $request) {
     $q = trim($request->input('q', ''));
     if (strlen($q) < 1)
         return response()->json([]);
@@ -111,7 +111,7 @@ Route::get('/search/suggest', function (\Illuminate\Http\Request $request) {
                 'type' => $u->role,
             ]);
 
-        $products = \App\Models\Product::where('status', 'active')
+        $products = Product::where('status', 'active')
             ->where('name', 'ilike', "%{$q}%")
             ->select(['id', 'name', 'slug', 'seller_id'])
             ->with('seller:id,username')
@@ -199,7 +199,7 @@ Route::get('/locations/states', function () {
     }
 });
 
-Route::get('/locations/cities', function (\Illuminate\Http\Request $request) {
+Route::get('/locations/cities', function (Request $request) {
     $request->validate(['state_code' => 'required|string']);
     try {
         $stateCode = $request->state_code;
@@ -223,7 +223,7 @@ Route::middleware('auth:sanctum')->post('/feed/reset', function () {
 });
 
 // Username availability check — public, used during registration
-Route::get('/auth/check-username', function (\Illuminate\Http\Request $request) {
+Route::get('/auth/check-username', function (Request $request) {
     $username = strtolower(trim($request->input('username', '')));
 
     if (strlen($username) < 3) {
@@ -406,7 +406,7 @@ Route::delete('/events/{event}/join', [EventController::class, 'leave']);
     Route::post('/cart/validate-coupon', [CartController::class, 'validateCoupon']);
 
     // Logged-in devices (settings page)
-Route::get('/settings/devices', function (\Illuminate\Http\Request $request) {
+Route::get('/settings/devices', function (Request $request) {
     $currentSessionId = $request->session()->getId();
 
     // One row per distinct device (browser+platform+type) — the latest
@@ -435,7 +435,7 @@ Route::get('/settings/devices', function (\Illuminate\Http\Request $request) {
 });
 
 
-Route::delete('/settings/devices/{loginHistory}', function (\Illuminate\Http\Request $request, \App\Models\LoginHistory $loginHistory) {
+Route::delete('/settings/devices/{loginHistory}', function (Request $request, \App\Models\LoginHistory $loginHistory) {
     if ($loginHistory->user_id !== Auth::id()) {
         return response()->json(['message' => 'Unauthorized.'], 403);
     }
@@ -576,14 +576,13 @@ Route::get('/subscriptions/me', function () {
     ]);
 });
 
-Route::post('/self-reports', function (Request $request) {
-    $request->validate(['type' => 'required|in:verification,bug', 'message' => 'required|string|max:1000']);
-    $prefix = $request->type === 'verification' ? '[Verification Request]' : '[Bug Report]';
-    \App\Models\Report::upsertReport(
-        reporterId: Auth::id(),
-        reportedId: Auth::id(),
-        reason: "{$prefix}: {$request->message}",
-    );
+Route::post('/support-tickets', function (Request $request) {
+    $request->validate(['type' => 'required|in:bug,verification_request', 'message' => 'required|string|max:1000']);
+    \App\Models\SupportTicket::create([
+        'user_id' => Auth::id(),
+        'type' => $request->type,
+        'message' => $request->message,
+    ]);
     return response()->json(['ok' => true]);
 });
 
@@ -596,9 +595,7 @@ Route::get('/verification-eligibility', function () {
     $disputedOrders = \App\Models\Order::where('seller_id', $user->id)->where('status', 'disputed')->count();
     $disputeRate = $totalOrders > 0 ? round(($disputedOrders / $totalOrders) * 100, 1) : 0;
 
-    $hasPost = class_exists(\App\Models\Post::class)
-        ? \App\Models\Post::where('user_id', $user->id)->exists()
-        : false;
+    $hasPost = \App\Models\Video::where('user_id', $user->id)->where('status', 'active')->exists();
 
     $criteria = [
         ['key' => 'avatar',      'label' => 'Profile picture added',      'met' => !empty($user->avatar)],
@@ -608,7 +605,7 @@ Route::get('/verification-eligibility', function () {
         ['key' => 'orders',      'label' => 'At least 5 orders completed', 'met' => $totalOrders >= 5, 'value' => "{$totalOrders} completed"],
         ['key' => 'disputes',    'label' => 'Dispute rate under 2%',      'met' => $disputeRate < 2, 'value' => "{$disputeRate}%"],
         ['key' => 'rating',      'label' => 'Rating 4.2 or higher',       'met' => (float) ($user->avg_rating ?? 0) >= 4.2, 'value' => number_format($user->avg_rating ?? 0, 1)],
-        ['key' => 'post',        'label' => 'At least one community post', 'met' => $hasPost],
+        ['key' => 'post', 'label' => 'At least one video posted', 'met' => $hasPost],
     ];
 
     return response()->json([
@@ -617,7 +614,7 @@ Route::get('/verification-eligibility', function () {
     ]);
 });
 
-Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, \Illuminate\Http\Request $request) {
+Route::patch('/conversations/{conversation}/theme', function (\App\Models\Conversation $conversation, Request $request) {
     if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
         return response()->json(['message' => 'Unauthorized.'], 403);
     }
@@ -699,7 +696,7 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
         Route::delete('/settings/bank', [SettingsController::class, 'removeBank']);
         // Route::middleware('verified')->post('/payouts', [SellerController::class, 'requestPayout']);
         Route::post('/payouts', [SellerController::class, 'requestPayout']);
-        Route::post('/pickup-address', function (\Illuminate\Http\Request $request) {
+        Route::post('/pickup-address', function (Request $request) {
     $request->validate([
         'pickup_street'      => 'required|string|max:200',
         'pickup_city'        => 'required|string|max:100',
@@ -738,6 +735,7 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
         Route::get('/disputes', [DisputeController::class, 'adminIndex']);
     Route::post('/disputes/{dispute}/resolve', [DisputeController::class, 'resolve']);
 
+    Route::post('/tickets/{ticket}/resolve', [AdminController::class, 'resolveTicket']);
 
         Route::get('/stats', [AdminController::class, 'stats']);
         Route::get('/analytics', [AdminController::class, 'analytics']);
@@ -792,7 +790,7 @@ Route::post('/events/upload-banner', [EventController::class, 'adminUploadBanner
 
     Route::get('/users/search', function (Request $request) {
         $q = $request->input('q', '');
-        if (strlen($q) < 2)
+        if (strlen($q) < 1)
             return response()->json([]);
 
         return \App\Models\User::where('id', '!=', Auth::id())

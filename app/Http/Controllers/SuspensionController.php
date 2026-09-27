@@ -49,11 +49,11 @@ class SuspensionController extends Controller
             return back()->with('error', 'You already have a pending appeal under review.');
         }
 
-        Report::upsertReport(
-            reporterId: $user->id,
-            reportedId: $user->id,
-            reason: '[Suspension Appeal]: ' . $request->message,
-        );
+        \App\Models\SupportTicket::create([
+        'user_id' => $user->id,
+        'type' => 'suspension_appeal',
+        'message' => $request->message,
+        ]);
 
         return back()->with('success', 'Appeal submitted. Our team will review it shortly.');
     }

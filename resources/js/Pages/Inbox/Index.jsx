@@ -14,6 +14,7 @@ import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 import MentionAutocomplete from '@/Components/Chat/MentionAutocomplete'
 import MessageRequestSheet from '@/Components/Chat/MessageRequestSheet'
 import ConversationStartCard from '@/Components/Chat/ConversationStartCard'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 import ChatBackgroundAnimation from '@/Components/Chat/ChatBackgroundAnimation'
 import ThemePickerModal from '@/Components/Chat/ThemePickerModal'
 import ProPlansSheet from '@/Components/ProPlansSheet'
@@ -321,6 +322,7 @@ const [pendingCaption, setPendingCaption] = useState('')
 const [sendingMedia, setSendingMedia] = useState(false)
 const [lightboxIndex, setLightboxIndex] = useState(null)
 const [msgAction, setMsgAction] = useState(null)
+const [deleteTarget, setDeleteTarget] = useState(null)
 
 
 const canUsePro = auth?.user?.role === 'seller' && auth?.user?.is_subscriber
@@ -480,7 +482,8 @@ useEffect(() => {
         copy[optimisticIndex] = e.message
         return copy
     }
-    return [...prev, e.message]
+    const dupe = prev.some(m => !String(m.id).startsWith('opt-') && m.body === e.message.body && m.sender_id === e.message.sender_id && Math.abs(new Date(m.created_at) - new Date(e.message.created_at)) < 3000)
+    return dupe ? prev : [...prev, e.message]
 })
                 axios.post(`/api/conversations/${conv.id}/mark-read`).catch(() => {})
             }
@@ -779,6 +782,17 @@ const dismissRequestSheet = () => {
     }
   }
 
+  const confirmDelete = async () => {
+    const msg = deleteTarget
+    setDeleteTarget(null)
+    try {
+        const { data } = await axios.delete(`/api/conversations/${active.id}/messages/${msg.id}`)
+        setMessages(prev => prev.map(m => m.id === msg.id ? data : m))
+        showToast('Message deleted', 'success')
+    } catch { showToast('Could not delete message', 'error') }
+}
+
+
   const deleteMessage = async (msg) => {
     try {
         const { data } = await axios.delete(`/api/conversations/${active.id}/messages/${msg.id}`)
@@ -948,7 +962,7 @@ const dismissRequestSheet = () => {
         canDeleteMsg={(m) => m.sender_id === auth?.user?.id}
         fmtTime={fmtTime}
         onReply={(msg) => setReplyingTo(msg)}
-        onDelete={(msg) => deleteMessage(msg)}
+        onDelete={(msg) => setDeleteTarget(msg)}
         onClose={() => setLightboxIndex(null)}
     />
 )}
@@ -958,8 +972,20 @@ const dismissRequestSheet = () => {
         msg={msgAction}
         canDelete={msgAction.sender_id === auth?.user?.id}
         onReply={() => { setReplyingTo(msgAction); setMsgAction(null) }}
-        onDelete={() => { deleteMessage(msgAction); setMsgAction(null) }}
+        onDelete={(msg) => setDeleteTarget(msg)}
         onClose={() => setMsgAction(null)}
+    />
+)}
+
+{deleteTarget && (
+    <ConfirmModal
+        title="Delete message?"
+        message="This message will be removed from the chat. This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
     />
 )}
 
@@ -1282,7 +1308,6 @@ const dismissRequestSheet = () => {
         ref={inputRef}
         value={body}
         onChange={e => { setBody(e.target.value); broadcastTyping(); detectMention(e.target.value, e.target.selectionStart) }}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e) } }}
         placeholder="Message..."
         maxLength={1000}
         rows={1}

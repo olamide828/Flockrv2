@@ -174,6 +174,10 @@ export default function NotificationsIndex({ notifications: initialNotifs = [] }
         setMarkingAll(false);
     };
 
+    useEffect(() => {
+    window.dispatchEvent(new CustomEvent('flockr:notif-read'))
+    }, [])
+
     const tabs = [
         { key: 'all', label: 'All', count: notifications.filter((n) => !n.read_at).length },
         { key: 'social', label: 'Social', count: notifications.filter((n) => !n.read_at && n.category === 'social').length },

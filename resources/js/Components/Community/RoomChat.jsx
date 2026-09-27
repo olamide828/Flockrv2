@@ -563,7 +563,6 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
             </button>
             <div style={{ flex:1, display:'flex', alignItems:'center', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.09)', borderRadius:999, padding:'0 14px', gap:8 }}>
               <input ref={inputRef} value={body} onChange={e => { setBody(e.target.value); broadcastTyping() }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(e) } }}
                 placeholder="Message..." maxLength={2000}
                 style={{ flex:1, background:'none', border:'none', outline:'none', color:'#fff', fontSize:14, padding:'11px 0' }} />
             </div>

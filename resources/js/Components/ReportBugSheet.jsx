@@ -11,7 +11,7 @@ export default function ReportBugSheet({ onClose, showToast }) {
         if (!message.trim()) return
         setSubmitting(true)
         try {
-            await axios.post('/api/self-reports', { type: 'bug', message: message.trim() })
+            await axios.post('/api/support-tickets', { type: 'bug', message: message.trim() })
             setDone(true)
         } catch { showToast?.('Could not submit report.', 'error') }
         finally { setSubmitting(false) }
