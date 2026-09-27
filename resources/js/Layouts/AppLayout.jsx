@@ -73,15 +73,7 @@ export default function AppLayout({ children }) {
         return () => window.removeEventListener('focus', onFocus);
     }, []);
 
-    useEffect(() => {
-    if (isSeller && typeof router.prefetch === 'function') {
-        try {
-            router.prefetch('/seller/upload', { method: 'get' }, { cacheFor: 30000 });
-            router.prefetch('/seller/products/create', { method: 'get' }, { cacheFor: 30000 });
-        } catch {}
-    }
-}, [isSeller]);
-
+    
     
 useEffect(() => {
   if (!auth?.user) return
@@ -216,6 +208,16 @@ const replyToToast = (toast) => {
     }, [auth?.user]);
 
     const isSeller = auth?.user?.role === 'seller';
+
+    useEffect(() => {
+    if (isSeller && typeof router.prefetch === 'function') {
+        try {
+            router.prefetch('/seller/upload', { method: 'get' }, { cacheFor: 30000 });
+            router.prefetch('/seller/products/create', { method: 'get' }, { cacheFor: 30000 });
+        } catch {}
+    }
+}, [isSeller]);
+
 
     // ── Mobile Bottom Navigation Arrays based on User Role ───────────────────
     const defaultMobileItems = [
