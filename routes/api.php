@@ -46,6 +46,7 @@ Route::get('/search', [SearchController::class, 'search']);
 Route::post('/videos/{video}/view', [VideoController::class, 'recordView']);
 Route::post('/videos/{video:ulid}/summary', [VideoController::class, 'generateSummary']);
 Route::post('/products/summary', [ProductController::class, 'generateSummary']);
+Route::get('/users/{username}/preview', [\App\Http\Controllers\UserPreviewController::class, 'show']);
 
 // Community feed is readable by guests too (algorithmic discovery mode
 // doesn't require a session) — this is the ONLY /community/feed route.

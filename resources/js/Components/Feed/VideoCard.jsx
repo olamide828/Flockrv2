@@ -20,6 +20,7 @@ import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/vid
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { useHlsVideo } from '@/lib/useHlsVideo'
+import { useProfilePreview } from '@/lib/useProfilePreview'
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -211,7 +212,6 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
   const isSeeking       = useRef(false)
   const likeBtnRef      = useRef(null)
   const userPausedRef = useRef(false)
-  const swipeStartRef = useRef(null)
     const cardWrapRef   = useRef(null)
   const dragStartXRef = useRef(null)
   const draggingRef   = useRef(false)
@@ -268,6 +268,8 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
   const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
 
   useHlsVideo(videoRef, isActive ? videoSrc : null)
+
+  const profilePreview = useProfilePreview(video.user?.username, dragX !== 0 || isDraggingSwipe)
 
   useEffect(() => {
     const el = videoRef.current
@@ -448,14 +450,16 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
   }, [])
 
   return (
-    <div ref={cardWrapRef} style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
+        <div ref={cardWrapRef} style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
     <div
       onPointerDown={handleSwipeDown}
       onPointerMove={handleSwipeMove}
       onPointerUp={handleSwipeUp}
       onPointerCancel={handleSwipeUp}
-      style={{ position: 'absolute', inset: 0, transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform' }}
+      style={{ position: 'absolute', inset: 0, transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform', display: 'flex' }}
     >
+
+      <div style={{ flex: '0 0 100%', width: '100%', height: '100%', position: 'relative', background: '#000' }}>
 
       {showShare && (
         <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setShowShare(false)} onDownload={download} dlState={dlState} />
@@ -485,17 +489,7 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
       />
 
-        <div
-        onClick={handleVideoTap}
-        onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
-        onTouchEnd={e => {
-          if (swipeStartRef.current == null) return
-          const dx = e.changedTouches[0].clientX - swipeStartRef.current
-          swipeStartRef.current = null
-          if (dx > 90) router.visit(`/@${video.user?.username}`)
-        }}
-        style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
-      />
+      <div onClick={handleVideoTap} style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }} />
 
       {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
         <span key={overlay.id} style={{
@@ -657,26 +651,70 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
         @keyframes vc-slideup { from{transform:translateY(100%)} to{transform:translateY(0)} }
       `}</style>
 
-            {toast && (
+                  {toast && (
         <div style={{ position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 30, pointerEvents: 'none' }}>
           <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
         </div>
       )}
-    </div>
 
-    <div style={{ position: 'absolute', inset: 0, transform: `translateX(calc(100% + ${dragX}px))`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, willChange: 'transform' }}>
-      <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(255,255,255,0.9)', flexShrink: 0 }}>
-        {video.user?.avatar_url
-          ? <img src={video.user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg,#ff5c00,#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 32 }}>{(video.user?.name ?? 'U')[0]}</div>
-        }
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{video.user?.name}</span>
-        <VerifiedBadge type={video.user?.verification_type} size={16} />
+
+      {/* SLIDE 2 — real profile peek, loaded live via useProfilePreview */}
+      <div style={{ flex: '0 0 100%', width: '100%', height: '100%', background: '#121212', display: 'flex', flexDirection: 'column', color: '#fff', overflowY: 'auto' }}>
+        <div style={{ height: 110, background: 'linear-gradient(135deg, #1f1f1f, #2a2a2a)', position: 'relative', flexShrink: 0 }}>
+          <div style={{ position: 'absolute', bottom: -30, left: 20 }}>
+            <img src={video.user?.avatar_url} alt="" style={{ width: 76, height: 76, borderRadius: '50%', border: '3px solid #121212', objectFit: 'cover', background: '#222' }} />
+          </div>
+        </div>
+
+        <div style={{ padding: '40px 20px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{video.user?.name}</h3>
+                <VerifiedBadge type={video.user?.verification_type} size={18} />
+              </div>
+              <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>@{video.user?.username}</p>
+            </div>
+            {auth?.user?.id !== video.user_id && (
+              <button onClick={handleFollow} style={{ padding: '8px 22px', background: followed ? 'rgba(255,255,255,0.1)' : '#FF6B35', border: 'none', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
+                {followed ? 'Following' : 'Follow'}
+              </button>
+            )}
+          </div>
+
+          {profilePreview ? (
+            <>
+              {profilePreview.bio && <p style={{ margin: 0, color: 'rgba(255,255,255,0.8)', fontSize: 13, lineHeight: 1.4 }}>{profilePreview.bio}</p>}
+              <div style={{ display: 'flex', gap: 20, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.following_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Following</span></div>
+                <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.followers_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Followers</span></div>
+                <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.likes_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Likes</span></div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, marginTop: 8 }}>
+                {profilePreview.recent_videos?.length > 0 ? profilePreview.recent_videos.map(v => (
+                  <div key={v.ulid} style={{ aspectRatio: '3/4', background: '#000', borderRadius: 4, overflow: 'hidden' }}>
+                    {v.thumbnail_url && <img src={v.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  </div>
+                )) : (
+                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12, padding: '20px 0' }}>No videos yet</div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ width: '70%', height: 12, borderRadius: 6, background: 'rgba(255,255,255,0.08)' }} />
+              <div style={{ display: 'flex', gap: 20, padding: '10px 0' }}>
+                {[0, 1, 2].map(i => <div key={i} style={{ width: 60, height: 14, borderRadius: 6, background: 'rgba(255,255,255,0.08)' }} />)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
+                {[1, 2, 3, 4, 5, 6].map(n => <div key={n} style={{ aspectRatio: '3/4', background: 'rgba(255,255,255,0.05)', borderRadius: 4 }} />)}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>@{video.user?.username}</span>
-      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 6 }}>Release to view full profile</span>
+
     </div>
   </div>
   )

@@ -40,7 +40,7 @@ import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimati
 import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
 import { useHlsVideo } from '@/lib/useHlsVideo';
-
+import { useProfilePreview } from '@/lib/useProfilePreview';
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -368,11 +368,11 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
     const likeBtnRef      = useRef(null);
     const lastTap         = useRef(0);
     const userPausedRef   = useRef(false);
-    const swipeStartRef = useRef(null);
-    const cardWrapRef    = useRef(null);
-    const dragStartXRef  = useRef(null);
-    const draggingRef    = useRef(false);
-    const suppressTapRef = useRef(false);
+    const cardWrapRef     = useRef(null);
+    const dragStartXRef   = useRef(null);
+    const draggingRef     = useRef(false);
+    const suppressTapRef  = useRef(false);
+
     const [dragX, setDragX] = useState(0);
     const [isDraggingSwipe, setIsDraggingSwipe] = useState(false);
 
@@ -390,85 +390,84 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
     const [tab,           setTab]           = useState('comments');
     const [mobileSheet,   setMobileSheet]   = useState(null);
     const [showSearch,    setShowSearch]    = useState(false);
-    const [toast,    setToast]    = useState(null)
-    const [duration, setDuration] = useState(0)
+    const [toast,         setToast]         = useState(null);
+    const [duration,      setDuration]      = useState(0);
     const [searchQuery,   setSearchQuery]   = useState('');
     const searchInputRef = useRef(null);
 
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
-    const [reportOpen, setReportOpen] = useState(false);
+    const [reportOpen, setReportOpen]       = useState(false);
 
-    const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
-
+    const { burst, trigger: triggerLikeAnim } = useLikeAnimation();
     const { download, dlState } = useVideoDownload(video);
-
 
     const isOwner     = auth?.user?.id === video.user_id;
     const hasProducts = video.is_for_sale && video.products?.length > 0;
     const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
     const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url;
     const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : '';
-    
+
     useHlsVideo(videoRef, isActive ? videoSrc : null);
 
+    const profilePreview = useProfilePreview(video.user?.username, dragX !== 0 || isDraggingSwipe);
+
     useEffect(() => {
-        const el = videoRef.current
-        if (!el) return
+        const el = videoRef.current;
+        if (!el) return;
 
         if (isActive) {
-            unmuteUnsubRef.current?.()
-            unmuteUnsubRef.current = null
-            userPausedRef.current = false
+            unmuteUnsubRef.current?.();
+            unmuteUnsubRef.current = null;
+            userPausedRef.current = false;
 
             if (hasUserInteracted()) {
-                el.muted = false
-                setMuted(false)
+                el.muted = false;
+                setMuted(false);
                 el.play().then(() => setPlaying(true)).catch(() => {
-                    el.muted = true; setMuted(true)
-                    el.play().then(() => setPlaying(true)).catch(() => {})
-                })
+                    el.muted = true; setMuted(true);
+                    el.play().then(() => setPlaying(true)).catch(() => {});
+                });
             } else {
-                el.muted = true
-                setMuted(true)
-                el.play().then(() => setPlaying(true)).catch(() => {})
+                el.muted = true;
+                setMuted(true);
+                el.play().then(() => setPlaying(true)).catch(() => {});
                 unmuteUnsubRef.current = onFirstInteraction(() => {
-                    if (videoRef.current === el) { el.muted = false; setMuted(false) }
-                })
+                    if (videoRef.current === el) { el.muted = false; setMuted(false); }
+                });
             }
 
-            watchStartRef.current = Date.now()
+            watchStartRef.current = Date.now();
             viewTimerRef.current = setTimeout(() => {
-                const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
+                const secs = Math.round((Date.now() - watchStartRef.current) / 1000);
                 if (secs >= 3) {
-                    axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-                    watchStartRef.current = null
+                    axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {});
+                    watchStartRef.current = null;
                 }
-            }, 5000)
+            }, 5000);
         } else {
-            unmuteUnsubRef.current?.()
-            unmuteUnsubRef.current = null
+            unmuteUnsubRef.current?.();
+            unmuteUnsubRef.current = null;
 
-            clearTimeout(viewTimerRef.current)
-            el.pause(); el.currentTime = 0
+            clearTimeout(viewTimerRef.current);
+            el.pause(); el.currentTime = 0;
             if (watchStartRef.current) {
-                const secs = Math.round((Date.now() - watchStartRef.current) / 1000)
-                if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
-                watchStartRef.current = null
+                const secs = Math.round((Date.now() - watchStartRef.current) / 1000);
+                if (secs >= 3) axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {});
+                watchStartRef.current = null;
             }
         }
-    }, [isActive])
-
+    }, [isActive]);
 
     useEffect(() => {
         const handleKey = (e) => {
-            const el = videoRef.current
-            if (!el) return
-            if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5) }
-            if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5) }
-        }
-        window.addEventListener('keydown', handleKey)
-        return () => window.removeEventListener('keydown', handleKey)
-    }, [])
+            const el = videoRef.current;
+            if (!el) return;
+            if (e.key === 'ArrowRight') { e.preventDefault(); el.currentTime = Math.min(el.duration, el.currentTime + 5); }
+            if (e.key === 'ArrowLeft')  { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5); }
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, []);
 
     useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
 
@@ -479,10 +478,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
         catch { setLiked(was); setLikesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [liked, auth, video.id]);
 
-    // Single/double-tap disambiguation: a single tap waits up to 300ms before
-    // acting, so a following second tap cancels it and likes instead — this is
-    // what stops play/pause and double-tap-like from fighting each other.
-        const handleVideoTap = useCallback((e) => {
+    const handleVideoTap = useCallback((e) => {
         if (suppressTapRef.current) { suppressTapRef.current = false; return; }
         if (mobileSheet || showSearch) return;
         markInteracted();
@@ -507,7 +503,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
         }
     }, [liked, mobileSheet, showSearch, triggerLikeAnim, handleLike]);
 
-        const handleSwipeDown = useCallback((e) => {
+    const handleSwipeDown = useCallback((e) => {
         dragStartXRef.current = e.clientX;
     }, []);
 
@@ -548,7 +544,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
         const was = saved; setSaved(!was); setSavesCount(c => Math.max(0, c + (was ? -1 : 1)));
-        showToast(was ? 'Removed from saved' : 'Video Saved', was ? 'error' : 'success')
+        showToast(was ? 'Removed from saved' : 'Video Saved', was ? 'error' : 'success');
         try { const { data } = await axios.post(`/api/videos/${video.ulid}/save`, {}, { withCredentials: true }); setSaved(data.saved); if (data.saves_count !== undefined) setSavesCount(Number(data.saves_count)); }
         catch { setSaved(was); setSavesCount(c => Math.max(0, c + (was ? 1 : -1))); }
     }, [saved, auth, video.id]);
@@ -560,267 +556,310 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
         catch { setFollowed(false); }
     }, [followed, auth, video.user?.id]);
 
-        const toggleMute = useCallback(() => {
+    const toggleMute = useCallback(() => {
         markInteracted();
         setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; });
     }, []);
+
     const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
     const showToast = (msg, type = 'success') => {
-        setToast({ msg, type })
-        setTimeout(() => setToast(null), 2500)
-    }
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 2500);
+    };
 
     const openSheet = (sheet) => { setMobileSheet(sheet); };
 
     return (
-        <div ref={cardWrapRef} style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden', position: 'relative' }}>
-        <div
-            onPointerDown={handleSwipeDown}
-            onPointerMove={handleSwipeMove}
-            onPointerUp={handleSwipeUp}
-            onPointerCancel={handleSwipeUp}
-            style={{ position: 'absolute', inset: 0, display: 'flex', transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform' }}
-        >
+        <div ref={cardWrapRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', background: '#000' }}>
 
-            {mobileSheet === 'share' && (
-                <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
-            )}
-            {moreSheetOpen && (
-                <MoreSheet
-                    onClose={() => setMoreSheetOpen(false)}
-                    onReport={() => setReportOpen(true)}
-                    videoRef={videoRef}
-                />
-            )}
-            {reportOpen && (
-                <ReportVideoModal
-                    video={video}
-                    onClose={() => setReportOpen(false)}
-                />
-            )}
+            <div
+                onPointerDown={handleSwipeDown}
+                onPointerMove={handleSwipeMove}
+                onPointerUp={handleSwipeUp}
+                onPointerCancel={handleSwipeUp}
+                style={{ position: 'absolute', inset: 0, display: 'flex', transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform' }}
+            >
+                {/* SLIDE 1 — video + desktop panel row, exactly as before */}
+                <div style={{ flex: '0 0 100%', width: '100%', height: '100%', display: 'flex', background: '#000' }}>
 
-            {/* VIDEO COLUMN */}
-            <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
-                                <video ref={videoRef} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
-                    onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
-                    onPlaying={() => setLoading(false)}
-               onPlay={() => { setPlaying(true); setShowPP(false) }}
-                    onPause={() => {
-                        const el = videoRef.current
-                        if (!el?.ended) {
-                            setPlaying(false)
-                            if (isActive && !userPausedRef.current) ensurePlaying(el)
-                        }
-                    }}
-                    onStalled={() => { if (isActive) ensurePlaying(videoRef.current) }}
-                    onClick={handleVideoTap}
-                    onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
-                    onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
-                    onTouchEnd={e => {
-                        if (swipeStartRef.current == null) return;
-                        const dx = e.changedTouches[0].clientX - swipeStartRef.current;
-                        swipeStartRef.current = null;
-                        if (dx > 90) router.visit(`/@${video.user?.username}`);
-                    }}
-                    onLoadedMetadata={e => setDuration(e.target.duration)}
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
-                />
-                {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
-                    <span
-                        key={overlay.id}
-                        style={{
-                            position: 'absolute',
-                            top: `${overlay.top}%`,
-                            left: `${overlay.left}%`,
-                            zIndex: 8,
-                            color: overlay.textColor ?? '#fff',
-                            fontSize: overlay.fontSize ?? 18,
-                            fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
-                            fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
-                            textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
-                            border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
-                            borderRadius: overlay.showOutline ? 8 : 0,
-                            padding: overlay.showOutline ? '3px 10px' : 0,
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                            maxWidth: '80%',
-                            wordBreak: 'break-word',
-                            lineHeight: 1.3,
-                            display: 'inline-block',
-                        }}
-                    >
-                        {overlay.text}
-                    </span>
-                ))}
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
+                    <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
+                        <video ref={videoRef} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
+                            onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
+                            onPlaying={() => setLoading(false)}
+                            onPlay={() => { setPlaying(true); setShowPP(false); }}
+                            onPause={() => {
+                                const el = videoRef.current;
+                                if (!el?.ended) {
+                                    setPlaying(false);
+                                    if (isActive && !userPausedRef.current) ensurePlaying(el);
+                                }
+                            }}
+                            onStalled={() => { if (isActive) ensurePlaying(videoRef.current); }}
+                            onClick={handleVideoTap}
+                            onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}); } }}
+                            onLoadedMetadata={e => setDuration(e.target.duration)}
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                        />
+                        {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
+                            <span
+                                key={overlay.id}
+                                style={{
+                                    position: 'absolute',
+                                    top: `${overlay.top}%`,
+                                    left: `${overlay.left}%`,
+                                    zIndex: 8,
+                                    color: overlay.textColor ?? '#fff',
+                                    fontSize: overlay.fontSize ?? 18,
+                                    fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
+                                    fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
+                                    textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
+                                    border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
+                                    borderRadius: overlay.showOutline ? 8 : 0,
+                                    padding: overlay.showOutline ? '3px 10px' : 0,
+                                    pointerEvents: 'none',
+                                    userSelect: 'none',
+                                    maxWidth: '80%',
+                                    wordBreak: 'break-word',
+                                    lineHeight: 1.3,
+                                    display: 'inline-block',
+                                }}
+                            >
+                                {overlay.text}
+                            </span>
+                        ))}
+                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
+                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
 
-                {/* Top bar */}
-                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
-                    <button onClick={showBackBtn ? onBack : () => window.history.back()} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
-                        <RiArrowLeftLine size={20} />
-                    </button>
-                    <div className="flex flex-row gap-3">
-                        {showSearch ? (
-                            <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
-                                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
-                                    <RiCloseFill size={20} />
-                                </button>
-                            </form>
-                        ) : (
-                            <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                                <RiSearchLine size={20} />
+                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
+                            <button onClick={showBackBtn ? onBack : () => window.history.back()} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                                <RiArrowLeftLine size={20} />
                             </button>
+                            <div className="flex flex-row gap-3">
+                                {showSearch ? (
+                                    <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
+                                        <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
+                                            <RiCloseFill size={20} />
+                                        </button>
+                                    </form>
+                                ) : (
+                                    <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                        <RiSearchLine size={20} />
+                                    </button>
+                                )}
+                                <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
+                                    <RiMoreLine size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
+                        {showPP && (
+                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
+                                <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {playing
+                                        ? <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" /></svg>
+                                        : <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
+                                    }
+                                </div>
+                            </div>
                         )}
-                        <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
-                            <RiMoreLine size={20} />
-                        </button>
+
+                        <VideoSeekBar videoRef={videoRef} enabled={isActive} onProgress={setProgress} />
+
+                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
+                            <div style={{ position: 'relative', marginBottom: 4 }}>
+                                <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
+                            </div>
+                            <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike(); }} label={fmt(likesCount)}>{liked ? <RiHeartFill size={34} color="#EF4444" /> : <RiHeartLine size={34} color="#fff" />}</SideBtn>
+                            <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
+                                <RiChat1Line size={28} color={'#fff'} />
+                            </SideBtn>
+                            <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
+                            {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
+                            <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
+                                </button>
+                                {duration > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+                                        <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                                            {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur); })()}
+                                        </span>
+                                        <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
+                                        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                                            {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration); })()}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className='lg:w-[50%]' onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            {!isOwner && (
+                                <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
+                                    {followed ? 'Following' : 'Follow'}
+                                </button>
+                            )}
+                            <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
+                                <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
+                                <VerifiedBadge type={video.user?.verification_type} size={18} />
+                            </button>
+                            {video.created_at && (
+                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{postedDate(video.created_at)}</span>
+                            )}
+                            {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
+                            {video.description && <ExpandableDescription text={video.description} />}
+                            {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
+                                <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+                                    onClick={e => e.stopPropagation()}
+                                    prefetch="hover"
+                                    style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+                                    {tag.startsWith('#') ? tag : `#${tag}`}
+                                </Link>
+                            ))}</div>}
+                            {video.user?.location && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RiMapPinLine size={11} color="rgba(255,255,255,0.55)" /><span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span></div>}
+                            {hasProducts && <button onClick={() => window.innerWidth < 768 ? openSheet('products') : setTab('products')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.45)', borderRadius: 999, padding: '6px 13px', backdropFilter: 'blur(8px)', cursor: 'pointer', width: 'fit-content', marginTop: 2 }}><RiShoppingBag2Line size={13} color="#FF6B35" /><span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop</span></button>}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'none', flexDirection: 'column', width: 340, flexShrink: 0, background: 'rgba(16,16,16,0.98)', borderLeft: '1px solid rgba(255,255,255,0.08)', height: '100%', overflowY: 'auto' }} className="video-show-panel">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                            <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.1)' }} /></button>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
+                                    <VerifiedBadge type={video.user?.verification_type} size={18} />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>@{video.user?.username}</p>
+                                    {video.created_at && (
+                                        <>
+                                            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>·</span>
+                                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>{postedDate(video.created_at)}</p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            {!isOwner && <button onClick={auth?.user ? handleFollow : () => router.visit('/login')} style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, border: 'none', background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed ? 'rgba(255,255,255,0.5)' : '#fff' }}>{followed ? 'Following' : 'Follow'}</button>}
+                            <button onClick={() => setMoreSheetOpen(true)} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                                <RiMoreLine size={16} color="rgba(255,255,255,0.5)" />
+                            </button>
+                        </div>
+                        {(video.title || video.description) && (
+                            <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                                {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
+                                {video.description && (
+                                    <DescriptionPanel text={video.description} />
+                                )}
+                                {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => (
+                                    <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
+                                        onClick={e => e.stopPropagation()}
+                                        prefetch="hover"
+                                        style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
+                                        {tag.startsWith('#') ? tag : `#${tag}`}
+                                    </Link>
+                                ))}</div>}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                                    <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                        <RiShareForwardLine size={14} /> Share
+                                    </button>
+                                    <button onClick={download} disabled={dlState !== 'idle' && dlState !== 'error'}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: dlState === 'done' ? 'rgba(16,185,129,0.12)' : dlState === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: dlState === 'done' ? '#10B981' : dlState === 'error' ? '#EF4444' : '#fff', fontSize: 12, fontWeight: 600, cursor: (dlState === 'preparing' || dlState === 'processing') ? 'default' : 'pointer', opacity: (dlState === 'preparing' || dlState === 'processing') ? 0.5 : 1 }}>
+                                        {(dlState === 'preparing' || dlState === 'processing') ? <RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiDownload2Line size={14} />}
+                                        {{ idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState]}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                            {[{ key: 'comments', label: `Comments (${fmt(commentsCount)})` }, ...(hasProducts ? [{ key: 'products', label: `Shop (${video.products.length})` }] : [])].map(t => (
+                                <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: '12px 8px', background: 'none', border: 'none', cursor: 'pointer', color: tab === t.key ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: tab === t.key ? 700 : 400, borderBottom: tab === t.key ? '2px solid #FF6B35' : '2px solid transparent', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>{t.label}</button>
+                            ))}
+                        </div>
+                        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                            {tab === 'products' && hasProducts && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{video.products.map(p => <ProductRow key={p.id} product={p} />)}</div>}
+                            {tab === 'comments' && (
+                                <CommentSheet
+                                    videoId={video.ulid}
+                                    videoOwnerId={video.user_id}
+                                    onClose={() => setTab('products')}
+                                    onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
+                                />
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
-                {showPP && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
-                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {playing
-                                ? <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path fillRule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clipRule="evenodd" /></svg>
-                                : <svg width={22} height={22} fill="white" viewBox="0 0 24 24"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
-                            }
+                {/* SLIDE 2 — real profile peek */}
+                <div style={{ flex: '0 0 100%', width: '100%', height: '100%', background: '#121212', display: 'flex', flexDirection: 'column', color: '#fff', overflowY: 'auto' }}>
+                    <div style={{ height: 110, background: 'linear-gradient(135deg, #1f1f1f, #2a2a2a)', position: 'relative', flexShrink: 0 }}>
+                        <div style={{ position: 'absolute', bottom: -30, left: 20 }}>
+                            <img src={avatarSrc} alt="" style={{ width: 76, height: 76, borderRadius: '50%', border: '3px solid #121212', objectFit: 'cover', background: '#222' }} />
                         </div>
                     </div>
-                )}
+                    <div style={{ padding: '40px 20px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{video.user?.name}</h3>
+                                    <VerifiedBadge type={video.user?.verification_type} size={18} />
+                                </div>
+                                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>@{video.user?.username}</p>
+                            </div>
+                            {!isOwner && (
+                                <button onClick={handleFollow} style={{ padding: '8px 22px', background: followed ? 'rgba(255,255,255,0.1)' : '#FF6B35', border: 'none', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                                    {followed ? 'Following' : 'Follow'}
+                                </button>
+                            )}
+                        </div>
 
-              <VideoSeekBar videoRef={videoRef} enabled={isActive} onProgress={setProgress} />
-
-                {/* Right actions */}
-                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
-                    <div style={{ position: 'relative', marginBottom: 4 }}>
-                        <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
-                    </div>
-                    <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike() }} label={fmt(likesCount)}>{liked ? <RiHeartFill size={34} color="#EF4444" /> : <RiHeartLine size={34} color="#fff" />}</SideBtn>
-                    <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
-                        <RiChat1Line size={28} color={'#fff'} />
-                    </SideBtn>
-                    <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
-                    {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
-                    <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
-                        </button>
-                        {duration > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
-                                <span style={{ color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                                    {(() => { const cur = (progress / 100) * duration; const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(cur) })()}
-                                </span>
-                                <div style={{ width: 14, height: 1, background: 'rgba(255,255,255,0.3)', margin: '1px 0' }} />
-                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontFamily: 'monospace', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                                    {(() => { const f = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; return f(duration) })()}
-                                </span>
+                        {profilePreview ? (
+                            <>
+                                {profilePreview.bio && <p style={{ margin: 0, color: 'rgba(255,255,255,0.8)', fontSize: 13, lineHeight: 1.4 }}>{profilePreview.bio}</p>}
+                                <div style={{ display: 'flex', gap: 20, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                    <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.following_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Following</span></div>
+                                    <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.followers_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Followers</span></div>
+                                    <div><span style={{ fontWeight: 800, fontSize: 15 }}>{fmt(profilePreview.likes_count)}</span> <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Likes</span></div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, marginTop: 8 }}>
+                                    {profilePreview.recent_videos?.length > 0 ? profilePreview.recent_videos.map(v => (
+                                        <div key={v.ulid} style={{ aspectRatio: '3/4', background: '#000', borderRadius: 4, overflow: 'hidden' }}>
+                                            {v.thumbnail_url && <img src={v.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                                        </div>
+                                    )) : (
+                                        <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12, padding: '20px 0' }}>No videos yet</div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <div style={{ width: '70%', height: 12, borderRadius: 6, background: 'rgba(255,255,255,0.08)' }} />
+                                <div style={{ display: 'flex', gap: 20, padding: '10px 0' }}>
+                                    {[0, 1, 2].map(i => <div key={i} style={{ width: 60, height: 14, borderRadius: 6, background: 'rgba(255,255,255,0.08)' }} />)}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
+                                    {[1, 2, 3, 4, 5, 6].map(n => <div key={n} style={{ aspectRatio: '3/4', background: 'rgba(255,255,255,0.05)', borderRadius: 4 }} />)}
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
-
-                {/* Bottom info */}
-                <div className='lg:w-[50%]' onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {!isOwner && (
-                        <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
-                            {followed ? 'Following' : 'Follow'}
-                        </button>
-                    )}
-                    <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
-                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
-                        <VerifiedBadge type={video.user?.verification_type} size={18} />
-                    </button>
-                    {video.created_at && (
-                        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{postedDate(video.created_at)}</span>
-                    )}
-                    {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
-                    {video.description && <ExpandableDescription text={video.description} />}
-                    {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
-                        <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
-                            onClick={e => e.stopPropagation()}
-                            prefetch="hover"
-                            style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
-                            {tag.startsWith('#') ? tag : `#${tag}`}
-                        </Link>
-                    ))}</div>}
-                    {video.user?.location && <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RiMapPinLine size={11} color="rgba(255,255,255,0.55)" /><span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{video.user.location}</span></div>}
-                    {hasProducts && <button onClick={() => window.innerWidth < 768 ? openSheet('products') : setTab('products')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,107,53,0.18)', border: '1px solid rgba(255,107,53,0.45)', borderRadius: 999, padding: '6px 13px', backdropFilter: 'blur(8px)', cursor: 'pointer', width: 'fit-content', marginTop: 2 }}><RiShoppingBag2Line size={13} color="#FF6B35" /><span style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700 }}>{video.products.length} Product{video.products.length > 1 ? 's' : ''} · Tap to shop</span></button>}
-                </div>
             </div>
 
-            {/* DESKTOP RIGHT PANEL */}
-            <div style={{ display: 'none', flexDirection: 'column', width: 340, flexShrink: 0, background: 'rgba(16,16,16,0.98)', borderLeft: '1px solid rgba(255,255,255,0.08)', height: '100%', overflowY: 'auto' }} className="video-show-panel">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                    <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.1)' }} /></button>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
-                            <VerifiedBadge type={video.user?.verification_type} size={18} />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>@{video.user?.username}</p>
-                            {video.created_at && (
-                                <>
-                                    <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>·</span>
-                                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>{postedDate(video.created_at)}</p>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                    {!isOwner && <button onClick={auth?.user ? handleFollow : () => router.visit('/login')} style={{ padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, border: 'none', background: followed ? 'rgba(255,255,255,0.08)' : '#FF6B35', color: followed ? 'rgba(255,255,255,0.5)' : '#fff' }}>{followed ? 'Following' : 'Follow'}</button>}
-                    <button onClick={() => setMoreSheetOpen(true)} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                        <RiMoreLine size={16} color="rgba(255,255,255,0.5)" />
-                    </button>
-                </div>
-                {(video.title || video.description) && (
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                        {video.title && <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>{video.title}</p>}
-                        {video.description && (
-                            <DescriptionPanel text={video.description} />
-                        )}
-                        {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>{video.hashtags.map((tag, i) => (
-                            <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
-                                onClick={e => e.stopPropagation()}
-                                prefetch="hover"
-                                style={{ color: '#FF6B35', fontSize: 13, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.7)', textDecoration: 'none' }}>
-                                {tag.startsWith('#') ? tag : `#${tag}`}
-                            </Link>
-                        ))}</div>}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                            <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                                <RiShareForwardLine size={14} /> Share
-                            </button>
-                            <button onClick={download} disabled={dlState !== 'idle' && dlState !== 'error'}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: dlState === 'done' ? 'rgba(16,185,129,0.12)' : dlState === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: dlState === 'done' ? '#10B981' : dlState === 'error' ? '#EF4444' : '#fff', fontSize: 12, fontWeight: 600, cursor: (dlState === 'preparing' || dlState === 'processing') ? 'default' : 'pointer', opacity: (dlState === 'preparing' || dlState === 'processing') ? 0.5 : 1 }}>
-                                {(dlState === 'preparing' || dlState === 'processing') ? <RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiDownload2Line size={14} />}
-                                {{ idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState]}
-                            </button>
-                        </div>
-                    </div>
-                )}
-                <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                    {[{ key: 'comments', label: `Comments (${fmt(commentsCount)})` }, ...(hasProducts ? [{ key: 'products', label: `Shop (${video.products.length})` }] : [])].map(t => (
-                        <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: '12px 8px', background: 'none', border: 'none', cursor: 'pointer', color: tab === t.key ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: tab === t.key ? 700 : 400, borderBottom: tab === t.key ? '2px solid #FF6B35' : '2px solid transparent', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>{t.label}</button>
-                    ))}
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    {tab === 'products' && hasProducts && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{video.products.map(p => <ProductRow key={p.id} product={p} />)}</div>}
-                    {tab === 'comments' && (
-                        <CommentSheet
-                            videoId={video.ulid}
-                            videoOwnerId={video.user_id}
-                            onClose={() => setTab('products')}
-                            onCountChange={(delta) => setCommentsCount(c => Math.max(0, c + delta))}
-                        />
-                    )}
-                </div>
-            </div>
-
-            {/* Mobile bottom sheets */}
+            {/* Everything below is deliberately OUTSIDE the transform wrapper — a
+                CSS transform on an ancestor changes position:fixed children to be
+                relative to that ancestor instead of the real viewport. */}
+            {mobileSheet === 'share' && (
+                <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
+            )}
+            {moreSheetOpen && (
+                <MoreSheet onClose={() => setMoreSheetOpen(false)} onReport={() => setReportOpen(true)} videoRef={videoRef} />
+            )}
+            {reportOpen && (
+                <ReportVideoModal video={video} onClose={() => setReportOpen(false)} />
+            )}
             {mobileSheet && mobileSheet !== 'share' && (
                 <>
                     <div onClick={() => setMobileSheet(null)} style={{ position: 'fixed', inset: 0, zIndex: 49, background: 'rgba(0,0,0,0.4)' }} />
@@ -843,30 +882,16 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart
                 </>
             )}
 
-            <LikeAnimationOverlay bursts={likeBursts} />
+            <LikeAnimationOverlay burst={burst} />
 
-                        {toast && (
-    <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
-        <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
-    </div>
-)}
-        </div>
-
-        <div style={{ position: 'absolute', inset: 0, transform: `translateX(calc(100% + ${dragX}px))`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, willChange: 'transform' }}>
-            <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(255,255,255,0.9)', flexShrink: 0 }}>
-                <img src={avatarSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{video.user?.name}</span>
-                <VerifiedBadge type={video.user?.verification_type} size={16} />
-            </div>
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>@{video.user?.username}</span>
-            <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 6 }}>Release to view full profile</span>
-        </div>
+            {toast && (
+                <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
+                    <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+                </div>
+            )}
         </div>
     );
 }
-
 // Small inline icon components to avoid importing more than needed for the mute button.
 function RiVolumeMuteIcon() {
     const { RiVolumeMuteLine } = require('react-icons/ri');
