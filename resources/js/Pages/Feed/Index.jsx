@@ -77,6 +77,9 @@ export default function FeedIndex({ initialVideos }) {
         [videos.length],
     );
 
+        const lockVerticalScroll = useCallback(() => { if (containerRef.current) containerRef.current.style.overflowY = 'hidden' }, [])
+    const unlockVerticalScroll = useCallback(() => { if (containerRef.current) containerRef.current.style.overflowY = 'scroll' }, [])
+
     return (
         <>
             <Head title="For You" />
@@ -108,7 +111,7 @@ export default function FeedIndex({ initialVideos }) {
                         border: '1px solid rgba(255,255,255,0.08)',
                     }}
                 >
-                    {['for_you', 'following'].map((type) => (
+                        {['for_you', 'following', 'near_me'].map((type) => (
                         <button
                             key={type}
                             onClick={() => setFeedType(type)}
@@ -124,7 +127,7 @@ export default function FeedIndex({ initialVideos }) {
                                 color: feedType === type ? '#000' : 'rgba(255,255,255,0.6)',
                             }}
                         >
-                            {type === 'for_you' ? 'For You' : 'Following'}
+                            {type === 'for_you' ? 'For You' : type === 'following' ? 'Following' : 'Near Me'}
                         </button>
                     ))}
                 </div>
@@ -177,7 +180,7 @@ export default function FeedIndex({ initialVideos }) {
                 {videos.map((video, i) => (
                     <div key={`${video.id}-${i}`} ref={(el) => (itemRefs.current[i] = el)} className="feed-item-wrap">
                         <div className="feed-item-inner">
-                            <VideoCard video={video} isActive={activeIndex === i} />
+                                                        <VideoCard video={video} isActive={activeIndex === i} onSwipeStart={lockVerticalScroll} onSwipeEnd={unlockVerticalScroll} />
                         </div>
                     </div>
                 ))}
@@ -243,6 +246,20 @@ export default function FeedIndex({ initialVideos }) {
                                 }}
                             >
                                 Discover Sellers
+                            </a>
+                        </div>
+                    </div>
+                )}
+
+                    {!loading && feedType === 'near_me' && videos.length === 0 && (
+                    <div className="feed-item-wrap" style={{ alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ textAlign: 'center', padding: '0 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                            <p style={{ color: '#fff', fontWeight: 700, fontSize: 20, margin: 0 }}>No local videos yet</p>
+                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: 0, lineHeight: 1.5 }}>
+                                Add your location in settings to see videos from sellers near you.
+                            </p>
+                            <a href="/settings/profile" style={{ padding: '12px 28px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+                                Set My Location
                             </a>
                         </div>
                     </div>

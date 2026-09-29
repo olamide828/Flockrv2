@@ -358,7 +358,7 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // VideoSlide — one full-screen slide
 // ─────────────────────────────────────────────────────────────────────────────
-function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
+function VideoSlide({ video, isActive, showBackBtn = false, onBack, onSwipeStart, onSwipeEnd }) {
     const { auth } = usePage().props;
     const videoRef        = useRef(null);
     const watchStartRef   = useRef(null);
@@ -369,6 +369,12 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const lastTap         = useRef(0);
     const userPausedRef   = useRef(false);
     const swipeStartRef = useRef(null);
+    const cardWrapRef    = useRef(null);
+    const dragStartXRef  = useRef(null);
+    const draggingRef    = useRef(false);
+    const suppressTapRef = useRef(false);
+    const [dragX, setDragX] = useState(0);
+    const [isDraggingSwipe, setIsDraggingSwipe] = useState(false);
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);
@@ -476,7 +482,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     // Single/double-tap disambiguation: a single tap waits up to 300ms before
     // acting, so a following second tap cancels it and likes instead — this is
     // what stops play/pause and double-tap-like from fighting each other.
-    const handleVideoTap = useCallback((e) => {
+        const handleVideoTap = useCallback((e) => {
+        if (suppressTapRef.current) { suppressTapRef.current = false; return; }
         if (mobileSheet || showSearch) return;
         markInteracted();
         const now = Date.now();
@@ -499,6 +506,44 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             }, 300);
         }
     }, [liked, mobileSheet, showSearch, triggerLikeAnim, handleLike]);
+
+        const handleSwipeDown = useCallback((e) => {
+        dragStartXRef.current = e.clientX;
+    }, []);
+
+    const handleSwipeMove = useCallback((e) => {
+        if (dragStartXRef.current == null) return;
+        const dx = e.clientX - dragStartXRef.current;
+        if (!draggingRef.current) {
+            if (dx > 0 || Math.abs(dx) < 12) {
+                if (dx > 20) dragStartXRef.current = null;
+                return;
+            }
+            draggingRef.current = true;
+            suppressTapRef.current = true;
+            clearTimeout(tapTimerRef.current);
+            setIsDraggingSwipe(true);
+            onSwipeStart?.();
+        }
+        const width = cardWrapRef.current?.clientWidth || window.innerWidth;
+        setDragX(Math.max(dx, -width));
+    }, [onSwipeStart]);
+
+    const handleSwipeUp = useCallback(() => {
+        if (!draggingRef.current) { dragStartXRef.current = null; return; }
+        const width = cardWrapRef.current?.clientWidth || window.innerWidth;
+        const progress = Math.abs(dragX) / width;
+        draggingRef.current = false;
+        dragStartXRef.current = null;
+        setIsDraggingSwipe(false);
+        onSwipeEnd?.();
+        if (progress > 0.3) {
+            setDragX(-width);
+            setTimeout(() => router.visit(`/@${video.user?.username}`), 180);
+        } else {
+            setDragX(0);
+        }
+    }, [dragX, onSwipeEnd, video.user?.username]);
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -528,7 +573,14 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const openSheet = (sheet) => { setMobileSheet(sheet); };
 
     return (
-        <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
+        <div ref={cardWrapRef} style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden', position: 'relative' }}>
+        <div
+            onPointerDown={handleSwipeDown}
+            onPointerMove={handleSwipeMove}
+            onPointerUp={handleSwipeUp}
+            onPointerCancel={handleSwipeUp}
+            style={{ position: 'absolute', inset: 0, display: 'flex', transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform' }}
+        >
 
             {mobileSheet === 'share' && (
                 <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
@@ -793,11 +845,24 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
             <LikeAnimationOverlay bursts={likeBursts} />
 
-            {toast && (
-                <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
-                    <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
-                </div>
-            )}
+                        {toast && (
+    <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>
+        <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
+    </div>
+)}
+        </div>
+
+        <div style={{ position: 'absolute', inset: 0, transform: `translateX(calc(100% + ${dragX}px))`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, willChange: 'transform' }}>
+            <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(255,255,255,0.9)', flexShrink: 0 }}>
+                <img src={avatarSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{video.user?.name}</span>
+                <VerifiedBadge type={video.user?.verification_type} size={16} />
+            </div>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>@{video.user?.username}</span>
+            <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 6 }}>Release to view full profile</span>
+        </div>
         </div>
     );
 }
@@ -823,6 +888,9 @@ export default function VideoShow({ video, isLiked, isSaved, isFollowing, initia
     const [activeIdx,     setActiveIdx]     = useState(0);
     const sentinelRef = useRef(null);
     const slideRefs   = useRef([]);
+    const feedScrollRef = useRef(null);
+    const lockVerticalScroll = useCallback(() => { if (feedScrollRef.current) feedScrollRef.current.style.overflowY = 'hidden'; }, []);
+    const unlockVerticalScroll = useCallback(() => { if (feedScrollRef.current) feedScrollRef.current.style.overflowY = 'scroll'; }, []);
 
     const mainVideo = { ...video, is_liked: isLiked, is_saved: isSaved, is_following: isFollowing };
     const allVideos = [mainVideo, ...sellerVideos];
@@ -862,10 +930,10 @@ export default function VideoShow({ video, isLiked, isSaved, isFollowing, initia
     return (
         <>
             <Head title={video.title || `${video.user?.name} on Flockr`} />
-            <div style={{ width: '100%', height: '100dvh', overflowY: 'scroll', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#000' }}>
+                <div ref={feedScrollRef} style={{ width: '100%', height: '100dvh', overflowY: 'scroll', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#000' }}>
                 {allVideos.map((v, i) => (
                     <div key={v.ulid} ref={el => slideRefs.current[i] = el} style={{ width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', overflow: 'hidden', position: 'relative' }}>
-                        <VideoSlide video={v} isActive={activeIdx === i} showBackBtn={i > 0} onBack={() => window.history.back()} />
+                    <VideoSlide video={v} isActive={activeIdx === i} showBackBtn={i > 0} onBack={() => window.history.back()} onSwipeStart={lockVerticalScroll} onSwipeEnd={unlockVerticalScroll} />
                     </div>
                 ))}
                 {loadingMore && (

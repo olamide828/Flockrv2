@@ -200,7 +200,7 @@ function useVideoDownload(video) {
   return { download, dlState }
 }
 
-export default function VideoCard({ video, isActive }) {
+export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd }) {
   const { auth }        = usePage().props
   const videoRef        = useRef(null)
   const watchStartRef   = useRef(null)
@@ -212,6 +212,12 @@ export default function VideoCard({ video, isActive }) {
   const likeBtnRef      = useRef(null)
   const userPausedRef = useRef(false)
   const swipeStartRef = useRef(null)
+    const cardWrapRef   = useRef(null)
+  const dragStartXRef = useRef(null)
+  const draggingRef   = useRef(false)
+  const suppressTapRef = useRef(false)
+  const [dragX, setDragX] = useState(0)
+  const [isDraggingSwipe, setIsDraggingSwipe] = useState(false)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
@@ -359,6 +365,7 @@ export default function VideoCard({ video, isActive }) {
   // a double-tap (like, wherever on the frame you tapped); if not, THEN the
   // play/pause fires. This is what stops the two gestures from fighting.
   const handleVideoTap = useCallback((e) => {
+    if (suppressTapRef.current) { suppressTapRef.current = false; return }
     if (showComments || showProducts || showShare) return
     markInteracted()
     const now = Date.now()
@@ -383,6 +390,44 @@ export default function VideoCard({ video, isActive }) {
     }
   }, [liked, showComments, showProducts, showShare, triggerLikeAnim, handleLike])
 
+    const handleSwipeDown = useCallback((e) => {
+    dragStartXRef.current = e.clientX
+  }, [])
+
+  const handleSwipeMove = useCallback((e) => {
+    if (dragStartXRef.current == null) return
+    const dx = e.clientX - dragStartXRef.current
+    if (!draggingRef.current) {
+      if (dx > 0 || Math.abs(dx) < 12) {
+        if (dx > 20) dragStartXRef.current = null
+        return
+      }
+      draggingRef.current = true
+      suppressTapRef.current = true
+      clearTimeout(tapTimerRef.current)
+      setIsDraggingSwipe(true)
+      onSwipeStart?.()
+    }
+    const width = cardWrapRef.current?.clientWidth || window.innerWidth
+    setDragX(Math.max(dx, -width))
+  }, [onSwipeStart])
+
+  const handleSwipeUp = useCallback(() => {
+    if (!draggingRef.current) { dragStartXRef.current = null; return }
+    const width = cardWrapRef.current?.clientWidth || window.innerWidth
+    const progress = Math.abs(dragX) / width
+    draggingRef.current = false
+    dragStartXRef.current = null
+    setIsDraggingSwipe(false)
+    onSwipeEnd?.()
+    if (progress > 0.3) {
+      setDragX(-width)
+      setTimeout(() => router.visit(`/@${video.user?.username}`), 180)
+    } else {
+      setDragX(0)
+    }
+  }, [dragX, onSwipeEnd, video.user?.username])
+
   const handleSave = useCallback(async () => {
     if (!auth?.user) { router.visit('/login'); return }
     const was = saved; setSaved(!was); setSavesCount(c => Math.max(0, c + (was ? -1 : 1)))
@@ -403,7 +448,14 @@ export default function VideoCard({ video, isActive }) {
   }, [])
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
+    <div ref={cardWrapRef} style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
+    <div
+      onPointerDown={handleSwipeDown}
+      onPointerMove={handleSwipeMove}
+      onPointerUp={handleSwipeUp}
+      onPointerCancel={handleSwipeUp}
+      style={{ position: 'absolute', inset: 0, transform: `translateX(${dragX}px)`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', willChange: 'transform' }}
+    >
 
       {showShare && (
         <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setShowShare(false)} onDownload={download} dlState={dlState} />
@@ -605,12 +657,28 @@ export default function VideoCard({ video, isActive }) {
         @keyframes vc-slideup { from{transform:translateY(100%)} to{transform:translateY(0)} }
       `}</style>
 
-      {toast && (
+            {toast && (
         <div style={{ position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 30, pointerEvents: 'none' }}>
           <Toast toast={toast ? { message: toast.msg, type: toast.type } : null} onDismiss={() => setToast(null)} />
         </div>
       )}
     </div>
+
+    <div style={{ position: 'absolute', inset: 0, transform: `translateX(calc(100% + ${dragX}px))`, transition: isDraggingSwipe ? 'none' : 'transform 0.32s cubic-bezier(0.22,1,0.36,1)', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, willChange: 'transform' }}>
+      <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(255,255,255,0.9)', flexShrink: 0 }}>
+        {video.user?.avatar_url
+          ? <img src={video.user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg,#ff5c00,#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 32 }}>{(video.user?.name ?? 'U')[0]}</div>
+        }
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{video.user?.name}</span>
+        <VerifiedBadge type={video.user?.verification_type} size={16} />
+      </div>
+      <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>@{video.user?.username}</span>
+      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 6 }}>Release to view full profile</span>
+    </div>
+  </div>
   )
 }
 

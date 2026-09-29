@@ -111,6 +111,30 @@ class FeedService
             ->get();
     }
 
+        public function getNearMeFeed(?int $userId, ?string $location, int $cursor = 0, int $limit = 10): Collection
+    {
+        if (!$location || trim($location) === '') {
+            return collect();
+        }
+
+        $blockedIds = $this->blockedAndBlockingIds($userId);
+
+        $city = trim(explode(',', $location)[0]);
+
+        return Video::active()
+            ->with([
+                'user:id,name,username,avatar,is_verified,location',
+                'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+            ])
+            ->withCount(['allComments'])
+            ->whereHas('user', fn ($q) => $q->where('location', 'ilike', "%{$city}%"))
+            ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds))
+            ->when($cursor > 0, fn($q) => $q->where('id', '<', $cursor))
+            ->orderByDesc('published_at')
+            ->limit($limit)
+            ->get();
+    }
+
     // ── Candidate Generation — NO leftJoin, pure Eloquent ─────────────────────
 
     private function generateCandidates(

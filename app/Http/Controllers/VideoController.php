@@ -380,6 +380,7 @@ $hashtags = $request->filled('hashtags')
         // Standard feeds
 $videos = match ($type) {
     'following' => $this->feedService->getFollowingFeed(Auth::id(), $cursor, $limit),
+    'near_me'   => $this->feedService->getNearMeFeed(Auth::id(), Auth::user()?->location, $cursor, $limit),
     default     => $this->feedService->getForYouPage(Auth::id(), $limit, $cursor, $sessionId),
 };
 
