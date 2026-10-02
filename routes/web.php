@@ -108,7 +108,6 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     // Seller onboarding — no role middleware (user IS seller but not yet set up)
     Route::get('/seller/onboarding', [AuthController::class, 'sellerOnboarding'])->name('seller.onboarding');
     Route::post('/seller/onboarding', [AuthController::class, 'sellerOnboardingStore']);
-    Route::post('/become-seller', [AuthController::class, 'convertToSeller'])->name('become-seller');
 
     Route::get('/subscriptions/plans', [SubscriptionController::class, 'plans'])->name('subscriptions.plans');
     Route::post('/subscriptions/checkout', [SubscriptionController::class, 'checkout'])->name('subscriptions.checkout');

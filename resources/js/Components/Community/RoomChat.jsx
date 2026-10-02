@@ -562,9 +562,10 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
               <RiImage2Line size={18} />
             </button>
             <div style={{ flex:1, display:'flex', alignItems:'center', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.09)', borderRadius:999, padding:'0 14px', gap:8 }}>
-              <input ref={inputRef} value={body} onChange={e => { setBody(e.target.value); broadcastTyping() }}
-                placeholder="Message..." maxLength={2000}
-                style={{ flex:1, background:'none', border:'none', outline:'none', color:'#fff', fontSize:14, padding:'11px 0' }} />
+              <textarea ref={inputRef} value={body} onChange={e => { setBody(e.target.value); broadcastTyping() }}
+              placeholder="Message..." maxLength={8000} rows={1}
+              style={{ flex:1, background:'none', border:'none', outline:'none', color:'#fff', fontSize:16, padding:'11px 0', resize:'none', fontFamily:'inherit', lineHeight:1.4, maxHeight:108, overflowY:'auto' }}
+              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }} />
             </div>
             <button type="submit" disabled={(!body.trim() && !pendingMedia) || sending}
               style={{ width:44, height:44, borderRadius:'50%', background: (body.trim() || pendingMedia) ? '#FF6B35' : 'rgba(255,255,255,0.07)', border:'none', cursor: (body.trim() || pendingMedia) ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>

@@ -1,12 +1,5 @@
 <?php
-// database/migrations/xxxx_seed_flockr_support_account_and_docs.php
-//
-// Seeds the system support account and initial knowledge-base documents,
-// written to match what the CODE actually does today — not the Terms/Privacy
-// pages, which describe escrow, "TShip" branding on payment terms, and fixed
-// payout SLAs that don't reflect the current implementation. Update these
-// rows any time real behavior changes (real payouts go live, dispute flow
-// changes, etc.) — the AI reads them fresh on every question, no redeploy.
+
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;

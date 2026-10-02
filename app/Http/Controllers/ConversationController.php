@@ -281,7 +281,7 @@ class ConversationController extends Controller
     $masked->setAttribute('media_url', null);
 
     try {
-        broadcast(new \App\Events\MessageSent($masked, $conversation))->toOthers();
+        broadcast(new \App\Events\MessageDeleted($message->id, $conversation->id))->toOthers();
     } catch (\Throwable) {}
 
     return response()->json($masked);
@@ -357,7 +357,7 @@ class ConversationController extends Controller
         $conv->participants()->attach([$user->id, $support->id]);
         $conv->messages()->create([
             'sender_id' => $support->id,
-            'body' => "Hi {$user->name}! 👋 I'm Flockr Support. Ask me anything about your orders, payouts, or how Flockr works — or just say hi. You can also check if a seller is trustworthy by typing @ plus their name right here in chat.",
+            'body' => "Hi {$user->name}! 👋 I'm Chirp, Flockr's AI assistant. Ask me anything about your orders, payouts, or how Flockr works — or just say hi. You can also check if a seller is trustworthy by typing @ plus their name, or send me a photo of something you like and I'll find similar products for you.",
         ]);
     }
 

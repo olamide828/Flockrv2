@@ -19,7 +19,7 @@ export default function MediaComposerPreview({ file, previewUrl, caption, onCapt
                 <RiCloseLine size={20} />
             </button>
 
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                 {isVideo ? (
                     <>
                         <video ref={videoRef} src={previewUrl} onClick={togglePlay} style={{ maxWidth: '100%', maxHeight: '100%' }} />

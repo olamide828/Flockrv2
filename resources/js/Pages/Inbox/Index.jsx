@@ -489,6 +489,12 @@ useEffect(() => {
             }
         })
 
+        channel.listen('.MessageDeleted', (e) => {
+    setMessages(p => p.map(m => m.id === e.message_id
+        ? { ...m, is_deleted: true, body: null, media_url: null, media_type: null }
+        : m))
+})
+
         channel.listenForWhisper('typing', (e) => {
             if (e.user_id === auth.user.id) return
 
@@ -510,7 +516,8 @@ useEffect(() => {
 
     return () => {
         activeChannels.forEach(channel => {
-            channel.stopListening('.MessageSent')
+            channel.stopListening('.MessageSent'),
+            channel.stopListening('.MessageDeleted')
         })
     }
 }, [active?.id])
@@ -690,15 +697,18 @@ useEffect(() => {
  const confirmSendMedia = async () => {
     if (!pendingMedia || !active) return
     setSendingMedia(true)
+    const optimistic = { id: `opt-${Date.now()}`, sender_id: auth.user.id, body: pendingCaption.trim() || null, media_url: pendingMedia.previewUrl, media_type: pendingMedia.file.type.startsWith('video') ? 'video' : 'image', created_at: new Date().toISOString(), _optimistic: true, sender: auth.user }
+    setMessages(prev => [...prev, optimistic])
     const fd = new FormData()
     fd.append('media', pendingMedia.file)
     if (pendingCaption.trim()) fd.append('body', pendingCaption.trim())
     if (replyingTo) fd.append('reply_to_id', replyingTo.id)
     try {
         const { data } = await axios.post(`/api/conversations/${active.id}/messages`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        setMessages(prev => [...prev, data])
+        setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
         setPendingMedia(null); setPendingCaption(''); setReplyingTo(null)
     } catch (err) {
+        setMessages(prev => prev.filter(m => m.id !== optimistic.id))
         if (err.response?.status === 403 && err.response.data?.request_limit_reached) showToast(err.response.data.message, 'error')
     } finally { setSendingMedia(false) }
 }
@@ -1309,7 +1319,7 @@ const dismissRequestSheet = () => {
         value={body}
         onChange={e => { setBody(e.target.value); broadcastTyping(); detectMention(e.target.value, e.target.selectionStart) }}
         placeholder="Message..."
-        maxLength={1000}
+        maxLength={8000}
         rows={1}
         style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '6px 0', resize: 'none', fontFamily: 'inherit', lineHeight: 1.4, maxHeight: 108, overflowY: 'auto' }}
         onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }}

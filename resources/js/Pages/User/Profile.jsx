@@ -1166,7 +1166,7 @@ return (
                                     Edit profile
                                 </Link>
                                 {isOwnProfile && profileUser.role === 'buyer' && (
-                                <Link href="/become-seller" method="post" as="button" style={outlineBtn}>
+                                <Link href="/seller/onboarding" method="post" as="button" style={outlineBtn}>
                                 <RiStoreLine size={14} /> Start Selling
                                 </Link>
                                 )}

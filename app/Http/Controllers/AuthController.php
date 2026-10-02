@@ -107,7 +107,7 @@ class AuthController extends Controller
 
     public function sellerOnboarding(): Response
     {
-        if (!Auth::check() || Auth::user()->role !== 'seller') {
+        if (!Auth::check() || !in_array(Auth::user()->role, ['seller', 'buyer'])) {
             abort(403);
         }
 
@@ -141,6 +141,7 @@ class AuthController extends Controller
         $existing = $user->preferences ?? [];
 
         $user->update([
+            'role' => 'seller',
             'name' => $validated['store_name'],
             'bio' => $validated['description'],
             'location' => $validated['location'],
@@ -182,15 +183,6 @@ foreach ($categoryIds as $catId) {
             ->with('success', 'Welcome to Flockr! Your seller account is ready. 🎉');
     }
 
-    public function convertToSeller(): RedirectResponse
-{
-    $user = Auth::user();
-    if ($user->role !== 'buyer') {
-        return redirect()->back();
-    }
-    $user->update(['role' => 'seller']);
-    return redirect()->route('seller.onboarding');
-}
     // ── Logout ────────────────────────────────────────────────────────────────
 
     public function logout(Request $request): RedirectResponse

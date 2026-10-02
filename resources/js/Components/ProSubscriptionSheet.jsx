@@ -14,6 +14,10 @@ export default function ProSubscriptionSheet({ onClose }) {
     const [showPlans, setShowPlans] = useState(false)
     useEffect(() => { axios.get('/api/subscriptions/me').then(({ data }) => setData(data)).catch(() => setData({})) }, [])
 
+    if (showPlans) {
+    return <ProPlansSheet onClose={() => setShowPlans(false)} />
+}
+
     return (
         <>
             <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 980, background: 'rgba(0,0,0,0.7)' }} />
