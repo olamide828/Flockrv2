@@ -112,6 +112,11 @@ class Video extends Model
             ->orderByPivot('sort_order');
     }
 
+    public function taggedProducts(): BelongsToMany
+{
+    return $this->products();
+}
+
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopeActive($query)
