@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { usePage } from '@inertiajs/react'
 import axios from 'axios'
 import { RiCloseLine } from 'react-icons/ri'
-import ProductCard from '@/Components/ProductCard'
+import ProductCard from '@/Components/Product/ProductCard'
 
 function TypingLoader() {
     return (
