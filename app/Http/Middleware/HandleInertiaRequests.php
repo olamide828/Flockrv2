@@ -5,7 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Message;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
-use Illuminate\Support\Facades\Cache
+use Illuminate\Support\Facades\Cache;
 
 class HandleInertiaRequests extends Middleware
 {
