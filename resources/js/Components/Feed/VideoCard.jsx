@@ -9,18 +9,20 @@ import {
   RiMoreLine, RiLoader4Line, RiCheckLine,
   RiWhatsappLine, RiFacebookCircleLine, RiTelegramLine,
   RiTwitterXLine, RiLink, RiRedditLine, RiInstagramLine,
-  RiDownload2Line, RiFlag2Line, RiSearchLine,
+  RiDownload2Line, RiFlag2Line, RiSearchLine, RiChatSmile3Line, RiSparkling2Line,
 } from 'react-icons/ri'
 import ReportVideoModal from '../../Pages/Video/ReportVideoModal'
 import CommentSheet from '../Video/CommentSheet'
 import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge'
 import VideoSeekBar from '@/Components/VideoSeekBar'
+import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet'
 import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { useHlsVideo } from '@/lib/useHlsVideo'
 import { useProfilePreview } from '@/lib/useProfilePreview'
+
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -237,6 +239,7 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [showPP, setShowPP] = useState(false)
   const [toast, setToast] = useState(null)
+  const [chirpMode, setChirpMode] = useState(null)
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
@@ -566,6 +569,14 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
         <SideBtn onClick={() => { setShowShare(s => !s); setShowComments(false); setShowProducts(false) }} label="Share">
           <RiShareForwardLine size={28} color={showShare ? '#ff5c00' : '#fff'} />
         </SideBtn>
+        <button onClick={(e) => { e.stopPropagation(); setChirpMode('ask') }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+    <RiChatSmile3Line size={28} color="#fff" />
+    <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>Ask Chirp</span>
+</button>
+<button onClick={(e) => { e.stopPropagation(); setChirpMode('style') }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+    <RiSparkling2Line size={28} color="#fff" />
+    <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>Style ✨</span>
+</button>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
           <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
@@ -645,6 +656,8 @@ export default function VideoCard({ video, isActive, onSwipeStart, onSwipeEnd })
       )}
 
       <LikeAnimationOverlay bursts={likeBursts} />
+
+{chirpMode && <ChirpAnalysisSheet video={video} mode={chirpMode} onClose={() => setChirpMode(null)} />}
 
       <style>{`
         @keyframes vc-spin    { to { transform: rotate(360deg); } }

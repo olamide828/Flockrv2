@@ -1,7 +1,7 @@
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, router } from '@inertiajs/react';
 import axios from 'axios';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     RiArrowLeftLine,
     RiBellLine,
@@ -154,6 +154,12 @@ export default function NotificationsIndex({ notifications: initialNotifs = [] }
     const [markingAll, setMarkingAll] = useState(false);
 
     const unreadCount = notifications.filter((n) => !n.read_at).length;
+
+    useEffect(() => {
+    if (unreadCount === 0) {
+        window.dispatchEvent(new CustomEvent('flockr:notif-read'));
+     }
+    }, [unreadCount]);
 
     const filtered = notifications.filter((n) => {
         if (tab === 'all') return true;

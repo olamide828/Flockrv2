@@ -216,6 +216,35 @@ Route::get('/locations/cities', function (Request $request) {
     }
 });
 
+
+Route::post('/chirp/video-insight', function (Request $request) {
+    $request->validate(['video_id' => 'required|exists:videos,id', 'mode' => 'required|in:ask,style']);
+    $video = \App\Models\Video::with('taggedProducts')->findOrFail($request->video_id);
+
+    $isStyle = $request->mode === 'style';
+    $prompt = $isStyle
+        ? "You are Chirp, acting as a real personal stylist. Look at this product: \"{$video->title}\" — {$video->description}. Give the user genuine, specific styling advice (what it pairs well with, occasions it suits, color/texture tips) in 2-4 warm, conversational sentences. Then on a new line write SEARCH_TERMS: followed by 3-5 comma-separated search terms for complementary items (e.g. accessories, shoes, bags) that would style well with this piece — never the same item itself."
+        : "You are Chirp. The user is asking about this product: \"{$video->title}\" — {$video->description}. Answer naturally and helpfully in 2-4 sentences as if you've actually watched the video. Then on a new line write SEARCH_TERMS: followed by 3-5 comma-separated search terms for similar products to this one.";
+
+    $response = \Illuminate\Support\Facades\Http::timeout(20)->post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+        ['contents' => [['parts' => [['text' => $prompt]]]]]
+    );
+
+    $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
+    [$message, $termsLine] = array_pad(explode('SEARCH_TERMS:', $raw), 2, '');
+    $terms = array_filter(array_map('trim', explode(',', $termsLine)));
+
+    $products = collect($terms)->flatMap(fn($term) =>
+        Product::where('status', 'active')
+            ->where(fn($q) => $q->where('name', 'ilike', "%{$term}%")->orWhere('description', 'ilike', "%{$term}%"))
+            ->where('id', '!=', $video->taggedProducts->first()?->id)
+            ->limit(4)->get()
+    )->unique('id')->take(8)->values();
+
+    return response()->json(['message' => trim($message), 'products' => $products]);
+});
+
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
 Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
 Route::middleware('auth:sanctum')->post('/feed/reset', function () {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import axios from 'axios'
 import { router } from '@inertiajs/react'
 import { RiCloseLine, RiVipDiamondLine, RiLoader4Line } from 'react-icons/ri'
@@ -18,7 +19,8 @@ export default function ProSubscriptionSheet({ onClose }) {
     return <ProPlansSheet onClose={() => setShowPlans(false)} />
 }
 
-    return (
+    return createPortal(
+        (
         <>
             <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 980, background: 'rgba(0,0,0,0.7)' }} />
             <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 981, maxWidth: 420, margin: '0 auto', background: '#141414', border: '1px solid rgba(255,255,255,0.1)', borderBottom: 'none', borderRadius: '22px 22px 0 0', padding: '10px 20px calc(20px + env(safe-area-inset-bottom,0px))' }}>
@@ -49,7 +51,15 @@ export default function ProSubscriptionSheet({ onClose }) {
                                     </div>
                                 ))}
                                 <p style={{ margin: '10px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11.5 }}>Subscriptions don't auto-renew — resubscribe before it expires to keep your Pro perks.</p>
-                                <button onClick={() => setShowPlans(true)} style={{ marginTop: 8, width: '100%', padding: 13, borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Manage Subscription</button>
+                                {(() => {
+                             const daysLeft = data.expires_at ? Math.ceil((new Date(data.expires_at) - new Date()) / 86400000) : null
+                             const nearExpiry = daysLeft !== null && daysLeft <= 7
+                             return nearExpiry ? (
+                             <button onClick={() => setShowPlans(true)} style={{ marginTop: 8, width: '100%', padding: 13, borderRadius: 999, background: '#FF6B35', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                             {daysLeft <= 0 ? 'Renew Now' : `Renew — expires in ${daysLeft}d`}
+                                </button>
+                                ) : null
+                             })()}
                             </div>
                         ) : (
                             <div style={{ textAlign: 'center', padding: '10px 0' }}>
@@ -63,5 +73,7 @@ export default function ProSubscriptionSheet({ onClose }) {
 
             {showPlans && <ProPlansSheet onClose={() => setShowPlans(false)} />}
         </>
+        ),
+    document.body
     )
 }

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Message;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Illuminate\Support\Facades\Cache
 
 class HandleInertiaRequests extends Middleware
 {
@@ -78,6 +79,10 @@ class HandleInertiaRequests extends Middleware
                 'error' => $request->session()->get('error'),
                 'subscription' => $request->session()->get('subscription'),
             ],
+            'chirp' => Cache::remember('chirp_public_info', 3600, function () {
+             $c = \App\Models\User::where('is_flockr_support', true)->first();
+            return $c ? ['id' => $c->id, 'name' => $c->name, 'avatar_url' => $c->avatar_url] : null;
+            }),
         ]);
     }
 }
