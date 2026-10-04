@@ -14,7 +14,7 @@ import {
   RiGamepadLine, RiCarLine, RiFootballLine, RiLeafLine,
   RiPaletteLine, RiApps2Line, RiArrowLeftLine, RiTimeLine,
   RiDeleteBinLine, RiArrowRightSLine, RiRocketLine, RiStarLine,
-  RiShoppingBag3Line,
+  RiShoppingBag3Line, RiShoppingBag3Line, RiVolumeMuteFill, RiVolumeUpFill, 
 } from 'react-icons/ri'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 
@@ -960,20 +960,77 @@ function SectionHeader({ icon: Icon, title, count, badge, seeAllHref }) {
 }
 
 function VideoThumb({ video }) {
+  const [muted, setMuted] = useState(true)
+  const [playing, setPlaying] = useState(false)
+  const wrapRef = useRef(null)
+  const vidRef = useRef(null)
+
+  const src = video.video_url_full ?? video.video_url ?? null
+
+  // Keep the element's muted flag in sync (React doesn't update the attribute reliably)
+  useEffect(() => { if (vidRef.current) vidRef.current.muted = muted }, [muted])
+
+  // Only play while on screen, so the grid doesn't decode 12 videos at once
+  useEffect(() => {
+    const el = wrapRef.current
+    const vid = vidRef.current
+    if (!el || !vid || !src) return
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) vid.play().catch(() => {})
+      else vid.pause()
+    }, { threshold: 0.6 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [src])
+
+  const toggleMute = (e) => {
+    e.preventDefault()   // don't follow the parent <Link>
+    e.stopPropagation()
+    setMuted(m => !m)
+  }
+
   return (
     <Link href={`/@${video.user?.username}/video/${video.ulid}`} className="group relative block overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111]">
-      <div className="relative aspect-[9/16] w-full">
+      <div ref={wrapRef} className="relative aspect-[9/16] w-full">
         {video.thumbnail_url_full
           ? <img src={video.thumbnail_url_full} alt={video.title} className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105" />
           : <div className="absolute inset-0 bg-[#1a1a1a]" />
         }
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+        {src && (
+          <video
+            ref={vidRef}
+            src={src}
+            poster={video.thumbnail_url_full}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            onPlaying={() => setPlaying(true)}
+            className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
+            style={{ opacity: playing ? 1 : 0 }}
+          />
+        )}
+
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
         {video.views_count > 0 && (
           <div style={{ position: 'absolute', top: 7, left: 7, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', borderRadius: 999, padding: '2px 7px', display: 'flex', alignItems: 'center', gap: 3 }}>
             <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>{fmtCount(video.views_count)}</span>
           </div>
         )}
-        <div className="absolute inset-x-0 bottom-0 p-2.5">
+
+        {src && (
+          <button
+            type="button"
+            onClick={toggleMute}
+            aria-label={muted ? 'Unmute video' : 'Mute video'}
+            style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 10, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
+          >
+            {muted ? <RiVolumeMuteFill size={14} /> : <RiVolumeUpFill size={14} />}
+          </button>
+        )}
+
+        <div className="absolute inset-x-0 bottom-0 p-2.5 pr-11">
           <div className="flex items-center gap-1.5">
             <img src={video.user?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name ?? 'U')}&background=111111`} className="h-6 w-6 rounded-full object-cover flex-shrink-0" />
             <div className="min-w-0 flex-1">
