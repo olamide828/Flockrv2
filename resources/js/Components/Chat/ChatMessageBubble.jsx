@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import RoomMediaPlayer from '@/Components/Community/RoomMediaPlayer'
+import ProductCard from '@/Components/Product/ProductCard'
 
 function renderMessageBody(text) {
     return text.split(/(@[a-zA-Z0-9_.]+)/g).map((part, i) =>

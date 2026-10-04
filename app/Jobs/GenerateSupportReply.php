@@ -61,7 +61,51 @@ private function buildUserLookupContext(string $messageBody): string
         . "- Verified: " . ($user->is_verified ? 'Yes' : 'No') . "\n";
 }
 
-    public function handle(): void
+private function handleImageProductSearch($triggerMessage, $support, $buyer, $conversation): void
+{
+    $storage = app(\App\Services\StorageService::class);
+    $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($triggerMessage->media_path);
+    $mime = str_ends_with($triggerMessage->media_path, '.png') ? 'image/png' : 'image/jpeg';
+
+    $prompt = 'The user sent this image asking to find similar products on Flockr, a Nigerian marketplace. Describe what it is in one short sentence, then respond with ONLY compact JSON: {"message": "your one-sentence description + a friendly note that you found some matches (or didn\'t)", "search_terms": ["term1", "term2", "term3"]}.';
+
+    $response = Http::timeout(25)->post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+        ['contents' => [['parts' => [
+            ['text' => $prompt],
+            ['inline_data' => ['mime_type' => $mime, 'data' => base64_encode($bytes)]],
+        ]]]]
+    );
+
+    $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
+    $parsed = json_decode(trim(preg_replace('/```json|```/', '', $raw)), true);
+    $terms = is_array($parsed) ? ($parsed['search_terms'] ?? []) : [];
+
+    $products = collect($terms)->flatMap(fn($term) =>
+        \App\Models\Product::where('status', 'active')
+            ->where(fn($q) => $q->where('name', 'ilike', "%{$term}%")->orWhere('description', 'ilike', "%{$term}%"))
+            ->limit(4)->get()
+    )->unique('id')->take(8)->values();
+
+    $replyText = is_array($parsed) && !empty($parsed['message']) ? $parsed['message'] : "Here's what I found based on your photo!";
+    if ($products->isEmpty()) {
+        $replyText .= " I couldn't find a close match on Flockr right now — try a seller search or a different photo.";
+    }
+
+    $reply = $conversation->messages()->create([
+        'sender_id' => $support->id,
+        'body' => $replyText,
+        'suggested_product_ids' => $products->pluck('id'),
+    ]);
+    $reply->load('sender:id,name,username,avatar,last_seen_at');
+    try {
+        broadcast(new MessageSent($reply, $conversation))->toOthers();
+        broadcast(new NewMessageToast($reply, $buyer, $conversation->id));
+    } catch (\Throwable) {}
+}
+
+
+        public function handle(): void
     {
         $conversation = Conversation::find($this->conversationId);
         $triggerMessage = Message::find($this->triggerMessageId);
@@ -71,7 +115,11 @@ private function buildUserLookupContext(string $messageBody): string
         $buyer   = $conversation->participants()->where('user_id', '!=', $support->id)->first();
         if (!$support || !$buyer) return;
 
-        // Last ~10 messages for conversational context.
+        if ($triggerMessage->media_type === 'image' && $triggerMessage->media_path) {
+            $this->handleImageProductSearch($triggerMessage, $support, $buyer, $conversation);
+            return;
+        }
+
         $recentMessages = $conversation->messages()
             ->with('sender:id,name')
             ->orderByDesc('created_at')
@@ -192,4 +240,6 @@ try {
 
         return "This user's own recent orders (only reference these if relevant to their question — never mention other users' data):\n{$lines}\nTheir current wallet balance: ₦" . number_format($balance, 2);
     }
+
+
 }

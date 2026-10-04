@@ -159,6 +159,9 @@ class ConversationController extends Controller
         if ($m->media_path) {
             $m->setAttribute('media_url', app(StorageService::class)->url($m->media_path));
         }
+        if ($m->suggested_product_ids) {
+        $m->setAttribute('suggested_products', \App\Models\Product::whereIn('id', $m->suggested_product_ids)->get());
+        }
         return $m;
     });
 
@@ -258,6 +261,10 @@ class ConversationController extends Controller
         if ($otherParticipant && $otherParticipant->is_flockr_support) {
             \App\Jobs\GenerateSupportReply::dispatch($conversation->id, $message->id);
         }
+
+        if ($message->suggested_product_ids) {
+    $message->setAttribute('suggested_products', \App\Models\Product::whereIn('id', $message->suggested_product_ids)->get());
+}
 
         return response()->json($message, 201);
     }
