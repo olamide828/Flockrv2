@@ -2,6 +2,7 @@ import ProductCard from '@/Components/Product/ProductCard';
 import AppLayout from '@/Layouts/AppLayout';
 import CheckoutModal from '@/Components/CheckoutModal';
 import TrustScoreModal from '@/Components/TrustScoreModal';
+import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 import ReportProductModal from '@/Components/Product/ReportProductModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
@@ -506,6 +507,7 @@ const [addresses,    setAddresses]    = useState([]);
 const [addrLoading,  setAddrLoading]  = useState(false);
 const [showTrust, setShowTrust] = useState(false)
 const [showReport, setShowReport] = useState(false);
+const [showStyleSheet, setShowStyleSheet] = useState(false);
 
     const { showToast, ToastComponent } = useToast();
 
@@ -863,9 +865,21 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                             <button
                                 onClick={() => setShowTrust(true)}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', marginTop: -6, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 14, color: '#FF6B35', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
->
-    <RiShieldCheckLine size={14} /> Check Seller Trust
-</button>
+                            >
+                                <RiShieldCheckLine size={14} /> Check Seller Trust
+                            </button>
+
+{product.videos?.[0] && (
+    <button
+        onClick={() => setShowStyleSheet(true)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', marginTop: 8, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 14, color: '#FF6B35', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+    >
+        ✨ Style with Chirp
+    </button>
+)}
+{showStyleSheet && product.videos?.[0] && (
+    <ChirpAnalysisSheet video={product.videos[0]} mode="style" onClose={() => setShowStyleSheet(false)} />
+)}
                         </div>
                     </div>
 

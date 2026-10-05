@@ -83,15 +83,27 @@ export default function ChatMessageBubble({ msg, mine, showName, showAv, avatarU
                         {msg.body && <p style={{ margin: '8px 14px 10px' }}>{msg.body}</p>}
                     </div>
                 ) : (
-                    <div style={{
-                        padding: '9px 14px', background: mine ? '#ff5c00' : 'rgba(255,255,255,0.09)',
-                        borderRadius: mine ? `18px ${showName ? 18 : 5}px 5px 18px` : `${showName ? 18 : 5}px 18px 18px 5px`,
-                        color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word', overflow: 'hidden',
-                        boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.3)' : 'none',
-                    }}>
-                        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{renderMessageBody(msg.body)}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '100%' }}>
+        <div style={{
+            padding: '9px 14px', background: mine ? '#ff5c00' : 'rgba(255,255,255,0.09)',
+            borderRadius: mine ? `18px ${showName ? 18 : 5}px 5px 18px` : `${showName ? 18 : 5}px 18px 18px 5px`,
+            color: '#fff', fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word', overflow: 'hidden',
+            boxShadow: mine ? '0 2px 12px rgba(255,92,0,0.3)' : 'none',
+        }}>
+            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{renderMessageBody(msg.body)}</p>
+        </div>
+
+        {msg.suggested_products?.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
+                {msg.suggested_products.map(p => (
+                    <div key={p.id} style={{ flexShrink: 0, width: 130 }}>
+                        <ProductCard product={p} />
                     </div>
-                )}
+                ))}
+            </div>
+        )}
+    </div>
+)}
 
                 <span style={{ color: 'rgba(255,255,255,0.22)', fontSize: 10, padding: mine ? '0 4px 0 0' : '0 0 0 4px' }}>{fmtTime(msg.created_at)}</span>
             </div>

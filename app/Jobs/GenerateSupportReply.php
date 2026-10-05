@@ -67,7 +67,7 @@ private function handleImageProductSearch($triggerMessage, $support, $buyer, $co
     $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($triggerMessage->media_path);
     $mime = str_ends_with($triggerMessage->media_path, '.png') ? 'image/png' : 'image/jpeg';
 
-    $prompt = 'The user sent this image asking to find similar products on Flockr, a Nigerian marketplace. Describe what it is in one short sentence, then respond with ONLY compact JSON: {"message": "your one-sentence description + a friendly note that you found some matches (or didn\'t)", "search_terms": ["term1", "term2", "term3"]}.';
+    $prompt = 'The user sent this image asking to find similar products on Flockr. Describe what it is in one short, natural sentence. Do NOT say anything about whether matches were found — that will be reported separately, accurately, based on real search results. Respond with ONLY compact JSON: {"message": "your one-sentence description only", "search_terms": ["term1", "term2", "term3"]}.';
 
     $response = Http::timeout(25)->post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
@@ -87,10 +87,10 @@ private function handleImageProductSearch($triggerMessage, $support, $buyer, $co
             ->limit(4)->get()
     )->unique('id')->take(8)->values();
 
-    $replyText = is_array($parsed) && !empty($parsed['message']) ? $parsed['message'] : "Here's what I found based on your photo!";
-    if ($products->isEmpty()) {
-        $replyText .= " I couldn't find a close match on Flockr right now — try a seller search or a different photo.";
-    }
+    $description = is_array($parsed) && !empty($parsed['message']) ? $parsed['message'] : 'Here\'s what I see in your photo.';
+$replyText = $products->isNotEmpty()
+    ? "{$description} I found {$products->count()} similar " . ($products->count() === 1 ? 'product' : 'products') . " on Flockr for you!"
+    : "{$description} I couldn't find a close match on Flockr right now — try a different photo or browse Shop directly.";
 
     $reply = $conversation->messages()->create([
         'sender_id' => $support->id,

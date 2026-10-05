@@ -447,7 +447,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [condition,    setCondition]    = useState('')
   const [priceMax,     setPriceMax]     = useState('')
   const [viewMode,     setViewMode]     = useState('grid')
-  const [showCategories, setShowCategories] = useState(true)
+  const [showCategories, setShowCategories] = useState(false)
 
   const [hints,       setHints]       = useState(FALLBACK_HINTS)
   const [hintIdx,     setHintIdx]     = useState(0)

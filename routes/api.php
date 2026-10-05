@@ -217,51 +217,59 @@ Route::get('/locations/cities', function (Request $request) {
 });
 
 
-Route::post('/chirp/video-insight', function (\Illuminate\Http\Request $request) {
+Route::post('/chirp/video-insight', function (Request $request) {
     $request->validate(['video_id' => 'required|exists:videos,id', 'mode' => 'required|in:ask,style']);
     $video = \App\Models\Video::with('products')->findOrFail($request->video_id);
     $isStyle = $request->mode === 'style';
 
-    $instruction = $isStyle
-        ? "You are Chirp, acting as a real personal stylist. Watch this product video titled \"{$video->title}\" ({$video->description}). Give genuine, specific styling advice — what it pairs well with, occasions it suits, color/texture tips — in 2-4 warm, conversational sentences."
-        : "You are Chirp. Watch this product video titled \"{$video->title}\" ({$video->description}) and answer as if you genuinely watched it, in 2-4 natural sentences.";
 
-    $parts = [['text' => $instruction . ' Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3"]}. search_terms should be ' . ($isStyle ? 'complementary items that style well with this piece (never the item itself)' : 'items similar to this product') . '.']];
+    $cacheKey = "chirp_insight:{$video->id}:{$request->mode}";
 
-    // Inline the actual video so Chirp watches it, not just reads the caption —
-    // only when the file is small enough to send inline (~15MB cap).
-    try {
-        $path = parse_url($video->video_url ?? $video->hls_url ?? '', PHP_URL_PATH);
-        $localDisk = app(\App\Services\StorageService::class);
-        $key = ltrim(str_replace(config('filesystems.disks.' . config('filesystems.default') . '.url'), '', $video->video_url ?? ''), '/');
-        $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($key);
-        if ($bytes && strlen($bytes) < 15 * 1024 * 1024) {
-            $parts[] = ['inline_data' => ['mime_type' => 'video/mp4', 'data' => base64_encode($bytes)]];
-        }
-    } catch (\Throwable $e) {
-        // Large/unreadable file — fall back to the text-only prompt above, silently.
-    }
+    $result = Cache::remember($cacheKey, now()->addDays(7), function () use ($video, $isStyle) {
+        $instruction = $isStyle
+            ? "You are Chirp, acting as a real personal stylist. Watch this product video titled \"{$video->title}\" ({$video->description}). Give genuine, detailed styling advice — specific pairing suggestions (exact item types, colors, textures), occasions it suits, and one or two concrete outfit combinations — in 5-7 warm, conversational sentences. Be specific, not generic."
+            : "You are Chirp. Watch this product video titled \"{$video->title}\" ({$video->description}) and answer as if you genuinely watched it, in 2-4 natural sentences.";
 
-    $response = \Illuminate\Support\Facades\Http::timeout(30)->post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
-        ['contents' => [['parts' => $parts]]]
-    );
+        $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr — that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3"]}. search_terms should be ' . ($isStyle ? 'complementary items that style well with this piece (never the item itself)' : 'items similar to this product') . '.']];
 
-    $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
-    $clean = trim(preg_replace('/```json|```/', '', $raw));
-    $parsed = json_decode($clean, true);
+        try {
+            $key = ltrim(str_replace(config('filesystems.disks.' . config('filesystems.default') . '.url'), '', $video->video_url ?? ''), '/');
+            $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($key);
+            if ($bytes && strlen($bytes) < 15 * 1024 * 1024) {
+                $parts[] = ['inline_data' => ['mime_type' => 'video/mp4', 'data' => base64_encode($bytes)]];
+            }
+        } catch (\Throwable $e) {}
 
-    $message = is_array($parsed) ? ($parsed['message'] ?? '') : '';
-    $terms = is_array($parsed) ? ($parsed['search_terms'] ?? []) : [];
+        $response = \Illuminate\Support\Facades\Http::timeout(30)->post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+            ['contents' => [['parts' => $parts]]]
+        );
 
-    $products = collect($terms)->flatMap(fn($term) =>
-        \App\Models\Product::where('status', 'active')
+        $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
+        $clean = trim(preg_replace('/```json|```/', '', $raw));
+        $parsed = json_decode($clean, true);
+
+        return [
+            'description' => is_array($parsed) ? ($parsed['message'] ?? '') : '',
+            'terms' => is_array($parsed) ? ($parsed['search_terms'] ?? []) : [],
+        ];
+    });
+
+    // Product search runs fresh EVERY request, never cached — so if new matching
+    // products get listed after the analysis was cached, buyers still see them.
+    $products = collect($result['terms'])->flatMap(fn($term) =>
+        Product::where('status', 'active')
             ->where(fn($q) => $q->where('name', 'ilike', "%{$term}%")->orWhere('description', 'ilike', "%{$term}%"))
             ->where('id', '!=', $video->products->first()?->id)
             ->limit(4)->get()
     )->unique('id')->take(8)->values();
 
-    return response()->json(['message' => $message ?: "Here's what I found!", 'products' => $products]);
+    $description = $result['description'] ?: ($isStyle ? "Here's how I'd style this." : "Here's what I found.");
+    $message = $products->isNotEmpty()
+        ? "{$description} I found {$products->count()} " . ($isStyle ? 'matching pieces' : 'similar products') . " for you below!"
+        : "{$description} I couldn't find close matches on Flockr right now.";
+
+    return response()->json(['message' => $message, 'products' => $products]);
 });
 
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
