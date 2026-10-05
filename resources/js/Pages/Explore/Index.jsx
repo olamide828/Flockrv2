@@ -14,7 +14,7 @@ import {
   RiGamepadLine, RiCarLine, RiFootballLine, RiLeafLine,
   RiPaletteLine, RiApps2Line, RiArrowLeftLine, RiTimeLine,
   RiDeleteBinLine, RiArrowRightSLine, RiRocketLine, RiStarLine,
-  RiShoppingBag3Line, RiShoppingBag3Line, RiVolumeMuteFill, RiVolumeUpFill, 
+  RiShoppingBag3Line, RiVolumeMuteFill, RiVolumeUpFill, 
 } from 'react-icons/ri'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 
