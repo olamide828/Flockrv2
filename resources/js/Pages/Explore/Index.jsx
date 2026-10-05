@@ -447,11 +447,11 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [condition,    setCondition]    = useState('')
   const [priceMax,     setPriceMax]     = useState('')
   const [viewMode,     setViewMode]     = useState('grid')
+  const [showCategories, setShowCategories] = useState(true)
 
-  // hints state — fed by /api/search/discover (real DB content), falls back to FALLBACK_HINTS
   const [hints,       setHints]       = useState(FALLBACK_HINTS)
   const [hintIdx,     setHintIdx]     = useState(0)
-  const [hintPhase,   setHintPhase]   = useState('visible') // 'visible' | 'out' | 'in'
+  const [hintPhase,   setHintPhase]   = useState('visible') 
   const [hintDisplay, setHintDisplay] = useState(FALLBACK_HINTS[0])
 
   const [results,  setResults]  = useState([])
@@ -460,8 +460,8 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [loading,  setLoading]  = useState(false)
 
   // ── Secret effects state ────────────────────────────────────────────────
-  const [emojiRain, setEmojiRain]             = useState(null)   // array of emojis, or null
-  const [confettiLabel, setConfettiLabel]     = useState(null)   // string, or null — drives ConfettiBurst
+  const [emojiRain, setEmojiRain]             = useState(null)   
+  const [confettiLabel, setConfettiLabel]     = useState(null)   
   const [pulseNewArrivals, setPulseNewArrivals] = useState(false)
   const rainTimeoutRef  = useRef(null)
   const confettiTimeoutRef = useRef(null)
@@ -631,10 +631,25 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
             <div className="px-4 py-3 lg:px-6">
 
               {/* Title */}
-              <div className="mb-3">
-                <h1 className="text-[20px] font-bold tracking-tight text-white">Explore</h1>
-                <p className="text-xs text-white/35 mt-0.5">Discover what's hot on Flockr</p>
-              </div>
+<div className="mb-3 flex items-start justify-between gap-3">
+  <div>
+    <h1 className="text-[20px] font-bold tracking-tight text-white">Explore</h1>
+    <p className="text-xs text-white/35 mt-0.5">Discover what's hot on Flockr</p>
+  </div>
+  <button
+    type="button"
+    onClick={() => setShowCategories(s => !s)}
+    aria-expanded={showCategories}
+    className="relative flex flex-shrink-0 items-center gap-1.5 rounded-xl border border-white/[0.07] bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/60 transition-all hover:bg-white/[0.07]"
+  >
+    <RiApps2Line size={13} />
+    Categories
+    <RiArrowDownSLine size={14} style={{ transition: 'transform 0.25s ease', transform: showCategories ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+    {!showCategories && category !== null && (
+      <span style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, borderRadius: '50%', background: '#FF6B35', border: '2px solid #050505' }} />
+    )}
+  </button>
+</div>
 
               {/* Search bar wrapper */}
               <div className="relative mb-3">
@@ -676,21 +691,25 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                 </div>
               </div>
 
-              {/* Categories — always visible, scrollable */}
-              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                {CATEGORIES.map(cat => {
-                  const active = category === cat.id
-                  const Icon   = cat.icon
-                  return (
-                    <button key={cat.id ?? 'all'} onClick={() => handleCategoryClick(cat.id)}
-                      style={{ background: active ? `${cat.color}20` : 'rgba(255,255,255,0.04)', border: `1px solid ${active ? cat.color + '50' : 'rgba(255,255,255,0.07)'}`, color: active ? cat.color : 'rgba(255,255,255,0.5)' }}
-                      className="flex flex-shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all">
-                      <Icon size={13} />
-                      {cat.label}
-                    </button>
-                  )
-                })}
-              </div>
+              {/* Categories — collapsible */}
+<div style={{ display: 'grid', gridTemplateRows: showCategories ? '1fr' : '0fr', transition: 'grid-template-rows 0.25s ease' }}>
+  <div style={{ overflow: 'hidden', minHeight: 0 }}>
+    <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+      {CATEGORIES.map(cat => {
+        const active = category === cat.id
+        const Icon   = cat.icon
+        return (
+          <button key={cat.id ?? 'all'} onClick={() => handleCategoryClick(cat.id)}
+            style={{ background: active ? `${cat.color}20` : 'rgba(255,255,255,0.04)', border: `1px solid ${active ? cat.color + '50' : 'rgba(255,255,255,0.07)'}`, color: active ? cat.color : 'rgba(255,255,255,0.5)' }}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all">
+            <Icon size={13} />
+            {cat.label}
+          </button>
+        )
+      })}
+    </div>
+  </div>
+</div>
 
               {/* Filters — only after searching */}
               {hasQuery && (
@@ -921,9 +940,6 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
 
 Explore.layout = page => <AppLayout>{page}</AppLayout>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────────────────────────────────
 
 function NativeSelect({ value, onChange, options }) {
   return (
@@ -960,18 +976,36 @@ function SectionHeader({ icon: Icon, title, count, badge, seeAllHref }) {
   )
 }
 
+let soundOwner = null
+const soundListeners = new Set()
+function setSoundOwner(id) {
+  soundOwner = id
+  soundListeners.forEach(fn => fn(id))
+}
+function useSoundOwner() {
+  const [owner, setOwner] = useState(soundOwner)
+  useEffect(() => {
+    soundListeners.add(setOwner)
+    return () => { soundListeners.delete(setOwner) }
+  }, [])
+  return owner
+}
+
 function VideoThumb({ video }) {
-  const [muted, setMuted] = useState(true)
+  const myId = useRef(Symbol('thumb')).current
+  const owner = useSoundOwner()
+  const muted = owner !== myId
+
   const [inView, setInView] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [started, setStarted] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const [stuck, setStuck] = useState(false) // autoplay blocked (e.g. Low Power Mode) or load error
   const wrapRef = useRef(null)
   const vidRef = useRef(null)
 
   const src = video.video_stream_url ?? null
 
-  // Attach hls.js only while the card is on screen; null detaches it,
-  // so we never hold 12 HLS streams open at once.
   useHlsVideo(vidRef, inView ? src : null)
 
   useEffect(() => {
@@ -989,22 +1023,26 @@ function VideoThumb({ video }) {
     const vid = vidRef.current
     if (!vid) return
     if (inView) {
-      vid.play().catch(() => {})
+      setStuck(false)
+      vid.play().catch(err => { if (err?.name === 'NotAllowedError') setStuck(true) })
     } else {
       vid.pause()
-      setPlaying(false)
-      setStarted(false)
-      setMuted(true) // always re-enter muted
+      setPlaying(false); setStarted(false); setWaiting(false)
+      if (soundOwner === myId) setSoundOwner(null) // give up sound when scrolled away
     }
   }, [inView])
 
   useEffect(() => { if (vidRef.current) vidRef.current.muted = muted }, [muted])
+  useEffect(() => () => { if (soundOwner === myId) setSoundOwner(null) }, [])
 
   const toggleMute = (e) => {
     e.preventDefault()   // don't follow the parent <Link>
     e.stopPropagation()
-    setMuted(m => !m)
+    setSoundOwner(muted ? myId : null)
   }
+
+  const showLoader = !!src && inView && !stuck && (!playing || waiting)
+  const showButton = !!src && playing && !waiting
 
   return (
     <Link href={`/@${video.user?.username}/video/${video.ulid}`} className="group relative block overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111]">
@@ -1022,8 +1060,10 @@ function VideoThumb({ video }) {
             loop
             autoPlay
             playsInline
-            onPlaying={() => { setPlaying(true); setStarted(true) }}
+            onPlaying={() => { setPlaying(true); setStarted(true); setWaiting(false) }}
+            onWaiting={() => setWaiting(true)}
             onPause={() => setPlaying(false)}
+            onError={() => setStuck(true)}
             className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
             style={{ opacity: started ? 1 : 0 }}
           />
@@ -1036,12 +1076,18 @@ function VideoThumb({ video }) {
           </div>
         )}
 
-        {src && playing && (
+        {/* Same spot, same size: loader while buffering, mute button once playing */}
+        {showLoader && (
+          <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 10, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.25)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          </div>
+        )}
+        {showButton && (
           <button
             type="button"
             onClick={toggleMute}
             aria-label={muted ? 'Unmute video' : 'Mute video'}
-            style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 10, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
+            style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 10, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
           >
             {muted ? <RiVolumeMuteFill size={14} /> : <RiVolumeUpFill size={14} />}
           </button>
