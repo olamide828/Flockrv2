@@ -17,6 +17,7 @@ import {
   RiShoppingBag3Line, RiVolumeMuteFill, RiVolumeUpFill, 
 } from 'react-icons/ri'
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import { useHlsVideo } from '@/lib/useHlsVideo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -961,27 +962,43 @@ function SectionHeader({ icon: Icon, title, count, badge, seeAllHref }) {
 
 function VideoThumb({ video }) {
   const [muted, setMuted] = useState(true)
+  const [inView, setInView] = useState(false)
   const [playing, setPlaying] = useState(false)
+  const [started, setStarted] = useState(false)
   const wrapRef = useRef(null)
   const vidRef = useRef(null)
 
-  const src = video.video_url_full ?? video.video_url ?? null
+  const src = video.video_stream_url ?? null
 
-  // Keep the element's muted flag in sync (React doesn't update the attribute reliably)
-  useEffect(() => { if (vidRef.current) vidRef.current.muted = muted }, [muted])
+  // Attach hls.js only while the card is on screen; null detaches it,
+  // so we never hold 12 HLS streams open at once.
+  useHlsVideo(vidRef, inView ? src : null)
 
-  // Only play while on screen, so the grid doesn't decode 12 videos at once
   useEffect(() => {
     const el = wrapRef.current
-    const vid = vidRef.current
-    if (!el || !vid || !src) return
-    const io = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) vid.play().catch(() => {})
-      else vid.pause()
-    }, { threshold: 0.6 })
+    if (!el || !src) return
+    const io = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { threshold: 0.6 }
+    )
     io.observe(el)
     return () => io.disconnect()
   }, [src])
+
+  useEffect(() => {
+    const vid = vidRef.current
+    if (!vid) return
+    if (inView) {
+      vid.play().catch(() => {})
+    } else {
+      vid.pause()
+      setPlaying(false)
+      setStarted(false)
+      setMuted(true) // always re-enter muted
+    }
+  }, [inView])
+
+  useEffect(() => { if (vidRef.current) vidRef.current.muted = muted }, [muted])
 
   const toggleMute = (e) => {
     e.preventDefault()   // don't follow the parent <Link>
@@ -1000,15 +1017,15 @@ function VideoThumb({ video }) {
         {src && (
           <video
             ref={vidRef}
-            src={src}
-            poster={video.thumbnail_url_full}
+            poster={video.thumbnail_url_full ?? undefined}
             muted
             loop
+            autoPlay
             playsInline
-            preload="metadata"
-            onPlaying={() => setPlaying(true)}
+            onPlaying={() => { setPlaying(true); setStarted(true) }}
+            onPause={() => setPlaying(false)}
             className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
-            style={{ opacity: playing ? 1 : 0 }}
+            style={{ opacity: started ? 1 : 0 }}
           />
         )}
 
@@ -1019,7 +1036,7 @@ function VideoThumb({ video }) {
           </div>
         )}
 
-        {src && (
+        {src && playing && (
           <button
             type="button"
             onClick={toggleMute}
