@@ -29,6 +29,8 @@ import {
     RiWhatsappLine,
     RiRedditLine,
     RiFlag2Line,
+    RiChatSmile3Line,
+    RiSparkling2Line,
 } from 'react-icons/ri';
 import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
@@ -40,6 +42,7 @@ import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimati
 import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
 import { useHlsVideo } from '@/lib/useHlsVideo';
+import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -391,6 +394,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
+    const [chirpMode, setChirpMode] = useState(null);
 
     const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
@@ -651,8 +655,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>
                     <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
-                    {hasProducts && <SideBtn onClick={() => { if (window.innerWidth < 768) openSheet('products'); else setTab('products'); }} label={video.products.length}><RiShoppingBag2Line size={28} color={tab === 'products' ? '#FF6B35' : '#fff'} /></SideBtn>}
                     <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
+                    <SideBtn onClick={() => setChirpMode('ask')} label="Ask Chirp"><RiChatSmile3Line size={28} color="#fff" /></SideBtn>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                         <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
@@ -673,6 +677,12 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
                 {/* Bottom info */}
                 <div className='lg:w-[50%]' onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 36, left: 12, right: 68, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <button
+                        onClick={() => setChirpMode('style')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
+                        <RiSparkling2Line size={13} color="#FF6B35" />
+                        Style
+                    </button>
                     {!isOwner && (
                         <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
                             {followed ? 'Following' : 'Follow'}
@@ -791,7 +801,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 </>
             )}
 
-            <LikeAnimationOverlay bursts={likeBursts} />
+                        <LikeAnimationOverlay bursts={likeBursts} />
+            {chirpMode && <ChirpAnalysisSheet video={video} mode={chirpMode} onClose={() => setChirpMode(null)} />}
 
             {toast && (
                 <div style={{ position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 60, pointerEvents: 'none' }}>

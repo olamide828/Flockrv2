@@ -7,24 +7,6 @@ import {
     RiLoader4Line,
 } from 'react-icons/ri';
 
-/**
- * Flockr Toast — reusable toast notification
- *
- * Usage:
- *   const { showToast, ToastComponent } = useToast();
- *
- *   // In your component JSX:
- *   {ToastComponent}
- *
- *   // To show:
- *   showToast('Order placed!', 'success')
- *   showToast('Something went wrong.', 'error')
- *   showToast('Loading rates…', 'loading')
- *   showToast('Rate limit reached.', 'warning')
- *
- * Types: 'success' | 'error' | 'warning' | 'loading' | 'info'
- * Duration: default 3500ms (loading stays until dismissed or replaced)
- */
 
 const ICONS = {
     success: { Icon: RiCheckLine,          color: '#10B981' },
@@ -36,14 +18,12 @@ const ICONS = {
 
 export function useToast() {
     const [toast, setToast] = useState(null);
-    // toast = { message, type, id }
 
     const showToast = (message, type = 'info', duration = 3500) => {
         const id = Date.now();
         setToast({ message, type, id });
 
-        // Loading toasts stay until replaced or manually cleared
-        if (type !== 'loading') {
+        if (type !== 'loading' && duration !== 0) {
             setTimeout(() => {
                 setToast(prev => prev?.id === id ? null : prev);
             }, duration);
@@ -69,7 +49,7 @@ export function Toast({ toast, onDismiss }) {
                 bottom:    80,
                 left:      '50%',
                 transform: `translateX(-50%) translateY(${visible ? 0 : 20}px)`,
-                zIndex:    9000,
+                zIndex:    9999,
                 pointerEvents: visible ? 'auto' : 'none',
                 opacity:   visible ? 1 : 0,
                 transition: 'opacity 0.25s ease, transform 0.25s ease',
@@ -98,7 +78,7 @@ export function Toast({ toast, onDismiss }) {
                 <span style={{ color: '#fff', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {toast?.message}
                 </span>
-                {/* Dismiss button — shown for errors and warnings */}
+                
                 {(toast?.type === 'error' || toast?.type === 'warning') && (
                     <button
                         onClick={onDismiss}

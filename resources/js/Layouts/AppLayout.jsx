@@ -23,6 +23,7 @@ import {
 } from 'react-icons/ri';
 
 import { TiGroupOutline } from "react-icons/ti";
+import { useToast } from '@/Components/Toast';
 
 const NAV_ITEMS = [
     { href: '/',          Icon: RiHome5Line,              label: 'For You'   },
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
 export default function AppLayout({ children }) {
     const { auth } = usePage().props;
     const currentUrl = usePage().url;
+    const { showToast, ToastComponent } = useToast();
     const [search, setSearch] = useState('');
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -44,6 +46,7 @@ export default function AppLayout({ children }) {
     const [activeToast, setActiveToast] = useState(null)
     const [showCreateSheet, setShowCreateSheet] = useState(false);
     const toastTimeoutRef = useRef(null)
+    const wasOfflineRef = useRef(false);
 
     const [announceEvent, setAnnounceEvent] = useState(null)
 
@@ -51,6 +54,27 @@ export default function AppLayout({ children }) {
     const isFeed = currentUrl === '/';
     const isVideoPage = /^\/@[^/]+\/video\//.test(currentUrl);
     const isFullScreen = isFeed || isVideoPage;
+
+ 
+
+useEffect(() => {
+    const goOffline = () => {
+        wasOfflineRef.current = true;
+        showToast('No internet connection', 'error', 0); 
+    };
+    const goOnline = () => {
+        if (!wasOfflineRef.current) return;
+        wasOfflineRef.current = false;
+        showToast('Back online', 'success', 2500);
+    };
+    if (typeof navigator !== 'undefined' && !navigator.onLine) goOffline();
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+        window.removeEventListener('offline', goOffline);
+        window.removeEventListener('online', goOnline);
+    };
+}, []);
 
     // ── Unread message count ────────────────────────────────────────────────
     const [unreadMessages, setUnreadMessages] = useState(auth?.user?.unread_messages ?? 0);
@@ -67,8 +91,11 @@ export default function AppLayout({ children }) {
         }
     }, [auth?.user?.unread_messages]);
 
-    useEffect(() => {
-        const onFocus = () => router.reload({ only: ['auth'] });
+        useEffect(() => {
+        const onFocus = () => {
+            if (!navigator.onLine) return;
+            router.reload({ only: ['auth'] });
+        };
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, []);
@@ -845,6 +872,8 @@ const replyToToast = (toast) => {
             {showCreateSheet && (
     <CreateSheet onClose={() => setShowCreateSheet(false)} />
 )}
+
+{ToastComponent}
 
             <style>{`
                 @media (min-width: 768px) {

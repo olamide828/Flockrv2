@@ -522,14 +522,9 @@ export default function VideoCard({ video, isActive }) {
         <SideBtn onClick={() => { setShowShare(s => !s); setShowComments(false); setShowProducts(false) }} label="Share">
           <RiShareForwardLine size={28} color={showShare ? '#ff5c00' : '#fff'} />
         </SideBtn>
-        <button onClick={(e) => { e.stopPropagation(); setChirpMode('ask') }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-    <RiChatSmile3Line size={28} color="#fff" />
-    <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>Ask Chirp</span>
-</button>
-<button onClick={(e) => { e.stopPropagation(); setChirpMode('style') }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-    <RiSparkling2Line size={28} color="#fff" />
-    <span style={{ color: '#fff', fontSize: 10, fontWeight: 600 }}>Style ✨</span>
-</button>
+        <SideBtn onClick={() => setChirpMode('ask')} label="Ask Chirp">
+          <RiChatSmile3Line size={28} color="#fff" />
+        </SideBtn>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
           <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {muted ? <RiVolumeMuteLine size={17} color="#fff" /> : <RiVolumeUpLine size={17} color="#fff" />}
@@ -549,6 +544,12 @@ export default function VideoCard({ video, isActive }) {
       </div>
 
       <div style={{ position: 'absolute', bottom: 16, left: 14, right: 72, zIndex: 10 }} onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => setChirpMode('style')}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, padding: '5px 14px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
+          <RiSparkling2Line size={13} color="#FF6B35" />
+          Style
+        </button>
         {!isOwner && (
           <button onClick={handleFollow} style={{ display: 'block', marginBottom: 4, padding: '5px 14px', background: 'transparent', border: '1px solid #FF6B35', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 'fit-content' }}>
             {followed ? 'Following' : 'Follow'}
