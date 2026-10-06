@@ -869,16 +869,19 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                                 <RiShieldCheckLine size={14} /> Check Seller Trust
                             </button>
 
-{product.videos?.[0] && (
-    <button
-        onClick={() => setShowStyleSheet(true)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', marginTop: 8, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 14, color: '#FF6B35', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
-    >
-        ✨ Style with Chirp
-    </button>
-)}
-{showStyleSheet && product.videos?.[0] && (
-    <ChirpAnalysisSheet video={product.videos[0]} mode="style" onClose={() => setShowStyleSheet(false)} />
+<button
+    onClick={() => setShowStyleSheet(true)}
+    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%', padding: '10px', marginTop: 8, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', borderRadius: 14, color: '#FF6B35', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+>
+    <RiSparkling2Line size={14} /> Style with Chirp
+</button>
+{showStyleSheet && (
+    <ChirpAnalysisSheet
+        video={product.videos?.[0] ?? null}
+        product={!product.videos?.[0] ? product : null}
+        mode="style"
+        onClose={() => setShowStyleSheet(false)}
+    />
 )}
                         </div>
                     </div>

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { RiBookmarkFill, RiBookmarkLine, RiImageLine, RiStarFill, RiVerifiedBadgeFill } from 'react-icons/ri';
 import VerifiedBadge from '@/Components/VerifiedBadge';
+import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet'
 
 export default function ProductCard({ product, layout = 'grid' }) {
     // Null guard — prevents @undefined URLs when seller is deleted
@@ -11,7 +12,9 @@ export default function ProductCard({ product, layout = 'grid' }) {
     const { auth } = usePage().props;
     const [saved,  setSaved]  = useState(product.is_saved ?? false);
     const [imgErr, setImgErr] = useState(false);
+    const [showChirp, setShowChirp] = useState(false)
 
+    
     useEffect(() => {
         setSaved(product.is_saved ?? false);
     }, [product.id, product.is_saved]);

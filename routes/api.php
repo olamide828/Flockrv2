@@ -272,6 +272,70 @@ Route::post('/chirp/video-insight', function (Request $request) {
     return response()->json(['message' => $message, 'products' => $products]);
 });
 
+Route::post('/chirp/product-insight', function (\Illuminate\Http\Request $request) {
+    $request->validate(['product_id' => 'required|exists:products,id', 'mode' => 'required|in:ask,style']);
+    $product = \App\Models\Product::findOrFail($request->product_id);
+    $isStyle = $request->mode === 'style';
+    $cacheKey = "chirp_product_insight:{$product->id}:{$request->mode}";
+
+    $result = \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDays(7), function () use ($product, $isStyle) {
+        $instruction = $isStyle
+            ? "You are Chirp, acting as a real personal stylist. Look at this product photo: \"{$product->name}\" ({$product->description}). Give genuine, detailed styling advice — specific pairing suggestions, occasions it suits, one or two concrete outfit combinations — in 5-7 warm, conversational sentences. Be specific, not generic."
+            : "You are Chirp. Look at this product photo: \"{$product->name}\" ({$product->description}) and answer naturally in 2-4 sentences.";
+
+        $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr — that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3", "term4", "term5"]}. Give 5 search_terms: mix broad category words (e.g. "shoes", "bag") AND specific descriptive words (e.g. "brown", "leather") so matching has the best chance of finding something real.']];
+
+        try {
+            $key = ltrim(str_replace(
+                config('filesystems.disks.' . config('filesystems.default') . '.url'), '',
+                $product->primary_image ?? ''
+            ), '/');
+            $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($key);
+            if ($bytes) {
+                $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($bytes)]];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Chirp product-insight: couldn't read image for product {$product->id}: " . $e->getMessage());
+        }
+
+        $response = \Illuminate\Support\Facades\Http::timeout(25)->post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+            ['contents' => [['parts' => $parts]]]
+        );
+
+        $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
+        \Illuminate\Support\Facades\Log::info("Chirp product-insight raw response for product {$product->id}: " . $raw);
+
+        $clean = trim(preg_replace('/```json|```/', '', $raw));
+        $parsed = json_decode($clean, true);
+
+        return ['description' => is_array($parsed) ? ($parsed['message'] ?? '') : '', 'terms' => is_array($parsed) ? ($parsed['search_terms'] ?? []) : []];
+    });
+
+
+    $words = collect($result['terms'])->flatMap(fn($t) => explode(' ', $t))->map(fn($w) => trim($w))->filter(fn($w) => strlen($w) > 2)->unique();
+
+    \Illuminate\Support\Facades\Log::info("Chirp product-insight search words for product {$product->id}: " . $words->implode(', '));
+
+    $products = \App\Models\Product::where('status', 'active')
+        ->where('id', '!=', $product->id)
+        ->where(function ($q) use ($words) {
+            foreach ($words as $w) {
+                $q->orWhere('name', 'ilike', "%{$w}%")->orWhere('description', 'ilike', "%{$w}%");
+            }
+        })
+        ->limit(8)->get();
+
+    \Illuminate\Support\Facades\Log::info("Chirp product-insight matched " . $products->count() . " products for product {$product->id}");
+
+    $description = $result['description'] ?: ($isStyle ? "Here's how I'd style this." : "Here's what I see.");
+    $message = $products->isNotEmpty()
+        ? "{$description} I found {$products->count()} " . ($isStyle ? 'matching pieces' : 'similar products') . " for you below!"
+        : "{$description} I couldn't find close matches on Flockr right now.";
+
+    return response()->json(['message' => $message, 'products' => $products]);
+});
+
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
 Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
 Route::middleware('auth')->post('/feed/reset', function () {

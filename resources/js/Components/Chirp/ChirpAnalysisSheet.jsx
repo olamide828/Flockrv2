@@ -20,7 +20,7 @@ function ProductCardSkeleton() {
     )
 }
 
-export default function ChirpAnalysisSheet({ video, mode, onClose }) {
+export default function ChirpAnalysisSheet({ video, product, mode, onClose }) {
     const { chirp } = usePage().props
     const [loading, setLoading] = useState(true)
     const [message, setMessage] = useState('')
@@ -28,13 +28,15 @@ export default function ChirpAnalysisSheet({ video, mode, onClose }) {
     const [expanded, setExpanded] = useState(false)
     const [visible, setVisible] = useState(false)
 
-    useEffect(() => {
-        requestAnimationFrame(() => setVisible(true))
-        axios.post('/api/chirp/video-insight', { video_id: video.id, mode })
-            .then(({ data }) => { setMessage(data.message); setProducts(data.products ?? []) })
-            .catch(() => setMessage("Sorry, I couldn't take a look just now — try again in a moment."))
-            .finally(() => setLoading(false))
-    }, [video.id, mode])
+
+useEffect(() => {
+    const endpoint = video ? '/api/chirp/video-insight' : '/api/chirp/product-insight'
+    const payload = video ? { video_id: video.id, mode } : { product_id: product.id, mode }
+    axios.post(endpoint, payload)
+        .then(({ data }) => { setMessage(data.message); setProducts(data.products ?? []) })
+        .catch(() => setMessage("Sorry, I couldn't take a look just now — try again in a moment."))
+        .finally(() => setLoading(false))
+}, [video?.id, product?.id, mode])
 
     const close = () => { setVisible(false); setTimeout(onClose, 220) }
     const isLong = message.length > 180
@@ -58,7 +60,7 @@ export default function ChirpAnalysisSheet({ video, mode, onClose }) {
                         <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 14 }}>{mode === 'style' ? 'Style with Chirp' : 'Ask Chirp'}</p>
                         <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{loading ? 'Watching the video…' : 'About this product'}</p>
                     </div>
-                    <button onClick={close} style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
+                    <button onClick={close} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', color: '#fff', cursor: 'pointer' }}><RiCloseLine size={18} /></button>
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px' }}>
