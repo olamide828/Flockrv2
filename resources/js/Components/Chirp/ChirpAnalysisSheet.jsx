@@ -10,7 +10,7 @@ function Skeleton({ width = '100%', height = 14, radius = 6, style = {} }) {
 
 function ProductCardSkeleton() {
     return (
-        <div style={{ borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ borderRadius: 14, overflow: 'hidden' }}> 
             <Skeleton height={140} radius={14} />
             <div style={{ padding: '8px 2px' }}>
                 <Skeleton height={11} width="80%" style={{ marginBottom: 6 }} />
@@ -27,6 +27,10 @@ export default function ChirpAnalysisSheet({ video, product, mode, onClose }) {
     const [products, setProducts] = useState([])
     const [expanded, setExpanded] = useState(false)
     const [visible, setVisible] = useState(false)
+
+    useEffect(() => {
+    setVisible(true)
+    }, [])
 
 
 useEffect(() => {
