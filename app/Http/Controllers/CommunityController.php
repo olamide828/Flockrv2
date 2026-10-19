@@ -214,9 +214,6 @@ class CommunityController extends Controller
                 $post->increment('views_count');
             }
         } else {
-            // No auth and no session cookie at all — can't dedupe this
-            // visitor, so count the view but don't write a row we can't
-            // attribute to anyone.
             $post->increment('views_count');
         }
 
@@ -243,12 +240,7 @@ class CommunityController extends Controller
             ->map(function ($u) {
                 $user = User::find($u->id);
                 $arr = array_merge((array) $u, ['avatar_url' => $user?->avatar_url]);
-                // Raw DB::table() results come back as bare strings with no
-                // timezone marker (e.g. "2026-07-19 19:17:28"). JS's Date
-                // parser treats that as LOCAL time instead of UTC, which is
-                // exactly why this showed "Invalid Date" on some browsers
-                // and a timezone-offset-sized error on others. Explicit
-                // ISO 8601 with a Z suffix parses identically everywhere.
+    
                 $arr['viewed_at'] = $u->viewed_at ? \Carbon\Carbon::parse($u->viewed_at, 'UTC')->toISOString() : null;
                 return $arr;
             });
@@ -354,7 +346,6 @@ class CommunityController extends Controller
         abort_unless(Auth::id() === $comment->post->user_id, 403);
         abort_if($comment->parent_id !== null, 422, 'Only top-level comments can be pinned.');
 
-        // Only one pinned comment per post — unpin any existing one first.
         if (!$comment->is_pinned) {
             PostComment::where('post_id', $comment->post_id)->where('is_pinned', true)->update(['is_pinned' => false]);
         }
@@ -369,11 +360,8 @@ class CommunityController extends Controller
     {
         $validated = $request->validate([
             'content'           => 'nullable|string|max:2000',
-            // Legacy single-media fields — still accepted so nothing that
-            // calls this endpoint the old way breaks.
             'media_url'         => 'nullable|string|max:1000',
             'media_type'        => 'nullable|in:image,video',
-            // New multi-media field — array of {url, type}.
             'media'             => 'nullable|array|max:10',
             'media.*.url'       => 'required_with:media|string|max:1000',
             'media.*.type'      => 'required_with:media|in:image,video',
@@ -393,8 +381,6 @@ class CommunityController extends Controller
             'user_id'    => Auth::id(),
             'room_id'    => null,
             'content'    => $validated['content'] ?? null,
-            // Kept in sync with the first media item for any older code
-            // (or DB queries) that still reads the single-media columns.
             'media_url'  => $mediaItems[0]['url'] ?? null,
             'media_type' => $mediaItems[0]['type'] ?? null,
         ]);
@@ -465,12 +451,6 @@ class CommunityController extends Controller
     {
         $this->assertMember($room);
 
-        // If this user has EVER left/been-kicked from this room before
-        // (i.e. this is a rejoin, not their first time), hide messages sent
-        // before their current membership started — otherwise rejoining
-        // would replay the entire history they weren't supposed to see
-        // while they were out. First-time joiners are unaffected and see
-        // the room's full history as normal.
         $hasPriorExit = DB::table('room_exit_log')
             ->where('room_id', $room->id)->where('user_id', Auth::id())->exists();
 
@@ -1081,7 +1061,7 @@ class CommunityController extends Controller
             $msg->loadMissing('user:id,name,username,avatar');
             broadcast(new RoomMessageSent($msg))->toOthers();
         } catch (\Throwable) {
-            // Non-critical — never block the join flow over a system message failing.
+            
         }
     }
 
