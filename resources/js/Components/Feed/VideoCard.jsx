@@ -464,11 +464,15 @@ export default function VideoCard({ video, isActive }) {
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)', pointerEvents: 'none' }} />
 
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', gap: 8 }} onClick={e => e.stopPropagation()}>
-        <Link href="/explore" onClick={e => e.stopPropagation()} style={{ textDecoration: 'none' }}>
-          <button style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-            <RiSearchLine size={20} />
-          </button>
-        </Link>
+        <Link
+    href="/explore"
+    prefetch="mount"
+    cacheFor="5m"
+    onClick={e => e.stopPropagation()}
+    style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+>
+    <RiSearchLine size={20} />
+</Link>
         <button onClick={() => setShowMoreSheet(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <RiMoreLine size={20} />
         </button>

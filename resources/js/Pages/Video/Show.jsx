@@ -386,11 +386,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [commentsCount, setCommentsCount] = useState(Number(video.comments_count ?? 0));
     const [tab,           setTab]           = useState('comments');
     const [mobileSheet,   setMobileSheet]   = useState(null);
-    const [showSearch,    setShowSearch]    = useState(false);
     const [toast,    setToast]    = useState(null)
     const [duration, setDuration] = useState(0)
-    const [searchQuery,   setSearchQuery]   = useState('');
-    const searchInputRef = useRef(null);
 
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
@@ -468,8 +465,6 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         return () => window.removeEventListener('keydown', handleKey)
     }, [])
 
-    useEffect(() => { if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 100); }, [showSearch]);
-
     const handleLike = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
         const was = liked; setLiked(!was); setLikesCount(c => Math.max(0, c + (was ? -1 : 1)));
@@ -481,7 +476,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     // acting, so a following second tap cancels it and likes instead — this is
     // what stops play/pause and double-tap-like from fighting each other.
     const handleVideoTap = useCallback((e) => {
-        if (mobileSheet || showSearch) return;
+        if (mobileSheet) return;
         markInteracted();
         const now = Date.now();
         const dt = now - lastTap.current;
@@ -502,7 +497,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 setShowPP(true);
             }, 300);
         }
-    }, [liked, mobileSheet, showSearch, triggerLikeAnim, handleLike]);
+    }, [liked, mobileSheet, triggerLikeAnim, handleLike]);
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
@@ -523,7 +518,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         markInteracted();
         setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; });
     }, []);
-    const handleSearch = (e) => { e.preventDefault(); if (searchQuery.trim()) router.visit(`/explore?q=${encodeURIComponent(searchQuery.trim())}`); };
+
     const showToast = (msg, type = 'success') => {
         setToast({ msg, type })
         setTimeout(() => setToast(null), 2500)
@@ -613,18 +608,15 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <RiArrowLeftLine size={20} />
                     </button>
                     <div className="flex flex-row gap-3">
-                        {showSearch ? (
-                            <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search products, sellers..." onKeyDown={e => e.key === 'Escape' && setShowSearch(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '8px 16px', color: '#fff', fontSize: 13, outline: 'none' }} />
-                                <button type="button" onClick={() => { setShowSearch(false); setSearchQuery(''); }} style={{ background: 'rgba(0,0,0,0.45)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', borderRadius: 999, backdropFilter: 'blur(8px)', flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="text-center">
-                                    <RiCloseFill size={20} />
-                                </button>
-                            </form>
-                        ) : (
-                            <button onClick={() => setShowSearch(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                                <RiSearchLine size={20} />
-                            </button>
-                        )}
+                        <Link
+    href="/explore"
+    prefetch="mount"
+    cacheFor="5m"
+    onClick={e => e.stopPropagation()}
+    style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+>
+    <RiSearchLine size={20} />
+</Link>
                         <button onClick={() => setMoreSheetOpen(true)} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: 'none', cursor: 'pointer', alignItems: 'center', justifyContent: 'center', color: '#fff' }} className="lg:hidden flex text-center">
                             <RiMoreLine size={20} />
                         </button>
@@ -646,8 +638,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
               <VideoSeekBar videoRef={videoRef} enabled={isActive} onProgress={setProgress} />
 
                 {/* Right actions */}
-                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }}>
-                    <div style={{ position: 'relative', marginBottom: 4 }}>
+                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 10 }}>
+                    <div style={{ position: 'relative', marginBottom: 0 }}>
                         <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
                     </div>
                     <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike() }} label={fmt(likesCount)}>{liked ? <RiHeartFill size={34} color="#EF4444" /> : <RiHeartLine size={34} color="#fff" />}</SideBtn>
@@ -655,7 +647,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>
                     <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
-                    <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
+                    <SideBtn onClick={() => openSheefshowt('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
                     <SideBtn onClick={() => setChirpMode('ask')} label="Ask Chirp"><RiChatSmile3Line size={28} color="#fff" /></SideBtn>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                         <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
