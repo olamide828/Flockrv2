@@ -503,8 +503,8 @@ export default function VideoCard({ video, isActive }) {
         onSeekEnd={() => { window._seekTimer = setTimeout(() => { isSeeking.current = false }, 1500) }}
       />
 
-      <div style={{ position: 'absolute', right: 10, bottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, zIndex: 10 }} onClick={e => e.stopPropagation()}>
-        <div style={{ position: 'relative', marginBottom: 4 }}>
+      <div style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 30 }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'relative', marginBottom: 0 }}>
           <Link href={`/@${video.user?.username}`} onClick={e => e.stopPropagation()}>
             <div style={{ width: 46, height: 46, borderRadius: '50%', overflow: 'hidden', border: '2.5px solid #fff', background: '#222' }}>
               {video.user?.avatar_url

@@ -638,7 +638,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
               <VideoSeekBar videoRef={videoRef} enabled={isActive} onProgress={setProgress} />
 
                 {/* Right actions */}
-                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 10 }}>
+                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 30 }}>
                     <div style={{ position: 'relative', marginBottom: 0 }}>
                         <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
                     </div>
