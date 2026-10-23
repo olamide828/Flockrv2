@@ -647,7 +647,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         <RiChat1Line size={28} color={'#fff'} />
                     </SideBtn>
                     <SideBtn onClick={handleSave} label={fmt(savesCount)}>{saved ? <RiBookmarkFill size={28} color="#FBBF24" /> : <RiBookmarkLine size={28} color="#fff" />}</SideBtn>
-                    <SideBtn onClick={() => openSheefshowt('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
+                    <SideBtn onClick={() => openSheet('share')} label="Share"><RiShareForwardLine size={28} color="#fff" /></SideBtn>
                     <SideBtn onClick={() => setChirpMode('ask')} label="Ask Chirp"><RiChatSmile3Line size={28} color="#fff" /></SideBtn>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                         <button onClick={toggleMute} style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
