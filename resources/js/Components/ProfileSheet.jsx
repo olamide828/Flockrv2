@@ -3,13 +3,14 @@ import {
     RiCloseLine, RiUserLine, RiSettings4Line, RiBarChart2Line,
     RiShoppingBasketLine, RiShareForwardLine, RiLogoutBoxLine,
     RiArrowRightSLine, RiWallet3Line, RiVerifiedBadgeFill,
-    RiVipDiamondLine, RiBugLine,
+    RiVipDiamondLine, RiBugLine, RiCustomerService2Line,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
 import ShareProfileSheet from '@/Components/ShareProfileSheet';
 import ProSubscriptionSheet from '@/Components/ProSubscriptionSheet';
 import RequestVerificationSheet from '@/Components/RequestVerificationSheet';
 import ReportBugSheet from '@/Components/ReportBugSheet';
+import ContactSheet from '@/Components/ContactSheet';
 import Toast, { useToast } from '@/Components/Toast';
 
 function Row({ Icon, label, onClick, danger }) {
@@ -41,6 +42,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
     const [showProSheet, setShowProSheet] = useState(false);
     const [showVerifySheet, setShowVerifySheet] = useState(false);
     const [showBugSheet, setShowBugSheet] = useState(false);
+    const [showContactSheet, setShowContactSheet] = useState(false);
     const { showToast, ToastComponent } = useToast();
 
     const handleClose = () => {
@@ -53,13 +55,13 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
         handleClose();
     };
 
-    if (!user) return null;
-    const isSeller = user.role === 'seller';
-
     useEffect(() => {
         document.body.style.overflow = 'hidden'
         return () => { document.body.style.overflow = '' }
     }, [])
+
+    if (!user) return null;
+    const isSeller = user.role === 'seller';
 
     return (
         <>
@@ -139,6 +141,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                         {!user.is_verified && (
                             <Row Icon={RiVerifiedBadgeFill} label="Request Verification" onClick={() => setShowVerifySheet(true)} />
                         )}
+                        <Row Icon={RiCustomerService2Line} label="Contact Us" onClick={() => setShowContactSheet(true)} />
                         <Row Icon={RiBugLine} label="Report a Bug" onClick={() => setShowBugSheet(true)} />
                     </div>
 
@@ -157,6 +160,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
             {showProSheet && <ProSubscriptionSheet onClose={() => setShowProSheet(false)} />}
             {showVerifySheet && <RequestVerificationSheet onClose={() => setShowVerifySheet(false)} showToast={showToast} />}
             {showBugSheet && <ReportBugSheet onClose={() => setShowBugSheet(false)} showToast={showToast} />}
+            {showContactSheet && <ContactSheet user={user} onClose={() => setShowContactSheet(false)} showToast={showToast} />}
             {ToastComponent}
 
             <style>{`

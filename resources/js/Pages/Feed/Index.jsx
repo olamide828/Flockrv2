@@ -1,10 +1,10 @@
 import VideoCard from '@/Components/Feed/VideoCard';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RiFilmLine, RiUserAddLine, RiVideoLine } from 'react-icons/ri';
+import { RiFilmLine, RiMapPinLine, RiUserAddLine, RiVideoLine } from 'react-icons/ri';
 
 export default function FeedIndex({ initialVideos }) {
     const { auth } = usePage().props;
@@ -16,6 +16,32 @@ export default function FeedIndex({ initialVideos }) {
     const isFirstMount = useRef(true);
 
     const { items: videos, loading, hasMore, loadMore, setItems, reset } = useInfiniteScroll(initialVideos, '/api/feed');
+
+    const NEAR_ME_NOTE_KEY = 'flockr_near_me_note_seen';
+    const [showNearMeNote, setShowNearMeNote] = useState(false);
+
+    const handleTabClick = (type) => {
+        setFeedType(type);
+        if (type === 'near_me') {
+           try {
+              if (!localStorage.getItem(NEAR_ME_NOTE_KEY)) setShowNearMeNote(true);
+            } catch {
+              setShowNearMeNote(true);
+            }   
+        }
+    };
+
+    const dismissNearMeNote = () => {
+        setShowNearMeNote(false);
+        try { localStorage.setItem(NEAR_ME_NOTE_KEY, '1'); } catch {}
+    };
+
+    useEffect(() => {
+        if (!showNearMeNote) return;
+        const onKey = (e) => e.key === 'Escape' && dismissNearMeNote();
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [showNearMeNote]);
 
     // Switch feed type — reset everything and load fresh
     // Skip on first mount since initialVideos are already loaded
@@ -114,7 +140,7 @@ export default function FeedIndex({ initialVideos }) {
                         {['for_you', 'following', 'near_me'].map((type) => (
                         <button
                             key={type}
-                            onClick={() => setFeedType(type)}
+                            onClick={() => handleTabClick(type)}
                             style={{
                                 padding: '4px 18px',
                                 borderRadius: 999,
@@ -324,6 +350,44 @@ export default function FeedIndex({ initialVideos }) {
                     </div>
                 )}
             </div>
+
+            {showNearMeNote && (
+    <div
+        onClick={dismissNearMeNote}
+        style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="near-me-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 360, background: '#121214', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24, textAlign: 'center' }}
+        >
+            <div style={{ width: 52, height: 52, margin: '0 auto 14px', borderRadius: '50%', background: 'rgba(255,107,53,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <RiMapPinLine size={26} color="#FF6B35" />
+            </div>
+            <h3 id="near-me-title" style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 700 }}>How Near Me works</h3>
+            <p style={{ margin: '8px 0 20px', color: 'rgba(255,255,255,0.55)', fontSize: 14, lineHeight: 1.5 }}>
+                Near Me uses the location saved on your profile, not your live location. Precise location is coming soon.
+            </p>
+            <button
+                onClick={dismissNearMeNote}
+                style={{ width: '100%', padding: '12px 0', background: '#FF6B35', border: 'none', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+            >
+                Got it
+            </button>
+            {auth?.user && (
+                <Link
+                    href="/settings/profile"
+                    onClick={dismissNearMeNote}
+                    style={{ display: 'block', marginTop: 12, color: 'rgba(255,255,255,0.6)', fontSize: 13, textDecoration: 'none' }}
+                >
+                    Update my location
+                </Link>
+            )}
+        </div>
+    </div>
+)}
 
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </>
