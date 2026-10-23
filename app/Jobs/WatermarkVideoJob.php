@@ -22,6 +22,9 @@ class WatermarkVideoJob implements ShouldQueue
 
     private const OUTRO_DURATION = 3;
 
+    /** Folder of the font used by drawtext; set by buildFontArg(), used as FFmpeg's cwd. */
+    private ?string $fontDir = null;
+
     public function __construct(
         public readonly Video  $video,
         public readonly string $cacheKey,
@@ -41,8 +44,10 @@ class WatermarkVideoJob implements ShouldQueue
             // 1. Resolve source video
             $this->resolveInputFile($tmpInput);
 
-            // 2. Probe dimensions
+            // 2. Probe dimensions, duration and whether there is an audio track
             [$vw, $vh] = $this->probeDimensions($tmpInput);
+            $dur       = $this->probeDuration($tmpInput);
+            $hasAudio  = $this->probeHasAudio($tmpInput);
 
             // 3. Check assets
             $logoPath  = $this->p(public_path('images/flockr_logo_white.png'));
@@ -56,11 +61,11 @@ class WatermarkVideoJob implements ShouldQueue
             $hasSound = file_exists($soundPath);
 
             // 4. Build combined filter (watermark + outro in ONE FFmpeg pass)
-            $filter = $this->buildCombinedFilter($vw, $vh, $hasSound);
+            $filter = $this->buildFilter($vw, $vh, $dur, $hasAudio);
             file_put_contents($filterFile, $filter);
 
             // 5. Run single FFmpeg pass
-            $this->runFFmpeg($tmpInput, $logoPath, $logoOutro, $soundPath, $hasSound, $filterFile, $tmpOutput, $vw, $vh);
+            $this->runFFmpeg($tmpInput, $logoPath, $logoOutro, $soundPath, $hasSound, $filterFile, $tmpOutput, $dur);
 
             // 6. Store result
             $disk = config('filesystems.default', 'public');
@@ -87,150 +92,157 @@ class WatermarkVideoJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Single combined filter:
-    // - Main video section: moving watermark (logo + text, no background pill)
-    // - Outro section: 3s black card with centered logo + brand + username
-    // All done in ONE FFmpeg pass = 3x faster than 3 separate passes
+    // Watermark + outro in ONE FFmpeg pass.
     //
-    // Inputs:
-    //   [0] = source video
-    //   [1] = watermark logo (white, small)
-    //   [2] = outro logo (teal, large) — or same as [1] if not present
-    //   [3] = outro sound (optional) — only if $hasSound
+    // Watermark: a small logo + @username lockup that fades in and out at the
+    //   top-right, then at the bottom-left, alternating through the video.
+    // Outro: the video's own last frame is held for OUTRO_DURATION seconds and
+    //   dimmed (not blacked out), so the footage stays visible underneath while
+    //   the logo, brand and @username ease in on top.
+    //
+    // Inputs: 0 = video, 1 = watermark logo, 2 = outro logo, 3 = outro sound
     // ─────────────────────────────────────────────────────────────────────────
-    private function buildCombinedFilter(int $vw, int $vh, bool $hasSound): string
+    private function buildFilter(int $vw, int $vh, float $dur, bool $hasAudio): string
     {
-        $username  = '@' . preg_replace('/[^a-zA-Z0-9@_\-.]/', '', $this->video->user?->username ?? 'flockr');
-        $fontArg   = $this->buildFontArg();
-        $duration  = self::OUTRO_DURATION;
+        $user = '@' . preg_replace('/[^a-zA-Z0-9_\-.]/', '', $this->video->user?->username ?? 'flockr');
+        $font = $this->buildFontArg();
+        $D    = $this->fmt($dur);
+        $out  = self::OUTRO_DURATION;
+        $fmt  = fn (float $v): string => $this->fmt($v);
 
-        // ── Watermark sizing ──────────────────────────────────────────────────
-        $logoW  = max(22, (int) round($vw * 0.055));
-        $logoH  = $logoW;
-        $pad    = max(14, (int) round($vw * 0.04));
-        $fSize  = max(13, (int) round($vw * 0.036));
-        $uSize  = max(11, (int) round($vw * 0.028));
-        $gap    = 5;
-        $shadow = ":shadowcolor=black@0.6:shadowx=1:shadowy=1";
+        // Tunables
+        $maxOpacity = 0.92;   // peak watermark opacity
+        $dim        = 0.42;   // outro darkness (0 = none, 1 = black)
 
-        // Four corner positions (pre-calculated, no text_w references)
-        $corners = [
-            'TL' => [
-                'lx' => $pad,
-                'ly' => $pad,
-                'tx' => $pad + $logoW + $gap,
-                'ty' => $pad,
-                'ty2' => $pad + $fSize + 3,
-                'en' => "lt(mod(t,20),5)",
-            ],
-            'TR' => [
-                'lx' => $vw - $logoW - $pad - 130,
-                'ly' => $pad,
-                'tx' => $vw - $pad - 130,
-                'ty' => $pad,
-                'ty2' => $pad + $fSize + 3,
-                'en' => "between(mod(t,20),5,10)",
-            ],
-            'BR' => [
-                'lx' => $vw - $logoW - $pad - 130,
-                'ly' => $vh - $logoH - $pad - $fSize - $uSize - 6,
-                'tx' => $vw - $pad - 130,
-                'ty' => $vh - $logoH - $pad - $fSize - $uSize - 6,
-                'ty2' => $vh - $logoH - $pad - $uSize - 3,
-                'en' => "between(mod(t,20),10,15)",
-            ],
-            'BL' => [
-                'lx' => $pad,
-                'ly' => $vh - $logoH - $pad - $fSize - $uSize - 6,
-                'tx' => $pad + $logoW + $gap,
-                'ty' => $vh - $logoH - $pad - $fSize - $uSize - 6,
-                'ty2' => $vh - $logoH - $pad - $uSize - 3,
-                'en' => "gte(mod(t,20),15)",
-            ],
-        ];
+        // ── Watermark metrics ─────────────────────────────────────────────────
+        $lw   = max(24, (int) round($vw * 0.07));    // logo size
+        $gap  = max(6,  (int) round($vw * 0.014));
+        $us   = max(14, (int) round($vw * 0.036));   // @username size
+        $bs   = max(11, (int) round($vw * 0.026));   // "flockr" size
+        $padX = max(16, (int) round($vw * 0.045));
+        $padT = max(20, (int) round($vh * 0.045));
+        $padB = max(24, (int) round($vh * 0.06));
+        $textDy = max(0, (int) round(($lw - ($us + 3 + $bs)) / 2));
 
-        // ── Outro sizing ──────────────────────────────────────────────────────
-        $outroLogoSize = max(80, (int) round(min($vw, $vh) * 0.18));
-        $outroLogoX    = (int) (($vw - $outroLogoSize) / 2);
-        $centerY       = (int) ($vh / 2);
-        $outroLogoY    = $centerY - $outroLogoSize - 8;
-        $brandSize     = max(28, (int) round($vw * 0.075));
-        $userSize      = max(18, (int) round($vw * 0.042));
-        $brandY        = $centerY + 12;
-        $userY         = $brandY + $brandSize + 14;
+        // ── Fade timing: top-right in the first half of each cycle, bottom-left in the second
+        $period = max(6.0, min(14.0, $dur));
+        $fade   = min(0.6, $period * 0.08);
+        $env = function (string $tv, float $from, float $to) use ($fmt, $period, $fade, $D): string {
+            $m = 'mod(' . $tv . ',' . $fmt($period) . ')';
+            return 'clip(min((' . $m . '-' . $fmt($from) . ')/' . $fmt($fade)
+                 . ',(' . $fmt($to) . '-' . $m . ')/' . $fmt($fade) . '),0,1)*lt(' . $tv . ',' . $D . ')';
+        };
+        // T (uppercase) is geq's time variable, t (lowercase) is drawtext/overlay's
+        $trT = $env('T', $period * 0.07, $period * 0.43);
+        $trt = $env('t', $period * 0.07, $period * 0.43);
+        $blT = $env('T', $period * 0.57, $period * 0.93);
+        $blt = $env('t', $period * 0.57, $period * 0.93);
 
-        $lines = [];
+        $geq = fn (string $a): string =>
+            "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*{$fmt($maxOpacity)}*{$a}',format=rgba";
 
-        // ── Scale both logos ──────────────────────────────────────────────────
-        // [1] = watermark logo → split into 4 for the 4 corners
-        $lines[] = "[1:v]scale={$logoW}:{$logoH},split=4[wml0][wml1][wml2][wml3]";
-        // [2] = outro logo → scaled
-        $lines[] = "[2:v]scale={$outroLogoSize}:{$outroLogoSize}[outrologo]";
+        // Text is drawn twice: a faint offset copy (soft shadow) and the text itself.
+        // Both fade with the same expression so no shadow is left behind.
+        $text = function (string $s, int $size, string $x, string $y, string $color, float $opacity, string $a) use ($font, $fmt): string {
+            $base   = "drawtext=text='{$s}'{$font}:fontsize={$size}";
+            $shadow = "{$base}:fontcolor=black:alpha='" . $fmt($opacity * 0.45) . "*{$a}':x='{$x}+1':y='{$y}+1'";
+            $main   = "{$base}:fontcolor={$color}:alpha='" . $fmt($opacity) . "*{$a}':x='{$x}':y='{$y}'";
+            return $shadow . ',' . $main;
+        };
 
-        // ── Main video: apply watermark ───────────────────────────────────────
-        $prev = '0:v';
-        $i    = 0;
-        foreach ($corners as $name => $c) {
-            $logoIn = "wml{$i}";
-            $alo    = "alo_{$name}";
-            $aft    = "aft_{$name}";
-            $unOut  = ($i < 3) ? "wm_{$name}" : "main_wm";
+        // Top-right: logo hugs the right edge, text is right-aligned beside it
+        $trLx  = $vw - $padX - $lw;
+        $trLy  = $padT;
+        $trOff = $padX + $lw + $gap;
+        $trY1  = $trLy + $textDy;
+        $trY2  = $trY1 + $us + 3;
 
-            $lines[] = "[{$prev}][{$logoIn}]overlay=x={$c['lx']}:y={$c['ly']}:enable='{$c['en']}'[{$alo}]";
-            $lines[] = "[{$alo}]drawtext=text='flockr'{$fontArg}:fontsize={$fSize}:fontcolor=white{$shadow}:x={$c['tx']}:y={$c['ty']}:enable='{$c['en']}'[{$aft}]";
-            $lines[] = "[{$aft}]drawtext=text='{$username}'{$fontArg}:fontsize={$uSize}:fontcolor=white@0.85{$shadow}:x={$c['tx']}:y={$c['ty2']}:enable='{$c['en']}'[{$unOut}]";
+        // Bottom-left: logo hugs the left edge, text is left-aligned beside it
+        $blLx = $padX;
+        $blLy = $vh - $padB - $lw;
+        $blTx = $padX + $lw + $gap;
+        $blY1 = $blLy + $textDy;
+        $blY2 = $blY1 + $us + 3;
 
-            $prev = "wm_{$name}";
-            $i++;
-        }
+        // ── Outro metrics ─────────────────────────────────────────────────────
+        $ol   = max(72, (int) round(min($vw, $vh) * 0.16));
+        $bsz  = max(26, (int) round($vw * 0.07));
+        $usz  = max(18, (int) round($vw * 0.04));
+        $tsz  = max(12, (int) round($vw * 0.026));
+        $H    = $ol + 18 + $bsz + 10 + $usz + 16 + $tsz;
+        $y0   = (int) (($vh - $H) / 2);
+        $yBr  = $y0 + $ol + 18;
+        $yUs  = $yBr + $bsz + 10;
+        $yTg  = $yUs + $usz + 16;
+        $ox   = (int) (($vw - $ol) / 2);
 
-        // ── Outro: black card generated from lavfi (input [3] in FFmpeg cmd) ──
-        // [3] in the filter = the lavfi color source (added as -f lavfi input)
-        $lines[] = "[3:v][outrologo]overlay=x={$outroLogoX}:y={$outroLogoY}[outro_logo]";
-        $lines[] = "[outro_logo]drawtext=text='flockr'{$fontArg}:fontsize={$brandSize}:fontcolor=white:x=(w-text_w)/2:y={$brandY}[outro_brand]";
-        $lines[] = "[outro_brand]drawtext=text='{$username}'{$fontArg}:fontsize={$userSize}:fontcolor=0xFF6B35:x=(w-text_w)/2:y={$userY}[outro_out]";
+        // 0 → 1 over 0.55s starting `delay` seconds after the outro begins
+        $rise = fn (float $delay): string => 'clip((t-' . $D . '-' . $fmt($delay) . ')/0.55,0,1)';
+        $yAt  = fn (int $base, float $delay): string => $base . '+18*(1-' . $rise($delay) . ')';
+        $rampT = 'clip((T-' . $D . ')/0.55,0,1)';
 
-        // ── Concat main + outro ───────────────────────────────────────────────
-        // Audio: use [0:a] for main, [4:a] for outro sound (or silence)
-        $lines[] = "[main_wm][0:a][outro_out][4:a]concat=n=2:v=1:a=1[outv][outa]";
+        $L = [];
 
-        return implode(";\n", $lines);
+        // ── Main video + corner watermarks ────────────────────────────────────
+        $L[] = '[0:v]fps=30,setsar=1,format=yuv420p[base]';
+        $L[] = "[1:v]format=rgba,scale={$lw}:{$lw},split=2[wa][wb]";
+        $L[] = "[wa]{$geq($trT)}[wmtr]";
+        $L[] = "[wb]{$geq($blT)}[wmbl]";
+
+        $L[] = "[base][wmtr]overlay=x={$trLx}:y={$trLy}:shortest=1[v1]";
+        $L[] = '[v1]'
+             . $text($user,   $us, "w-text_w-{$trOff}", (string) $trY1, 'white', 1.0, $trt) . ','
+             . $text('flockr', $bs, "w-text_w-{$trOff}", (string) $trY2, 'white', 0.8, $trt)
+             . '[v2]';
+
+        $L[] = "[v2][wmbl]overlay=x={$blLx}:y={$blLy}:shortest=1[v3]";
+        $L[] = '[v3]'
+             . $text($user,   $us, (string) $blTx, (string) $blY1, 'white', 1.0, $blt) . ','
+             . $text('flockr', $bs, (string) $blTx, (string) $blY2, 'white', 0.8, $blt)
+             . '[v4]';
+
+        // ── Outro: hold last frame, ease it dark, bring in the branding ───────
+        $L[] = "[v4]tpad=stop_mode=clone:stop_duration={$out},"
+             . "eq=brightness='-{$fmt($dim)}*{$rise(0)}':saturation='1-0.3*{$rise(0)}':eval=frame[v5]";
+        $L[] = "[2:v]format=rgba,scale={$ol}:{$ol},{$geq($rampT)}[olg]";
+        $L[] = "[v5][olg]overlay=x={$ox}:y='{$yAt($y0, 0)}':enable='gte(t,{$D})':shortest=1[v6]";
+        $L[] = '[v6]'
+             . $text('flockr', $bsz, '(w-text_w)/2', $yAt($yBr, 0.15), 'white',    1.0,  $rise(0.15)) . ','
+             . $text($user,    $usz, '(w-text_w)/2', $yAt($yUs, 0.30), '0xFF6B35', 1.0,  $rise(0.30)) . ','
+             . $text('Discover. Shop. Connect.', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
+             . '[outv]';
+
+        // ── Audio: original track, then the outro sound (or silence) ──────────
+        $af = 'aformat=sample_fmts=fltp:channel_layouts=stereo';
+        $L[] = $hasAudio
+            ? "[0:a]aresample=44100,apad,atrim=0:{$D},asetpts=PTS-STARTPTS,{$af}[a0]"
+            : "anullsrc=r=44100:cl=stereo,atrim=0:{$D},asetpts=PTS-STARTPTS,{$af}[a0]";
+        $L[] = "[3:a]aresample=44100,atrim=0:{$out},apad=whole_dur={$out},asetpts=PTS-STARTPTS,{$af}[a1]";
+        $L[] = '[a0][a1]concat=n=2:v=0:a=1[outa]';
+
+        return implode(";\n", $L);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Single FFmpeg invocation with all inputs
-    // Inputs:
-    //   0 = source video
-    //   1 = watermark logo
-    //   2 = outro logo
-    //   3 = lavfi black bg for outro
-    //   4 = outro audio (sound file or silence)
-    // ─────────────────────────────────────────────────────────────────────────
     private function runFFmpeg(
         string $input, string $wmLogo, string $outroLogo,
         string $sound, bool $hasSound,
         string $filterFile, string $output,
-        int $vw, int $vh
+        float $dur
     ): void {
-        $ff       = $this->ff();
-        $duration = self::OUTRO_DURATION;
+        $ff    = $this->ff();
+        $out   = self::OUTRO_DURATION;
+        $total = $this->fmt($dur + $out + 1);
+        $loop  = " -loop 1 -framerate 30 -t {$total}";
 
-        $audioInput = $hasSound
+        $audioIn = $hasSound
             ? " -i \"" . $this->p($sound) . "\""
-            : " -f lavfi -i anullsrc=r=44100:cl=stereo";
+            : " -f lavfi -t {$out} -i anullsrc=r=44100:cl=stereo";
 
         $cmd = "\"{$ff}\" -y"
-             // Input 0: source video
              . " -i \"" . $this->p($input) . "\""
-             // Input 1: watermark logo
-             . " -i \"" . $this->p($wmLogo) . "\""
-             // Input 2: outro logo
-             . " -i \"" . $this->p($outroLogo) . "\""
-             // Input 3: lavfi black background for outro
-             . " -f lavfi -i color=c=0x111111:s={$vw}x{$vh}:r=30:d={$duration}"
-             // Input 4: outro audio
-             . $audioInput
-             // Filter
+             . $loop . " -i \"" . $this->p($wmLogo) . "\""
+             . $loop . " -i \"" . $this->p($outroLogo) . "\""
+             . $audioIn
              . " -/filter_complex \"" . $this->p($filterFile) . "\""
              . " -map \"[outv]\" -map \"[outa]\""
              . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset fast -crf 28"
@@ -239,88 +251,26 @@ class WatermarkVideoJob implements ShouldQueue
              . " \"" . $this->p($output) . "\" 2>&1";
 
         Log::debug('WatermarkVideoJob command', ['cmd' => $cmd]);
-        exec($cmd, $lines, $code);
+
+        // The font is referenced by bare file name (see buildFontArg), so run from its folder
+        $cwd = getcwd();
+        if ($this->fontDir) @chdir($this->fontDir);
+        try {
+            exec($cmd, $lines, $code);
+        } finally {
+            if ($cwd) @chdir($cwd);
+        }
 
         if ($code !== 0) {
-            // Fallback: try without audio concat (video had no audio stream)
-            Log::warning('WatermarkVideoJob: audio concat failed, trying video-only fallback');
-
-            // Rebuild filter without audio concat
-            $filterNoAudio = $this->buildCombinedFilterNoAudio($vw, $vh);
-            $filterFileNA  = sys_get_temp_dir() . DIRECTORY_SEPARATOR . Str::uuid() . '_fna.txt';
-            file_put_contents($filterFileNA, $filterNoAudio);
-
-            $cmd2 = "\"{$ff}\" -y"
-                  . " -i \"" . $this->p($input) . "\""
-                  . " -i \"" . $this->p($wmLogo) . "\""
-                  . " -i \"" . $this->p($outroLogo) . "\""
-                  . " -f lavfi -i color=c=0x111111:s={$vw}x{$vh}:r=30:d={$duration}"
-                  . " -/filter_complex \"" . $this->p($filterFileNA) . "\""
-                  . " -map \"[outv]\" -an"
-                  . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset fast -crf 28"
-                  . " -movflags +faststart"
-                  . " \"" . $this->p($output) . "\" 2>&1";
-
-            exec($cmd2, $lines2, $code2);
-            @unlink($filterFileNA);
-
-            if ($code2 !== 0) {
-                $tail = implode("\n", array_slice($lines, -20));
-                throw new \RuntimeException("FFmpeg failed (code {$code}):\n{$tail}");
-            }
+            $tail = implode("\n", array_slice($lines, -25));
+            Log::error('WatermarkVideoJob ffmpeg failed', ['code' => $code, 'tail' => $tail]);
+            throw new \RuntimeException("FFmpeg failed (code {$code}):\n{$tail}");
         }
     }
 
-    // Fallback filter without audio (for videos with no audio stream)
-    private function buildCombinedFilterNoAudio(int $vw, int $vh): string
+    private function fmt(float $v): string
     {
-        $username  = '@' . preg_replace('/[^a-zA-Z0-9@_\-.]/', '', $this->video->user?->username ?? 'flockr');
-        $fontArg   = $this->buildFontArg();
-        $duration  = self::OUTRO_DURATION;
-
-        $logoW  = max(22, (int) round($vw * 0.055));
-        $logoH  = $logoW;
-        $pad    = max(14, (int) round($vw * 0.04));
-        $fSize  = max(13, (int) round($vw * 0.036));
-        $uSize  = max(11, (int) round($vw * 0.028));
-        $gap    = 5;
-        $shadow = ":shadowcolor=black@0.6:shadowx=1:shadowy=1";
-
-        $corners = [
-            'TL' => ['lx' => $pad, 'ly' => $pad, 'tx' => $pad + $logoW + $gap, 'ty' => $pad, 'ty2' => $pad + $fSize + 3, 'en' => "lt(mod(t,20),5)"],
-            'TR' => ['lx' => $vw - $logoW - $pad - 130, 'ly' => $pad, 'tx' => $vw - $pad - 130, 'ty' => $pad, 'ty2' => $pad + $fSize + 3, 'en' => "between(mod(t,20),5,10)"],
-            'BR' => ['lx' => $vw - $logoW - $pad - 130, 'ly' => $vh - $logoH - $pad - $fSize - $uSize - 6, 'tx' => $vw - $pad - 130, 'ty' => $vh - $logoH - $pad - $fSize - $uSize - 6, 'ty2' => $vh - $logoH - $pad - $uSize - 3, 'en' => "between(mod(t,20),10,15)"],
-            'BL' => ['lx' => $pad, 'ly' => $vh - $logoH - $pad - $fSize - $uSize - 6, 'tx' => $pad + $logoW + $gap, 'ty' => $vh - $logoH - $pad - $fSize - $uSize - 6, 'ty2' => $vh - $logoH - $pad - $uSize - 3, 'en' => "gte(mod(t,20),15)"],
-        ];
-
-        $outroLogoSize = max(80, (int) round(min($vw, $vh) * 0.18));
-        $outroLogoX    = (int) (($vw - $outroLogoSize) / 2);
-        $centerY       = (int) ($vh / 2);
-        $outroLogoY    = $centerY - $outroLogoSize - 8;
-        $brandSize     = max(28, (int) round($vw * 0.075));
-        $userSize      = max(18, (int) round($vw * 0.042));
-        $brandY        = $centerY + 12;
-        $userY         = $brandY + $brandSize + 14;
-
-        $lines   = [];
-        $lines[] = "[1:v]scale={$logoW}:{$logoH},split=4[wml0][wml1][wml2][wml3]";
-        $lines[] = "[2:v]scale={$outroLogoSize}:{$outroLogoSize}[outrologo]";
-
-        $prev = '0:v'; $i = 0;
-        foreach ($corners as $name => $c) {
-            $unOut = ($i < 3) ? "wm_{$name}" : "main_wm";
-            $lines[] = "[{$prev}][wml{$i}]overlay=x={$c['lx']}:y={$c['ly']}:enable='{$c['en']}'[alo_{$name}]";
-            $lines[] = "[alo_{$name}]drawtext=text='flockr'{$fontArg}:fontsize={$fSize}:fontcolor=white{$shadow}:x={$c['tx']}:y={$c['ty']}:enable='{$c['en']}'[aft_{$name}]";
-            $lines[] = "[aft_{$name}]drawtext=text='{$username}'{$fontArg}:fontsize={$uSize}:fontcolor=white@0.85{$shadow}:x={$c['tx']}:y={$c['ty2']}:enable='{$c['en']}'[{$unOut}]";
-            $prev = "wm_{$name}"; $i++;
-        }
-
-        $lines[] = "[3:v][outrologo]overlay=x={$outroLogoX}:y={$outroLogoY}[outro_logo]";
-        $lines[] = "[outro_logo]drawtext=text='flockr'{$fontArg}:fontsize={$brandSize}:fontcolor=white:x=(w-text_w)/2:y={$brandY}[outro_brand]";
-        $lines[] = "[outro_brand]drawtext=text='{$username}'{$fontArg}:fontsize={$userSize}:fontcolor=0xFF6B35:x=(w-text_w)/2:y={$userY}[outro_out]";
-        $lines[] = "[main_wm][outro_out]concat=n=2:v=1:a=0[outv]";
-
-        return implode(";\n", $lines);
+        return sprintf('%.3F', $v); // locale-safe decimal point for FFmpeg expressions
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -365,12 +315,30 @@ class WatermarkVideoJob implements ShouldQueue
         return [720, 1280];
     }
 
+    private function probeDuration(string $path): float
+    {
+        $fp  = str_replace('\\', '/', config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
+        $out = trim(shell_exec("\"{$fp}\" -v error -show_entries format=duration -of csv=p=0 \"" . $this->p($path) . "\" 2>&1") ?? '');
+        $d   = is_numeric($out) ? (float) $out : 0.0;
+        return $d > 0 ? $d : 10.0;
+    }
+
+    private function probeHasAudio(string $path): bool
+    {
+        $fp  = str_replace('\\', '/', config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
+        $out = trim(shell_exec("\"{$fp}\" -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 \"" . $this->p($path) . "\" 2>&1") ?? '');
+        return str_contains($out, 'audio');
+    }
+
     private function buildFontArg(): string
     {
         $font = $this->findFont();
         if (!$font) return '';
-        $f = preg_replace('/^([A-Za-z]):/', '$1\\:', $this->p($font));
-        return ":fontfile='{$f}'";
+        // Reference the font by bare file name and run FFmpeg from its folder (see runFFmpeg).
+        // This avoids the Windows drive-letter colon ("C:") that breaks drawtext's fontfile option.
+        $font          = $this->p($font);
+        $this->fontDir = dirname($font);
+        return ":fontfile='" . basename($font) . "'";
     }
 
     private function p(string $path): string
