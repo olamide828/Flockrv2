@@ -1,0 +1,3 @@
+Poppins, Playfair Display and Caveat are licensed under the SIL Open Font License 1.1
+(https://openfontlicense.org). They may be used, bundled and embedded in videos/images, including commercially.
+They may not be sold on their own. Keep this notice with the font files.

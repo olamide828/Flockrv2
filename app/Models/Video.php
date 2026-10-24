@@ -37,6 +37,8 @@ class Video extends Model
         'published_at',
         'text_overlays',
         'ai_category_id',
+        'sound_id',
+        'allow_sound_reuse',
     ];
 
     protected $casts = [
@@ -46,6 +48,7 @@ class Video extends Model
         'is_for_sale' => 'boolean',
         'published_at' => 'datetime',
         'text_overlays' => 'array',
+        'allow_sound_reuse' => 'boolean',
     ];
 
     protected $appends = [
@@ -68,6 +71,11 @@ class Video extends Model
    
 
     // ─── Relationships ────────────────────────────────────────────────────────
+
+    public function sound(): BelongsTo
+    {
+        return $this->belongsTo(Sound::class);
+    }
 
     public function user(): BelongsTo
     {

@@ -33,6 +33,12 @@ class WatermarkVideoJob implements ShouldQueue
 
     private ?string $scratchId = null;
 
+    /**
+     * PNG text layers (v2 overlays) fetched for this run. Each entry:
+     * ['file' => local path, 'w' => px, 'h' => px, 'x' => px, 'y' => px]. They are FFmpeg inputs 4, 5, ...
+     */
+    private array $layers = [];
+
     public function __construct(
         public readonly Video  $video,
         public readonly string $cacheKey,
@@ -56,6 +62,9 @@ class WatermarkVideoJob implements ShouldQueue
             [$vw, $vh] = $this->probeDimensions($tmpInput);
             $dur       = $this->probeDuration($tmpInput);
             $hasAudio  = $this->probeHasAudio($tmpInput);
+
+            // 2b. Creator text from the new editor arrives as PNG layers rendered in the editor's own fonts
+            $this->prepareOverlayLayers($vw, $vh, $tmp . $uuid);
 
             // 3. Check assets
             $logoPath  = $this->p(public_path('images/flockr_logo_white.png'));
@@ -195,11 +204,23 @@ class WatermarkVideoJob implements ShouldQueue
         // ── Main video + corner watermarks ────────────────────────────────────
         // Creator text overlays go on first, so they are also part of the frozen, dimmed outro frame
         $draws = $this->buildOverlayDraws($vw, $vh);
-        if ($draws === '') {
+        $nl    = count($this->layers);
+        if ($draws === '' && $nl === 0) {
             $L[] = '[0:v]fps=30,setsar=1,format=yuv420p[base]';
         } else {
             $L[] = '[0:v]fps=30,setsar=1,format=yuv420p[b0]';
-            $L[] = '[b0]' . $draws . '[base]';
+            $cur = 'b0';
+            if ($draws !== '') {
+                $L[] = '[b0]' . $draws . ($nl === 0 ? '[base]' : '[bd]');
+                $cur = 'bd';
+            }
+            foreach ($this->layers as $i => $ly) {
+                $in   = 4 + $i;
+                $next = $i === $nl - 1 ? 'base' : 'bl' . $i;
+                $L[]  = "[{$in}:v]format=rgba,scale={$ly['w']}:{$ly['h']}[ly{$i}]";
+                $L[]  = "[{$cur}][ly{$i}]overlay=x={$ly['x']}:y={$ly['y']}:shortest=1[{$next}]";
+                $cur  = $next;
+            }
         }
         $L[] = "[1:v]format=rgba,scale={$lw}:{$lw},split=2[wa][wb]";
         $L[] = "[wa]{$geq($trT)}[wmtr]";
@@ -259,6 +280,7 @@ class WatermarkVideoJob implements ShouldQueue
              . $loop . " -i \"" . $this->p($wmLogo) . "\""
              . $loop . " -i \"" . $this->p($outroLogo) . "\""
              . $audioIn
+             . $this->layerInputs($loop)
              . " -/filter_complex \"" . $this->p($filterFile) . "\""
              . " -map \"[outv]\" -map \"[outa]\""
              . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset fast -crf 28"
@@ -323,11 +345,22 @@ class WatermarkVideoJob implements ShouldQueue
         throw new \RuntimeException("Cannot resolve video: {$url}");
     }
 
+    /** Width / height as FFmpeg will see them: a phone video flagged "rotated 90°" is swapped. */
     private function probeDimensions(string $path): array
     {
         $fp  = str_replace('\\', '/', config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
-        $out = trim(shell_exec("\"{$fp}\" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 \"" . $this->p($path) . "\" 2>&1") ?? '');
-        if (preg_match('/(\d+),(\d+)/', $out, $m)) return [(int) $m[1], (int) $m[2]];
+        $raw = shell_exec("\"{$fp}\" -v error -select_streams v:0 -show_entries stream=width,height:stream_tags=rotate:stream_side_data=rotation -of json \"" . $this->p($path) . "\" 2>&1") ?? '';
+        $j   = json_decode($raw, true);
+        $st  = is_array($j) ? ($j['streams'][0] ?? null) : null;
+        if (is_array($st) && !empty($st['width']) && !empty($st['height'])) {
+            $rot = (int) ($st['tags']['rotate'] ?? 0);
+            foreach ($st['side_data_list'] ?? [] as $sd) {
+                if (isset($sd['rotation'])) $rot = (int) $sd['rotation'];
+            }
+            $swap = abs($rot) % 180 === 90;
+            return $swap ? [(int) $st['height'], (int) $st['width']] : [(int) $st['width'], (int) $st['height']];
+        }
+        if (preg_match('/(\d+),(\d+)/', $raw, $m)) return [(int) $m[1], (int) $m[2]];
         return [720, 1280];
     }
 
@@ -394,6 +427,7 @@ class WatermarkVideoJob implements ShouldQueue
         $draws = [];
         foreach (array_slice($overlays, 0, 20) as $i => $o) {
             if (!is_array($o)) continue;
+            if (($o['v'] ?? 0) === 2) continue;   // v2 text comes in as PNG layers (prepareOverlayLayers)
 
             $text = trim(preg_replace('/[^\P{C}\n]/u', '', (string) ($o['text'] ?? '')));
             if ($text === '') continue;
@@ -438,6 +472,88 @@ class WatermarkVideoJob implements ShouldQueue
         }
 
         return implode(',', $draws);
+    }
+
+    /**
+     * Fetches the PNG for every v2 overlay (stored by VideoController at overlays/{ulid}/{n}.png) and works
+     * out where it sits on the video. The editor shows the video cover-fitted in its frame, so the saved
+     * centre (cx, cy in % of that frame) is mapped onto the part of the video that was visible.
+     * The PNG was rendered at png_scale video-px per editor-px; if this file's size differs from the one the
+     * browser saw, the layer is rescaled by the ratio.
+     */
+    private function prepareOverlayLayers(int $vw, int $vh, string $tmpBase): void
+    {
+        $this->layers = [];
+        $overlays = $this->video->text_overlays;
+        if (!is_array($overlays) || !$overlays || !$this->video->ulid) return;
+
+        $disk = config('filesystems.default', 'public');
+
+        foreach (array_slice($overlays, 0, 20) as $o) {
+            if (!is_array($o) || ($o['v'] ?? 0) !== 2 || !isset($o['png_index'])) continue;
+            $idx = (int) $o['png_index'];
+            if ($idx < 0 || $idx > 19) continue;
+
+            $remote = 'overlays/' . $this->video->ulid . '/' . $idx . '.png';
+            try {
+                if (!Storage::disk($disk)->exists($remote)) continue;
+                $stream = Storage::disk($disk)->readStream($remote);
+                if (!$stream) continue;
+                $local = $tmpBase . '_ov' . $idx . '.png';
+                $out   = fopen($local, 'wb');
+                stream_copy_to_stream($stream, $out);
+                fclose($out); fclose($stream);
+                $this->scratch[] = $local;
+            } catch (\Throwable $e) {
+                Log::warning('Overlay PNG unavailable', ['path' => $remote, 'error' => $e->getMessage()]);
+                continue;
+            }
+
+            $size = @getimagesize($local);
+            $pw   = (int) ($o['png_w'] ?? ($size[0] ?? 0));
+            $ph   = (int) ($o['png_h'] ?? ($size[1] ?? 0));
+            if ($size) { $pw = $size[0]; $ph = $size[1]; }   // trust the file over the JSON
+            if ($pw < 2 || $ph < 2) continue;
+
+            $fw     = (float) ($o['frame_w'] ?? 0);
+            $fh     = (float) ($o['frame_h'] ?? 0);
+            if ($fw < 1 || $fh < 1) continue;
+            $aspect = $fw / $fh;
+            if ($vw / $vh > $aspect) { $visH = $vh; $visW = $vh * $aspect; }
+            else                     { $visW = $vw; $visH = $vw / $aspect; }
+            $offX = ($vw - $visW) / 2;
+            $offY = ($vh - $visH) / 2;
+
+            $kServer = $visW / $fw;
+            $pngS    = (float) ($o['png_scale'] ?? 0);
+            $oScale  = max(0.01, (float) ($o['scale'] ?? 1));
+            $factor  = $pngS > 0 ? $kServer / ($pngS / $oScale) : 1.0;
+            if (abs($factor - 1) < 0.02) $factor = 1.0;
+            $factor  = min(4.0, max(0.1, $factor));
+
+            $w = max(2, (int) round($pw * $factor));
+            $h = max(2, (int) round($ph * $factor));
+            $cx = $offX + min(100, max(0, (float) ($o['cx'] ?? 50))) / 100 * $visW;
+            $cy = $offY + min(100, max(0, (float) ($o['cy'] ?? 50))) / 100 * $visH;
+
+            $this->layers[] = [
+                'file' => $local,
+                'w'    => $w,
+                'h'    => $h,
+                'x'    => (int) round($cx - $w / 2),
+                'y'    => (int) round($cy - $h / 2),
+            ];
+        }
+    }
+
+    /** " -loop 1 ... -i layer.png" for each text layer (FFmpeg inputs 4+). */
+    private function layerInputs(string $loop): string
+    {
+        $s = '';
+        foreach ($this->layers as $ly) {
+            $s .= $loop . ' -i "' . $this->p($ly['file']) . '"';
+        }
+        return $s;
     }
 
     private function hexColor(mixed $c, string $fallback): string

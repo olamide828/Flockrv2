@@ -21,6 +21,7 @@ import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/vid
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { useHlsVideo } from '@/lib/useHlsVideo'
+import TextOverlays from '@/Components/Video/TextOverlays'
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -217,6 +218,7 @@ export default function VideoCard({ video, isActive }) {
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
   const [duration, setDuration] = useState(0)
+  const [videoSize, setVideoSize] = useState(null)
   const [progress,      setProgress]      = useState(0)
   const [loading,       setLoading]       = useState(true)
   const [liked,         setLiked]         = useState(video.is_liked ?? false)
@@ -420,7 +422,7 @@ export default function VideoCard({ video, isActive }) {
         muted playsInline preload={isActive ? 'auto' : 'none'}
         onCanPlay={() => setLoading(false)}
         onPlaying={() => setLoading(false)}
-        onLoadedMetadata={e => setDuration(e.target.duration)}
+        onLoadedMetadata={e => { setDuration(e.target.duration); setVideoSize({ w: e.target.videoWidth, h: e.target.videoHeight }) }}
         onWaiting={() => { if (!videoRef.current?.ended) setLoading(true) }}
         onPlay={() => { setPlaying(true); setShowPP(false) }}
         onPause={() => {
@@ -447,18 +449,7 @@ export default function VideoCard({ video, isActive }) {
         style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
       />
 
-      {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
-        <span key={overlay.id} style={{
-          position: 'absolute', top: `${overlay.top}%`, left: `${overlay.left}%`, zIndex: 8,
-          color: overlay.textColor ?? '#fff', fontSize: overlay.fontSize ?? 18,
-          fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
-          fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
-          textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
-          border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
-          borderRadius: overlay.showOutline ? 8 : 0, padding: overlay.showOutline ? '3px 10px' : 0,
-          pointerEvents: 'none', userSelect: 'none', maxWidth: '80%', wordBreak: 'break-word', lineHeight: 1.3, display: 'inline-block',
-        }}>{overlay.text}</span>
-      ))}
+      <TextOverlays overlays={video.text_overlays} videoSize={videoSize} />
 
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)', pointerEvents: 'none' }} />

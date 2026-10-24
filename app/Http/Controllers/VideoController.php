@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ExtractOriginalSoundJob;
+use App\Jobs\MixSoundJob;
 use App\Jobs\ProcessVideoJob;
 use App\Models\Product;
+use App\Models\Sound;
 use App\Models\Video;
 use App\Services\FeedService;
 use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -231,8 +236,15 @@ class VideoController extends Controller
             'title' => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
             'hashtags' => 'nullable|string',
-            'text_overlays'      => 'nullable|string',  // JSON string
+            'text_overlays'      => 'nullable|string|max:60000',  // JSON string
             'duration_seconds'   => 'nullable|integer|min:1',
+            'overlay_images'     => 'nullable|array|max:20',      // one PNG per v2 text overlay, in order
+            'overlay_images.*'   => 'file|mimes:png|max:4096',
+            'sound_id'           => 'nullable|integer|exists:sounds,id',
+            'sound_start'        => 'nullable|integer|min:0|max:3600',
+            'music_volume'       => 'nullable|numeric|min:0|max:1',
+            'original_volume'    => 'nullable|numeric|min:0|max:1',
+            'allow_sound_reuse'  => 'nullable|boolean',
         ], [
             'video.max' => 'Video must be under 500MB.',
             'video.mimes' => 'Only MP4, MOV, WebM, AVI and MKV files are allowed.',
@@ -246,6 +258,9 @@ $hashtags = $request->filled('hashtags')
         $file = $request->file('video');
         $path = $this->storageService->uploadVideo($file);
 
+        // Chosen sound (library track or another creator's original sound). Must still be active.
+        $sound = $request->filled('sound_id') ? Sound::active()->find($request->integer('sound_id')) : null;
+
         $video = Video::create([
             'user_id' => Auth::id(),
             'title' => $request->input('title'),
@@ -253,18 +268,28 @@ $hashtags = $request->filled('hashtags')
             'hashtags' => $hashtags,
             'video_url' => $path,
             'file_size_bytes' => $file->getSize(),
-            'status' => 'active',
+            // A mix is pending when music was chosen: stay out of the feed until MixSoundJob is done
+            'status' => $sound ? 'processing' : 'active',
             'published_at' => now(),
+            'sound_id' => $sound?->id,
+            'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
         ]);
 
         
 
         if ($request->has('text_overlays')) {
-    $decoded = json_decode($request->input('text_overlays', '[]'), true);
-    if (is_array($decoded) && count($decoded) > 0) {
-        $video->update(['text_overlays' => $decoded]);
-    }
-}
+            $decoded = json_decode($request->input('text_overlays', '[]'), true);
+            if (is_array($decoded) && count($decoded) > 0) {
+                // PNGs rendered by the editor, one per v2 overlay, kept so the downloaded file matches exactly
+                $pngCount = 0;
+                foreach ((array) $request->file('overlay_images', []) as $i => $png) {
+                    Storage::disk(config('filesystems.default', 'public'))
+                        ->putFileAs('overlays/' . $video->ulid, $png, ((int) $i) . '.png', 'public');
+                    $pngCount = max($pngCount, ((int) $i) + 1);
+                }
+                $video->update(['text_overlays' => $this->cleanOverlays($decoded, $pngCount)]);
+            }
+        }
 
         if ($request->filled('duration_seconds')) {
         $video->update(['duration_seconds' => (int) $request->duration_seconds]);
@@ -282,12 +307,26 @@ $hashtags = $request->filled('hashtags')
             }
         });
 
+        // Music mix (if any), original-sound extraction (if the creator allows reuse), then the existing processing
+        $jobs = [];
+        $volume = fn (string $k, float $d) => $request->filled($k) ? (float) $request->input($k) : $d;
+        if ($sound) {
+            $sound->increment('uses_count');
+            $jobs[] = new MixSoundJob($video, $sound->id, (int) $request->input('sound_start', 0), $volume('music_volume', 0.7), $volume('original_volume', 1.0));
+        } elseif ($video->allow_sound_reuse && $volume('original_volume', 1.0) > 0) {
+            $jobs[] = new ExtractOriginalSoundJob($video);
+        }
         if (class_exists(ProcessVideoJob::class)) {
-            ProcessVideoJob::dispatch($video);
+            $jobs[] = new ProcessVideoJob($video);
+        }
+        if ($jobs) {
+            Bus::chain($jobs)->dispatch();
         }
 
         if ($request->filled('product_ids')) {
-            $ids = json_decode($request->input('product_ids'), true) ?? [];
+            // Only the seller's own products can be tagged; anything else is ignored
+            $decodedIds = json_decode($request->input('product_ids'), true);
+            $ids = $this->ownedProductIds(is_array($decodedIds) ? $decodedIds : []);
             if (!empty($ids)) {
                 $video->products()->syncWithoutDetaching(
                     collect($ids)->mapWithKeys(fn($id) => [$id => ['sort_order' => 0]])->toArray()
@@ -302,6 +341,73 @@ $hashtags = $request->filled('hashtags')
             'video_ulid' => $video->ulid,
             'status' => $video->status,
         ], 201);
+    }
+
+    /**
+     * Of the given product ids, the ones that belong to the signed-in seller.
+     * Goes through Product::seller() so it doesn't depend on the column name.
+     */
+    private function ownedProductIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (!$ids) return [];
+
+        return Product::whereIn('id', $ids)
+            ->whereHas('seller', fn ($q) => $q->whereKey(Auth::id()))
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Keeps only the fields the app understands from the creator's text overlays.
+     * v2 overlays (new editor) are whitelisted and clamped; legacy v1 overlays pass through unchanged.
+     * $pngCount = how many overlay PNGs arrived, so an overlay never points at a file that isn't there.
+     */
+    private function cleanOverlays(array $overlays, int $pngCount): array
+    {
+        $num = fn ($v, $lo, $hi, $d) => is_numeric($v) ? max($lo, min($hi, (float) $v)) : $d;
+        $out = [];
+
+        foreach (array_slice($overlays, 0, 20) as $o) {
+            if (!is_array($o)) continue;
+            if (($o['v'] ?? 0) !== 2) { $out[] = $o; continue; }
+
+            $text = trim(preg_replace('/[^\P{C}\n]/u', '', (string) ($o['text'] ?? '')));
+            if ($text === '') continue;
+
+            $clean = [
+                'v'       => 2,
+                'id'      => $o['id'] ?? null,
+                'text'    => mb_substr($text, 0, 140),
+                'font'    => in_array($o['font'] ?? '', ['modern', 'classic', 'script'], true) ? $o['font'] : 'modern',
+                'color'   => preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($o['color'] ?? '')) ? $o['color'] : '#FFFFFF',
+                'style'   => in_array($o['style'] ?? '', ['plain', 'outline', 'highlight'], true) ? $o['style'] : 'plain',
+                'align'   => in_array($o['align'] ?? '', ['left', 'center', 'right'], true) ? $o['align'] : 'center',
+                'size'    => $num($o['size'] ?? null, 10, 120, 32),
+                'scale'   => $num($o['scale'] ?? null, 0.1, 10, 1),
+                'rotation' => $num($o['rotation'] ?? null, -360, 360, 0),
+                'cx'      => $num($o['cx'] ?? null, 0, 100, 50),
+                'cy'      => $num($o['cy'] ?? null, 0, 100, 50),
+                'frame_w' => $num($o['frame_w'] ?? null, 50, 4000, 390),
+                'frame_h' => $num($o['frame_h'] ?? null, 50, 4000, 844),
+                'block_w' => $num($o['block_w'] ?? null, 0, 4000, 0),
+                'block_h' => $num($o['block_h'] ?? null, 0, 4000, 0),
+                'pad_x'   => $num($o['pad_x'] ?? null, 0, 400, 0),
+                'lines'   => collect(is_array($o['lines'] ?? null) ? array_slice($o['lines'], 0, 12) : [])
+                    ->map(fn ($l) => ['t' => mb_substr((string) ($l['t'] ?? ''), 0, 140), 'w' => $num($l['w'] ?? null, 0, 4000, 0), 'x' => $num($l['x'] ?? null, -4000, 4000, 0)])
+                    ->values()->all(),
+            ];
+
+            if (isset($o['png_index']) && is_numeric($o['png_index']) && (int) $o['png_index'] >= 0 && (int) $o['png_index'] < $pngCount) {
+                $clean['png_index'] = (int) $o['png_index'];
+                $clean['png_scale'] = $num($o['png_scale'] ?? null, 0.05, 20, 1);
+                $clean['png_w']     = $num($o['png_w'] ?? null, 1, 8192, 0);
+                $clean['png_h']     = $num($o['png_h'] ?? null, 1, 8192, 0);
+            }
+            $out[] = $clean;
+        }
+
+        return $out;
     }
 
     public function feed(Request $request): JsonResponse
@@ -506,6 +612,11 @@ return response()->json([
             'product_ids.*' => 'integer|exists:products,id',
         ]);
 
+        $owned = $this->ownedProductIds($validated['product_ids']);
+        if (count($owned) !== count(array_unique($validated['product_ids']))) {
+            return response()->json(['message' => 'You can only tag your own products.'], 403);
+        }
+
         $video->products()->syncWithoutDetaching(
             collect($validated['product_ids'])
                 ->mapWithKeys(fn($id) => [$id => ['sort_order' => 0]])
@@ -524,6 +635,11 @@ return response()->json([
         }
 
         $this->storageService->delete($video->video_url);
+        try {
+            Storage::disk(config('filesystems.default', 'public'))->deleteDirectory('overlays/' . $video->ulid);
+        } catch (\Throwable) {}
+        // A sound extracted from this video stops being offered (videos already using it keep working)
+        Sound::where('video_id', $video->id)->update(['is_active' => false]);
         if ($video->thumbnail_url) {
             $this->storageService->delete($video->thumbnail_url);
         }

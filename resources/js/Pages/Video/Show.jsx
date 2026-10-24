@@ -43,6 +43,7 @@ import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
 import { useHlsVideo } from '@/lib/useHlsVideo';
 import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
+import TextOverlays from '@/Components/Video/TextOverlays';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -388,6 +389,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const [mobileSheet,   setMobileSheet]   = useState(null);
     const [toast,    setToast]    = useState(null)
     const [duration, setDuration] = useState(0)
+    const [videoSize, setVideoSize] = useState(null)
 
     const [moreSheetOpen, setMoreSheetOpen] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
@@ -569,36 +571,10 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         swipeStartRef.current = null;
                         if (dx > 90) router.visit(`/@${video.user?.username}`);
                     }}
-                    onLoadedMetadata={e => setDuration(e.target.duration)}
+                    onLoadedMetadata={e => { setDuration(e.target.duration); setVideoSize({ w: e.target.videoWidth, h: e.target.videoHeight }) }}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }}
                 />
-                {Array.isArray(video.text_overlays) && video.text_overlays.map(overlay => (
-                    <span
-                        key={overlay.id}
-                        style={{
-                            position: 'absolute',
-                            top: `${overlay.top}%`,
-                            left: `${overlay.left}%`,
-                            zIndex: 8,
-                            color: overlay.textColor ?? '#fff',
-                            fontSize: overlay.fontSize ?? 18,
-                            fontWeight: overlay.fontStyle === 'bold' ? 800 : 600,
-                            fontStyle: overlay.fontStyle === 'italic' ? 'italic' : 'normal',
-                            textShadow: overlay.showOutline ? 'none' : '0 2px 8px rgba(0,0,0,0.9)',
-                            border: overlay.showOutline ? `2px solid ${overlay.outlineColor ?? '#fff'}` : 'none',
-                            borderRadius: overlay.showOutline ? 8 : 0,
-                            padding: overlay.showOutline ? '3px 10px' : 0,
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                            maxWidth: '80%',
-                            wordBreak: 'break-word',
-                            lineHeight: 1.3,
-                            display: 'inline-block',
-                        }}
-                    >
-                        {overlay.text}
-                    </span>
-                ))}
+                <TextOverlays overlays={video.text_overlays} videoSize={videoSize} />
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
 
