@@ -245,6 +245,7 @@ class VideoController extends Controller
             'music_volume'       => 'nullable|numeric|min:0|max:1',
             'original_volume'    => 'nullable|numeric|min:0|max:1',
             'allow_sound_reuse'  => 'nullable|boolean',
+            'enhance'            => 'nullable|boolean',
         ], [
             'video.max' => 'Video must be under 500MB.',
             'video.mimes' => 'Only MP4, MOV, WebM, AVI and MKV files are allowed.',
@@ -273,6 +274,7 @@ $hashtags = $request->filled('hashtags')
             'published_at' => now(),
             'sound_id' => $sound?->id,
             'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
+            'enhance' => $request->boolean('enhance', false),
         ]);
 
         
@@ -320,7 +322,15 @@ $hashtags = $request->filled('hashtags')
             $jobs[] = new ProcessVideoJob($video);
         }
         if ($jobs) {
-            Bus::chain($jobs)->dispatch();
+            // If any job in the chain fails or is killed (timeout / too many attempts), never leave the video
+            // stuck on "processing": the original upload is already stored, so just publish it.
+            $videoId = $video->id;
+            Bus::chain($jobs)
+                ->catch(function (\Throwable $e) use ($videoId) {
+                    \Illuminate\Support\Facades\Log::error('Video chain failed, publishing original', ['video' => $videoId, 'error' => $e->getMessage()]);
+                    Video::whereKey($videoId)->whereIn('status', ['pending', 'processing'])->update(['status' => 'active']);
+                })
+                ->dispatch();
         }
 
         if ($request->filled('product_ids')) {

@@ -127,6 +127,9 @@ class WatermarkVideoJob implements ShouldQueue
         $out  = self::OUTRO_DURATION;
         $fmt  = fn (float $v): string => $this->fmt($v);
 
+        // "Enhance" look chosen by the creator (same recipe as the CSS filter used on playback)
+        $enhance = $this->video->enhance ? ',eq=contrast=1.07:saturation=1.14:brightness=0.02,unsharp=5:5:0.5:5:5:0.0' : '';
+
         // Tunables
         $maxOpacity = 0.92;   // peak watermark opacity
         $dim        = 0.42;   // outro darkness (0 = none, 1 = black)
@@ -206,9 +209,9 @@ class WatermarkVideoJob implements ShouldQueue
         $draws = $this->buildOverlayDraws($vw, $vh);
         $nl    = count($this->layers);
         if ($draws === '' && $nl === 0) {
-            $L[] = '[0:v]fps=30,setsar=1,format=yuv420p[base]';
+            $L[] = '[0:v]fps=30,setsar=1' . $enhance . ',format=yuv420p[base]';
         } else {
-            $L[] = '[0:v]fps=30,setsar=1,format=yuv420p[b0]';
+            $L[] = '[0:v]fps=30,setsar=1' . $enhance . ',format=yuv420p[b0]';
             $cur = 'b0';
             if ($draws !== '') {
                 $L[] = '[b0]' . $draws . ($nl === 0 ? '[base]' : '[bd]');

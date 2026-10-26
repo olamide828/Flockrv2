@@ -14,6 +14,7 @@ use App\Http\Controllers\SellerController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VideoController;
+use App\Http\Controllers\SoundController;
 use App\Http\Controllers\VideoDownloadController;
 use App\Models\Product;
 use App\Http\Controllers\AddressController;
@@ -379,6 +380,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Videos
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/upload', [VideoController::class, 'store']);
+    Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
+    Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
+    Route::delete('/sounds/{sound}', [SoundController::class, 'destroy']);
 
     Route::post('/videos/{video}/like', [VideoController::class, 'like']);
     Route::post('/videos/{video}/save', [VideoController::class, 'save']);

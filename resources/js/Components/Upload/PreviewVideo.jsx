@@ -10,7 +10,7 @@ import { Spinner } from './ui'
  *  - tapping toggles play / pause.
  */
 const PreviewVideo = forwardRef(function PreviewVideo(
-    { src, muted = false, volume = 1, onSoundBlocked, onStatus, onMetrics, style, children },
+    { src, muted = false, volume = 1, poster, filter, onSoundBlocked, onStatus, onMetrics, style, children },
     ref,
 ) {
     const el = useRef(null)
@@ -93,10 +93,11 @@ const PreviewVideo = forwardRef(function PreviewVideo(
                 loop
                 playsInline
                 preload="auto"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                poster={poster || undefined}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: filter || 'none' }}
             />
 
-            {status === 'slow' && (
+            {(status === 'slow' || (status === 'loading' && poster)) && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                     <Spinner size={26} />
                 </div>

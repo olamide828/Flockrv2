@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
     RiCameraLensLine, RiCameraSwitchLine, RiCloseLine, RiFlashlightFill, RiFlashlightLine,
-    RiGridLine, RiImageAddLine, RiImageLine, RiShoppingBag3Line, RiTimer2Line,
+    RiGridLine, RiImageAddLine, RiImageLine, RiMagicLine, RiShoppingBag3Line, RiTimer2Line,
 } from 'react-icons/ri'
-import { MAX_SECONDS, PHOTO_SECONDS, blobToFile, fmtTime, photoToVideoFile, pickMime } from '../../lib/media'
+import { ENHANCE_CSS, MAX_SECONDS, PHOTO_SECONDS, blobToFile, fmtTime, photoToVideoFile, pickMime } from '../../lib/media'
 import { S, Spinner } from './ui'
 
 const R = 40
@@ -21,7 +21,7 @@ function qualityLabel(s) {
 /**
  * Full-screen camera.
  *
- *  - asks for the best the device offers (up to 1080p, 30 fps) and records at 10 Mbps
+ *  - asks for the best the device offers (up to 1080p, 30 fps) and records at 8 Mbps
  *  - flashlight: real torch where the browser exposes it (Chrome on Android); a screen
  *    "ring light" on the front camera
  *  - pinch to zoom + 1x/2x/3x shortcuts when the camera supports zoom
@@ -29,7 +29,7 @@ function qualityLabel(s) {
  *  - photos use the camera's full-resolution still where available
  *  - "HQ" hands over to the phone's own camera app (HDR, stabilisation, night mode)
  */
-export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onClose, showProductHint, onProductHint }) {
+export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onClose, showProductHint, onProductHint, enhance = false, onToggleEnhance }) {
     const videoRef = useRef(null)
     const streamRef = useRef(null)
     const trackRef = useRef(null)
@@ -61,6 +61,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
     const [count, setCount] = useState(null)
     const [quality, setQuality] = useState(null)
     const [flashFx, setFlashFx] = useState(0)
+    const [fit, setFit] = useState('cover')   // 'contain' when the camera hands us a wide picture, so the preview isn't a zoomed-in crop
 
     const stopStream = () => {
         streamRef.current?.getTracks().forEach(t => t.stop())
@@ -84,29 +85,31 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             }
             stopStream()
 
+            // `zoom: true` asks for the camera-zoom permission (without it the browser hides zoom entirely).
+            // No aspectRatio constraint: forcing 9:16 made some phones hand back a cropped, zoomed-in picture.
             const video = {
                 facingMode: { ideal: facing },
-                width: { ideal: 1080 },
-                height: { ideal: 1920 },
-                aspectRatio: { ideal: 9 / 16 },
-                frameRate: { ideal: 30, max: 60 },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30, max: 30 },
+                zoom: true,
             }
+            const { zoom: _unused, ...videoNoZoom } = video
             const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
 
-            let stream
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video, audio })
-            } catch {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false })
-                } catch (e) {
-                    if (!cancelled) setCamError(
-                        e?.name === 'NotAllowedError'
-                            ? 'Camera permission was denied. Allow camera access in your browser settings, or pick a file from your gallery.'
-                            : 'We could not start your camera. You can still pick a file from your gallery.'
-                    )
-                    return
-                }
+            // Step-by-step fallback so the camera always opens: without the zoom request, then without audio
+            let stream = null
+            let lastErr = null
+            for (const [v, a] of [[video, audio], [videoNoZoom, audio], [videoNoZoom, false]]) {
+                try { stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: a }); break } catch (e) { lastErr = e }
+            }
+            if (!stream) {
+                if (!cancelled) setCamError(
+                    lastErr?.name === 'NotAllowedError'
+                        ? 'Camera permission was denied. Allow camera access in your browser settings, or pick a file from your gallery.'
+                        : 'We could not start your camera. You can still pick a file from your gallery.'
+                )
+                return
             }
             if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
 
@@ -123,10 +126,15 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             if (c.whiteBalanceMode?.includes?.('continuous')) adv.whiteBalanceMode = 'continuous'
             if (Object.keys(adv).length) track.applyConstraints({ advanced: [adv] }).catch(() => {})
 
-            setCaps({
-                torch: !!c.torch,
-                zoom: c.zoom ? { min: c.zoom.min ?? 1, max: c.zoom.max ?? 1, step: c.zoom.step || 0.1 } : null,
-            })
+            const zr = c.zoom && (c.zoom.max ?? 1) > (c.zoom.min ?? 1) ? { min: c.zoom.min ?? 1, max: c.zoom.max ?? 1, step: c.zoom.step || 0.1 } : null
+            setCaps({ torch: !!c.torch, zoom: zr })
+            if (zr) {
+                // Some phones open already zoomed in: start at 1x (or the widest the lens allows)
+                const first = Math.min(zr.max, Math.max(zr.min, 1))
+                setZoom(first)
+                track.applyConstraints({ advanced: [{ zoom: first }] }).catch(() => {})
+            }
+            setFit(s.width && s.height && s.width / s.height > 0.75 ? 'contain' : 'cover')
             // Phones report facingMode; a desktop webcam doesn't, and behaves like a selfie camera
             setSelfie((s.facingMode ?? 'user') === 'user')
             setQuality(qualityLabel(s))
@@ -201,6 +209,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
 
     const onPinchDown = (e) => {
         const p = pinch.current
+        e.currentTarget.setPointerCapture?.(e.pointerId)
         p.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
         if (p.ptrs.size === 2) {
             const [a, b] = [...p.ptrs.values()]
@@ -219,7 +228,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
     }
     const onPinchUp = (e) => { pinch.current.ptrs.delete(e.pointerId) }
 
-    const zoomStops = caps.zoom ? [1, 2, 3, 5].filter(z => z >= caps.zoom.min - 0.01 && z <= caps.zoom.max + 0.01) : []
+    const zoomStops = caps.zoom ? [0.5, 1, 2, 3, 5].filter(z => z >= caps.zoom.min - 0.01 && z <= caps.zoom.max + 0.01) : []
 
     // ── Recording ─────────────────────────────────────────────────────────────
     const stopRecording = () => {
@@ -235,11 +244,11 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         const mime = pickMime()
         const s = trackRef.current?.getSettings?.() ?? {}
         const pixels = (s.width || 1080) * (s.height || 1920)
-        const videoBitsPerSecond = pixels >= 1920 * 1080 * 0.9 ? 10_000_000 : 6_000_000
+        const videoBitsPerSecond = pixels >= 1920 * 1080 * 0.9 ? 8_000_000 : 5_000_000   // lighter files = faster preview, upload and processing
 
         let rec
         try {
-            rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond, audioBitsPerSecond: 192_000 })
+            rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond, audioBitsPerSecond: 128_000 })
         } catch {
             try { rec = new MediaRecorder(stream) } catch {
                 setNotice('Recording is not supported in this browser. Pick a video from your gallery instead.')
@@ -256,7 +265,20 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             const type = rec.mimeType || mime || 'video/webm'
             const blob = new Blob(chunksRef.current, { type })
             if (blob.size < 1000) { setNotice('That was too short. Hold on a little longer.'); return }
-            onCaptured(blobToFile(blob, type), secs)
+            // Freeze-frame of the last picture: the editor shows it instantly while the video file loads
+            let poster = null
+            try {
+                const v = videoRef.current
+                if (v?.videoWidth) {
+                    const k = 540 / Math.max(v.videoWidth, v.videoHeight)
+                    const cv = document.createElement('canvas')
+                    cv.width = Math.round(v.videoWidth * k)
+                    cv.height = Math.round(v.videoHeight * k)
+                    cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height)
+                    poster = cv.toDataURL('image/jpeg', 0.8)
+                }
+            } catch { /* poster is optional */ }
+            onCaptured(blobToFile(blob, type), secs, { poster })
         }
 
         rec.start(500)
@@ -359,7 +381,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                 autoPlay
                 playsInline
                 muted
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: selfie ? 'scaleX(-1)' : 'none', opacity: ready ? 1 : 0, transition: 'opacity 0.25s' }}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: fit, transform: selfie ? 'scaleX(-1)' : 'none', opacity: ready ? 1 : 0, transition: 'opacity 0.25s', filter: enhance ? ENHANCE_CSS : 'none' }}
             />
 
             {/* Pinch surface */}
@@ -442,6 +464,11 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                         <span style={S.toolLabel}>{caps.torch ? 'Torch' : 'Light'}</span>
                     </button>
                 )}
+                {onToggleEnhance && (
+                    <button onClick={onToggleEnhance} aria-label="Enhance" aria-pressed={enhance} style={{ ...S.toolBtn, color: enhance ? '#FF6B35' : '#fff' }}>
+                        <RiMagicLine size={24} /><span style={S.toolLabel}>Enhance</span>
+                    </button>
+                )}
                 <button onClick={() => setTimer(t => (t === 0 ? 3 : t === 3 ? 10 : 0))} aria-label="Timer" style={{ ...S.toolBtn, color: timer ? '#FF6B35' : '#fff' }}>
                     <RiTimer2Line size={24} /><span style={S.toolLabel}>{timer ? `${timer}s` : 'Timer'}</span>
                 </button>
@@ -465,7 +492,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                             const active = Math.abs(zoom - z) < 0.15
                             return (
                                 <button key={z} onClick={() => applyZoom(z)} style={{ minWidth: 38, height: 30, borderRadius: 999, border: 'none', cursor: 'pointer', background: active ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.45)', color: active ? '#000' : '#fff', fontSize: 12, fontWeight: 800 }}>
-                                    {active && zoom !== z ? `${zoom.toFixed(1)}×` : `${z}×`}
+                                    {active && Math.abs(zoom - z) > 0.01 ? `${zoom.toFixed(1)}×` : `${z}×`}
                                 </button>
                             )
                         })}

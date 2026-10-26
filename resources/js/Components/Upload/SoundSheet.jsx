@@ -1,12 +1,14 @@
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RiCloseLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
+import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
 import { fmtTime } from '../../lib/media'
+import CreateSound from './CreateSound'
 import { S, Spinner } from './ui'
 
 const TABS = [
     { id: 'library',  label: 'Library',         hint: 'Royalty-free music cleared for use in videos' },
     { id: 'creators', label: 'Creator sounds',  hint: 'Original sounds from videos on Flockr' },
+    { id: 'mine',     label: 'My sounds',       hint: 'Sounds you recorded or uploaded' },
 ]
 
 const hue = (id) => (Number(id) * 47) % 360
@@ -42,7 +44,7 @@ function Slider({ label, value, min = 0, max = 100, step = 1, onChange, format }
  * Bottom sheet to pick a sound for the video and mix it with the original audio.
  * Sounds come from GET /api/sounds (library tracks + original sounds from creators).
  */
-export default function SoundSheet({ open, onClose, current, originalVolume, hasOwnAudio, videoDuration, onApply, onRemove }) {
+export default function SoundSheet({ open, onClose, current, originalVolume, hasOwnAudio, videoDuration, isAdmin = false, onApply, onRemove }) {
     const [tab, setTab] = useState('library')
     const [q, setQ] = useState('')
     const [items, setItems] = useState([])
@@ -50,6 +52,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
     const [error, setError] = useState(null)
     const [hasMore, setHasMore] = useState(false)
     const [playingId, setPlayingId] = useState(null)
+    const [creating, setCreating] = useState(false)
 
     const [sel, setSel] = useState(null)
     const [start, setStart] = useState(0)
@@ -61,7 +64,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
 
     // Load the current selection into the sheet each time it opens
     useEffect(() => {
-        if (!open) { audioRef.current?.pause(); setPlayingId(null); return }
+        if (!open) { audioRef.current?.pause(); setPlayingId(null); setCreating(false); return }
         setSel(current?.sound ?? null)
         setStart(current?.start ?? 0)
         setMusicVol(Math.round((current?.musicVolume ?? 0.7) * 100))
@@ -109,6 +112,23 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         if (playingId !== sound.id) togglePreview(sound, 0)
     }
 
+    const remove = async (sound) => {
+        if (!window.confirm(`Delete “${sound.title}”? Videos already posted with it keep their audio.`)) return
+        try {
+            await axios.delete(`/api/sounds/${sound.id}`)
+            setItems(prev => prev.filter(x => x.id !== sound.id))
+            if (sel?.id === sound.id) { setSel(null); audioRef.current?.pause(); setPlayingId(null) }
+        } catch { setError('Could not delete that sound.') }
+    }
+
+    const saved = (sound) => {
+        setCreating(false)
+        setTab(sound.source === 'library' ? 'library' : 'mine')
+        setQ('')
+        setItems(prev => [sound, ...prev.filter(x => x.id !== sound.id)])
+        choose(sound)
+    }
+
     const maxStart = sel && videoDuration ? Math.max(0, Math.floor((sel.duration || 0) - videoDuration)) : 0
 
     useEffect(() => { if (audioRef.current) audioRef.current.volume = musicVol / 100 }, [musicVol])
@@ -133,10 +153,16 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 <div style={{ width: 40, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.18)', margin: '10px auto 6px' }} />
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 18px 10px' }}>
-                    <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#fff' }}>Add sound</h2>
+                    <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#fff' }}>{creating ? 'Create sound' : 'Add sound'}</h2>
+                    {!creating && (
+                        <button onClick={() => setCreating(true)} style={{ marginLeft: 'auto', marginRight: 10, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#FF6B35,#FF3D6E)', color: '#fff', fontSize: 12, fontWeight: 800 }}>
+                            <RiAddLine size={15} /> Create sound
+                        </button>
+                    )}
                     <button onClick={onClose} style={{ ...S.iconBtn, width: 32, height: 32 }} aria-label="Close"><RiCloseLine size={18} /></button>
                 </div>
 
+                {creating ? <CreateSound isAdmin={isAdmin} onBack={() => setCreating(false)} onSaved={saved} /> : (<>
                 {/* Search */}
                 <div style={{ padding: '0 18px 10px', position: 'relative' }}>
                     <RiSearchLine size={15} color="rgba(255,255,255,0.35)" style={{ position: 'absolute', left: 31, top: 14 }} />
@@ -171,6 +197,9 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                                         {s.artist}{s.duration ? ` · ${fmtTime(s.duration)}` : ''}{s.uses_count ? ` · ${s.uses_count.toLocaleString()} videos` : ''}
                                     </p>
                                 </div>
+                                {(s.mine || isAdmin) && (
+                                    <button onClick={e => { e.stopPropagation(); remove(s) }} aria-label="Delete sound" style={{ ...S.iconBtn, width: 32, height: 32, flexShrink: 0 }}><RiDeleteBinLine size={16} /></button>
+                                )}
                             </div>
                         )
                     })}
@@ -180,7 +209,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     {!loading && !error && items.length === 0 && (
                         <div style={{ textAlign: 'center', padding: '36px 24px', color: 'rgba(255,255,255,0.4)', fontSize: 13, lineHeight: 1.6 }}>
                             <RiMusic2Fill size={28} color="rgba(255,255,255,0.2)" style={{ marginBottom: 8 }} /><br />
-                            {q ? `No sounds match “${q}”.` : tab === 'creators' ? 'No creator sounds yet. Post a video with original audio and it will show up here.' : 'No library tracks yet.'}
+                            {q ? `No sounds match “${q}”.` : tab === 'creators' ? 'No creator sounds yet. Post a video with original audio and it will show up here.' : tab === 'mine' ? 'You have not made a sound yet. Tap “Create sound” to record or upload one.' : 'No library tracks yet.'}
                         </div>
                     )}
 
@@ -189,8 +218,10 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     )}
                 </div>
 
+                </>)}
+
                 {/* Mix panel */}
-                {(sel || current) && (
+                {!creating && (sel || current) && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '12px 18px calc(env(safe-area-inset-bottom) + 14px)', background: '#0d0d0d', display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {sel && <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>♪ {sel.title} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>· {sel.artist}</span></p>}
                         {sel && maxStart > 0 && <Slider label="Start at" value={start} min={0} max={maxStart} onChange={seek} format={fmtTime} />}

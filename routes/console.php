@@ -64,3 +64,5 @@ Artisan::command('terminal:register-webhook', function() {
 Schedule::command('events:award-champions')->hourly();
 
 Schedule::command('events:activate-scheduled')->everyFiveMinutes();
+
+Schedule::command('videos:heal')->everyTenMinutes();

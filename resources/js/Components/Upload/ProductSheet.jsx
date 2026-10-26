@@ -13,6 +13,18 @@ const CONDITIONS = [
     { id: 'refurbished', label: 'Refurbished' },
 ]
 
+// Defined at module level on purpose: a component declared inside ProductSheet gets a new identity on every
+// render, so React remounts its inputs on each keystroke and they lose focus.
+function Field({ label, error, children }) {
+    return (
+        <div>
+            <p style={{ ...S.smallLabel, marginBottom: 6 }}>{label}</p>
+            {children}
+            {error && <p style={S.errTxt}>{error}</p>}
+        </div>
+    )
+}
+
 /**
  * Quick "create a product" sheet inside the uploader. It uses the same two calls as the full
  * product form: POST /api/products, then POST /api/products/{id}/images. The finished product
@@ -114,14 +126,6 @@ export default function ProductSheet({ open, onClose, onCreated }) {
             setStage('')
         }
     }
-
-    const Field = ({ label, error, children }) => (
-        <div>
-            <p style={{ ...S.smallLabel, marginBottom: 6 }}>{label}</p>
-            {children}
-            {error && <p style={S.errTxt}>{error}</p>}
-        </div>
-    )
 
     return (
         <div style={{ position: 'fixed', inset: 0, zIndex: 220 }}>

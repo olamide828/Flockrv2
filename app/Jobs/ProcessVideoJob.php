@@ -17,12 +17,15 @@ class ProcessVideoJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 600;
-    public int $tries   = 2;
+    // One attempt only: every attempt re-encodes the whole video, and a second one used to push the job past
+    // the queue's retry_after window, which is what produced "attempted too many times".
+    public int $tries   = 1;
 
     public function __construct(public Video $video) {}
 
     public function handle(): void
     {
+        $videoSource = null;
         try {
             $this->video->update(['status' => 'processing']);
 
@@ -40,22 +43,28 @@ class ProcessVideoJob implements ShouldQueue
                 return;
             }
 
-            // ── Generate thumbnail ────────────────────────────────────────────
+            // ── Thumbnail + duration, then PUBLISH straight away ───────────────
+            // The original upload already plays, so the video goes live now; the optimised MP4 and the HLS
+            // stream below are upgrades that get swapped in when they are ready.
             $thumbnailKey = $this->generateThumbnail($videoSource, $disk);
+            $duration     = $this->getDuration($videoSource);
 
-            // ── Get duration ──────────────────────────────────────────────────
-            $duration = $this->getDuration($videoSource);
-            $optimizedKey = $this->optimizeForStreaming($videoSource, $disk);
-            $hlsKey = $this->generateHls($videoSource, $disk);
-
-            // ── Activate video ────────────────────────────────────────────────
             $this->video->update(array_filter([
-            'status'           => 'active',
-            'published_at'     => now(),
-            'thumbnail_url'    => $thumbnailKey,
-            'duration_seconds' => $duration,
-            'video_url'        => $optimizedKey,
-            'hls_url'          => $hlsKey,
+                'status'           => 'active',
+                'published_at'     => now(),
+                'thumbnail_url'    => $thumbnailKey,
+                'duration_seconds' => $duration,
+            ], fn($v) => $v !== null));
+
+            // ── Upgrades (each one is optional: a failure just keeps the original) ──
+            $optimizedKey = null;
+            $hlsKey       = null;
+            try { $optimizedKey = $this->optimizeForStreaming($videoSource, $disk); } catch (\Throwable $e) { Log::warning("ProcessVideoJob: optimise failed for #{$this->video->id}: " . $e->getMessage()); }
+            try { $hlsKey = $this->generateHls($videoSource, $disk); } catch (\Throwable $e) { Log::warning("ProcessVideoJob: HLS failed for #{$this->video->id}: " . $e->getMessage()); }
+
+            $this->video->update(array_filter([
+                'video_url' => $optimizedKey,
+                'hls_url'   => $hlsKey,
             ], fn($v) => $v !== null));
 
             Log::info("ProcessVideoJob: video #{$this->video->id} done", [
@@ -66,7 +75,19 @@ class ProcessVideoJob implements ShouldQueue
         } catch (\Throwable $e) {
             Log::error("ProcessVideoJob failed for #{$this->video->id}: " . $e->getMessage());
             $this->activateVideo(); // always activate so video isn't stuck
+        } finally {
+            // downloadToTemp() leaves a full copy of the video in /tmp; remove it so the worker's disk doesn't fill up
+            if (!empty($videoSource) && str_starts_with($videoSource, sys_get_temp_dir()) && is_file($videoSource)) {
+                @unlink($videoSource);
+            }
         }
+    }
+
+    /** Called by the queue when the job is killed or runs out of attempts: never leave the video on "processing". */
+    public function failed(\Throwable $e): void
+    {
+        Log::error("ProcessVideoJob gave up for #{$this->video->id}: " . $e->getMessage());
+        $this->activateVideo();
     }
 
     /**

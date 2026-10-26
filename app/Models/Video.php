@@ -39,6 +39,7 @@ class Video extends Model
         'ai_category_id',
         'sound_id',
         'allow_sound_reuse',
+        'enhance',
     ];
 
     protected $casts = [
@@ -49,12 +50,14 @@ class Video extends Model
         'published_at' => 'datetime',
         'text_overlays' => 'array',
         'allow_sound_reuse' => 'boolean',
+        'enhance' => 'boolean',
     ];
 
     protected $appends = [
         'video_stream_url',
         'thumbnail_url_full',
         'is_processing',
+        'sound_credit',
     ];
 
     protected static function boot(): void
@@ -187,6 +190,27 @@ class Video extends Model
         } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
             return null;
         }
+    }
+
+    /** Credit line for the music on this video (null = just the creator's own audio). */
+    public function getSoundCreditAttribute(): ?array
+    {
+        try {
+            if (!$this->sound_id) return null;
+            $s = $this->sound;
+        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
+            return null;
+        }
+        if (!$s) return null;
+
+        return [
+            'id'          => $s->id,
+            'title'       => $s->title,
+            'artist'      => $s->artist,
+            'attribution' => $s->attribution,
+            'source'      => $s->source,
+            'cover_url'   => \App\Models\Sound::urlFor($s->cover_path),
+        ];
     }
 
     public function getIsProcessingAttribute(): bool

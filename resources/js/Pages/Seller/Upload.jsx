@@ -1,8 +1,8 @@
-import { Head, router } from '@inertiajs/react'
+import { Head, router, usePage } from '@inertiajs/react'
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-    RiAddLine, RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiHashtag, RiMusic2Fill,
+    RiAddLine, RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiHashtag, RiMagicLine, RiMusic2Fill,
     RiPriceTag3Line, RiShoppingBag3Line, RiUploadCloud2Line, RiVolumeMuteLine, RiVolumeUpLine,
 } from 'react-icons/ri'
 import CameraScreen from '../../Components/Upload/CameraScreen'
@@ -10,14 +10,17 @@ import OverlayLayer from '../../Components/Upload/OverlayLayer'
 import PreviewVideo from '../../Components/Upload/PreviewVideo'
 import ProductSheet from '../../Components/Upload/ProductSheet'
 import SoundSheet from '../../Components/Upload/SoundSheet'
+import SoundMarquee from '../../Components/Video/SoundMarquee'
 import TextEditor from '../../Components/Upload/TextEditor'
 import { CHint, KEYFRAMES, S, SCard, Spinner } from '../../Components/Upload/ui'
-import { PHOTO_SECONDS, fmtTime, photoToVideoFile, probeVideo } from '../../lib/media'
+import { ENHANCE_CSS, PHOTO_SECONDS, fmtTime, photoToVideoFile, probeVideo } from '../../lib/media'
 import { ensureTextFonts, renderOverlayBlob } from '../../lib/textOverlays'
 
 const GALLERY_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo']
 
 export default function Upload({ products: initialProducts = [] }) {
+    const authUser = usePage().props?.auth?.user
+    const isAdmin = authUser?.role === 'admin'
     // 'camera' → 'edit' (preview, text, sound) → 'details' (then Post)
     const [stage, setStage] = useState('camera')
 
@@ -49,6 +52,10 @@ export default function Upload({ products: initialProducts = [] }) {
     const [sound, setSound] = useState(null)               // { sound, start, musicVolume }
     const [soundSheet, setSoundSheet] = useState(false)
     const [allowReuse, setAllowReuse] = useState(true)
+    const [posterUrl, setPosterUrl] = useState(null)     // freeze-frame shown instantly while the recording loads
+    // "Enhance" look: on by default, remembered per device
+    const [enhance, setEnhance] = useState(() => { try { return localStorage.getItem('flockr.enhance') !== '0' } catch { return true } })
+    const toggleEnhance = () => setEnhance(v => { const n = !v; try { localStorage.setItem('flockr.enhance', n ? '1' : '0') } catch { /* optional */ } return n })
 
     // Details
     const [title, setTitle] = useState('')
@@ -127,10 +134,11 @@ export default function Upload({ products: initialProducts = [] }) {
     }, [sound, stage, videoUrl, previewState])
 
     // ── Video in / out ────────────────────────────────────────────────────────
-    const setVideo = useCallback((file, secs, { silent = false, dims = null } = {}) => {
+    const setVideo = useCallback((file, secs, { silent = false, dims = null, poster = null } = {}) => {
         if (urlRef.current) URL.revokeObjectURL(urlRef.current)
         const url = URL.createObjectURL(file)
         urlRef.current = url
+        setPosterUrl(poster)
         setVideoUrl(url)
         setVideoFile(file)
         setVideoDuration(secs)
@@ -180,7 +188,7 @@ export default function Upload({ products: initialProducts = [] }) {
 
     const discardVideo = () => {
         if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null }
-        setVideoUrl(null); setVideoFile(null); setVideoDuration(null); setVideoDims(null)
+        setVideoUrl(null); setVideoFile(null); setVideoDuration(null); setVideoDims(null); setPosterUrl(null)
         setOverlays([]); setSound(null)
     }
 
@@ -262,6 +270,7 @@ export default function Upload({ products: initialProducts = [] }) {
             if (videoDuration) fd.append('duration_seconds', Math.max(1, Math.round(videoDuration)))
             fd.append('original_volume', String(muted || !hasOwnAudio ? 0 : originalVolume))
             fd.append('allow_sound_reuse', allowReuse ? '1' : '0')
+            fd.append('enhance', enhance ? '1' : '0')
             if (sound) {
                 fd.append('sound_id', String(sound.sound.id))
                 fd.append('sound_start', String(Math.round(sound.start)))
@@ -327,7 +336,9 @@ export default function Upload({ products: initialProducts = [] }) {
             {/* ════ CAMERA ═══════════════════════════════════════════════ */}
             {stage === 'camera' && (
                 <CameraScreen
-                    onCaptured={(file, secs, opts) => setVideo(file, secs, { silent: !!opts?.silent })}
+                    onCaptured={(file, secs, opts) => setVideo(file, secs, { silent: !!opts?.silent, poster: opts?.poster ?? null })}
+                    enhance={enhance}
+                    onToggleEnhance={toggleEnhance}
                     onGallery={() => fileInputRef.current?.click()}
                     onNativeCapture={openNative}
                     onClose={closeUploader}
@@ -344,6 +355,8 @@ export default function Upload({ products: initialProducts = [] }) {
                         src={videoUrl}
                         muted={muted || !hasOwnAudio}
                         volume={originalVolume}
+                        poster={posterUrl}
+                        filter={enhance ? ENHANCE_CSS : undefined}
                         onSoundBlocked={() => { setMuted(true); setToast('Sound is off. Tap the speaker to turn it on.') }}
                         onStatus={setPreviewState}
                         onMetrics={m => { if (m.width) setVideoDims({ width: m.width, height: m.height }); if (m.duration && !videoDuration) setVideoDuration(Math.max(1, Math.round(m.duration))) }}
@@ -381,6 +394,10 @@ export default function Upload({ products: initialProducts = [] }) {
                             <button onClick={() => setSoundSheet(true)} aria-label="Sound" style={S.toolBtn}>
                                 <RiMusic2Fill size={20} />
                                 <span style={S.toolLabel}>Sound</span>
+                            </button>
+                            <button onClick={toggleEnhance} aria-label="Enhance" aria-pressed={enhance} style={{ ...S.toolBtn, color: enhance ? '#FF6B35' : '#fff' }}>
+                                <RiMagicLine size={20} />
+                                <span style={S.toolLabel}>Enhance</span>
                             </button>
                             {hasOwnAudio && (
                                 <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Unmute video' : 'Mute video'} style={S.toolBtn}>
@@ -462,18 +479,33 @@ export default function Upload({ products: initialProducts = [] }) {
                                 <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, margin: '4px 0 0' }}>Space-separated, no # needed</p>
                             </SCard>
 
-                            {/* Original sound reuse */}
-                            {hasOwnAudio && !sound && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '12px 16px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Let others use your sound</p>
-                                        <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Your video&apos;s original audio can be picked by other creators.</p>
-                                    </div>
-                                    <button onClick={() => setAllowReuse(v => !v)} role="switch" aria-checked={allowReuse} aria-label="Allow sound reuse" style={{ width: 44, height: 24, borderRadius: 999, background: allowReuse ? '#10B981' : 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.25s', flexShrink: 0 }}>
-                                        <span style={{ position: 'absolute', top: 3, left: allowReuse ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)' }} />
-                                    </button>
+                            {/* Sound: what plays on the video + whether others can reuse your own audio */}
+                            <SCard title="Sound" action={<button onClick={() => setSoundSheet(true)} disabled={uploading} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 999, padding: '5px 12px', color: '#FF6B35', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{sound ? 'Change' : 'Add'}</button>}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '10px 12px' }}>
+                                    <SoundMarquee
+                                        sound={sound ? sound.sound : null}
+                                        username={authUser?.username}
+                                        style={{ flex: 1, maxWidth: 'none', minWidth: 0 }}
+                                    />
+                                    {sound && <button onClick={() => setSound(null)} disabled={uploading} aria-label="Remove sound" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 12, cursor: 'pointer' }}>Remove</button>}
                                 </div>
-                            )}
+                                <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+                                    {sound
+                                        ? `Mixed in from ${fmtTime(sound.start)} at ${Math.round(sound.musicVolume * 100)}% volume${hasOwnAudio ? `, your own audio at ${muted ? 0 : Math.round(originalVolume * 100)}%` : ''}. This credit shows under your video.`
+                                        : hasOwnAudio ? 'Your video plays with its own audio. Add music from the library, or record your own sound.' : 'Silent video. Add a sound to bring it to life.'}
+                                </p>
+                                {hasOwnAudio && !sound && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+                                        <div style={{ flex: 1 }}>
+                                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Let others use your sound</p>
+                                            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Other creators can pick your video&apos;s original audio.</p>
+                                        </div>
+                                        <button onClick={() => setAllowReuse(v => !v)} role="switch" aria-checked={allowReuse} aria-label="Allow sound reuse" style={{ width: 44, height: 24, borderRadius: 999, background: allowReuse ? '#10B981' : 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.25s', flexShrink: 0 }}>
+                                            <span style={{ position: 'absolute', top: 3, left: allowReuse ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)' }} />
+                                        </button>
+                                    </div>
+                                )}
+                            </SCard>
 
                             {/* Products */}
                             {!hasProducts ? (
@@ -575,6 +607,7 @@ export default function Upload({ products: initialProducts = [] }) {
                 originalVolume={muted ? 0 : originalVolume}
                 hasOwnAudio={hasOwnAudio}
                 videoDuration={videoDuration}
+                isAdmin={isAdmin}
                 onApply={applySound}
                 onRemove={() => { setSound(null); setSoundSheet(false) }}
             />

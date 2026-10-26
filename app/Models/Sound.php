@@ -9,11 +9,12 @@ class Sound extends Model
 {
     protected $fillable = [
         'source', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
-        'duration', 'license', 'license_url', 'attribution', 'uses_count', 'is_active',
+        'duration', 'license', 'license_url', 'attribution', 'uses_count', 'is_active', 'is_public',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_public' => 'boolean',
         'duration'  => 'integer',
         'uses_count' => 'integer',
     ];
@@ -46,7 +47,7 @@ class Sound extends Model
         return '/storage/' . ltrim($path, '/');
     }
 
-    public function toApi(): array
+    public function toApi(?int $viewerId = null): array
     {
         return [
             'id'         => $this->id,
@@ -57,6 +58,9 @@ class Sound extends Model
             'cover_url'  => self::urlFor($this->cover_path),
             'source'     => $this->source,
             'uses_count' => $this->uses_count,
+            'mine'       => $viewerId !== null && $this->user_id === $viewerId,
+            'is_public'  => $this->is_public,
+            'attribution' => $this->attribution,
         ];
     }
 }
