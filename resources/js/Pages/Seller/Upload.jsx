@@ -50,6 +50,7 @@ export default function Upload({ products: initialProducts = [] }) {
 
     // Sound
     const [sound, setSound] = useState(null)               // { sound, start, musicVolume }
+    const preSound = useRef(null)                          // sound chosen on a sound page ("Use this sound"), kept across retakes
     const [soundSheet, setSoundSheet] = useState(false)
     const [allowReuse, setAllowReuse] = useState(true)
     const [posterUrl, setPosterUrl] = useState(null)     // freeze-frame shown instantly while the recording loads
@@ -133,6 +134,20 @@ export default function Upload({ products: initialProducts = [] }) {
         }
     }, [sound, stage, videoUrl, previewState])
 
+    // Arrived from a sound page: /seller/upload?sound=ID
+    useEffect(() => {
+        const id = new URLSearchParams(window.location.search).get('sound')
+        if (!id) return
+        axios.get(`/api/sounds/${id}`)
+            .then(({ data }) => {
+                if (!data?.sound) return
+                const sel = { sound: data.sound, start: 0, musicVolume: 0.7 }
+                preSound.current = sel
+                setSound(sel)
+            })
+            .catch(() => {})
+    }, [])
+
     // ── Video in / out ────────────────────────────────────────────────────────
     const setVideo = useCallback((file, secs, { silent = false, dims = null, poster = null } = {}) => {
         if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -147,7 +162,6 @@ export default function Upload({ products: initialProducts = [] }) {
         setMuted(silent)
         setOriginalVolume(1)
         setOverlays([])
-        setSound(null)
         setErrors({})
         setPreviewState('loading')
         setStage('edit')
@@ -189,7 +203,7 @@ export default function Upload({ products: initialProducts = [] }) {
     const discardVideo = () => {
         if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null }
         setVideoUrl(null); setVideoFile(null); setVideoDuration(null); setVideoDims(null); setPosterUrl(null)
-        setOverlays([]); setSound(null)
+        setOverlays([]); setSound(preSound.current)
     }
 
     const closeUploader = () => {
@@ -334,6 +348,11 @@ export default function Upload({ products: initialProducts = [] }) {
             <Head title="Create" />
 
             {/* ════ CAMERA ═══════════════════════════════════════════════ */}
+            {stage === 'camera' && sound && (
+                <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top) + 64px)', left: 0, right: 0, zIndex: 30, display: 'flex', justifyContent: 'center', padding: '0 70px', pointerEvents: 'none' }}>
+                    <div style={{ pointerEvents: 'auto', maxWidth: '100%' }}>{soundPill()}</div>
+                </div>
+            )}
             {stage === 'camera' && (
                 <CameraScreen
                     onCaptured={(file, secs, opts) => setVideo(file, secs, { silent: !!opts?.silent, poster: opts?.poster ?? null })}

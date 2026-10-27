@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Sound;
+use App\Models\Video;
+use Inertia\Inertia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,7 +16,8 @@ class SoundController extends Controller
 {
     private const PAGE = 30;
     private const MAX_PER_USER = 30;
-    private const MAX_SECONDS = 90;
+    private const MAX_SECONDS = 150;        // sellers: 2:30 (a video is max 60s; they pick which part to use)
+    private const MAX_SECONDS_LIBRARY = 600; // admins adding full tracks to the library
 
     /**
      * GET /api/sounds?tab=library|creators|mine&q=...&offset=0
@@ -57,7 +60,7 @@ class SoundController extends Controller
 
     /**
      * POST /api/sounds  (multipart)
-     * A seller records or uploads their own sound. It is converted to MP3 (max 90s) and kept private
+     * A seller records or uploads their own sound. It is converted to MP3 (max 2:30) and kept private
      * ("My sounds") unless they choose to share it, in which case they must confirm they hold the rights.
      * Admins can add a track straight to the library (library=1) together with its licence details.
      */
@@ -70,7 +73,7 @@ class SoundController extends Controller
         $isAdmin = $user->role === 'admin';
 
         $request->validate([
-            'audio'       => 'required|file|max:15360|mimetypes:audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/m4a,audio/aac,audio/x-aac,audio/wav,audio/x-wav,audio/ogg,audio/webm,video/webm,video/mp4,application/ogg',
+            'audio'       => 'required|file|max:25600|mimetypes:audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/m4a,audio/aac,audio/x-aac,audio/wav,audio/x-wav,audio/ogg,audio/webm,video/webm,video/mp4,application/ogg',
             'title'       => 'required|string|max:80',
             'artist'      => 'nullable|string|max:80',
             'is_public'   => 'nullable|boolean',
@@ -80,7 +83,7 @@ class SoundController extends Controller
             'license_url' => 'nullable|url|max:255',
             'attribution' => 'nullable|string|max:255',
         ], [
-            'audio.max'       => 'Audio must be under 15MB.',
+            'audio.max'       => 'Audio must be under 25MB.',
             'audio.mimetypes' => 'Use an MP3, M4A, WAV, OGG or WebM audio file.',
         ]);
 
@@ -103,7 +106,15 @@ class SoundController extends Controller
             $ff  = $p(config('flockr.ffmpeg_path', '/var/www/bin/ffmpeg'));
             $fp  = $p(config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
 
-            exec("\"{$ff}\" -y -i \"{$p($tmpIn)}\" -vn -t " . self::MAX_SECONDS . " -ac 2 -ar 44100 -c:a libmp3lame -b:a 160k \"{$p($tmpOut)}\" 2>&1", $lines, $code);
+            // Reject (don't silently cut) audio that is too long, so nobody loses the part they wanted
+            $limit = $library ? self::MAX_SECONDS_LIBRARY : self::MAX_SECONDS;
+            $inDur = trim((string) shell_exec("\"{$fp}\" -v error -show_entries format=duration -of csv=p=0 \"{$p($tmpIn)}\" 2>&1"));
+            if (is_numeric($inDur) && (float) $inDur > $limit + 1) {
+                $fmt = fn (int $s) => floor($s / 60) . ':' . str_pad((string) ($s % 60), 2, '0', STR_PAD_LEFT);
+                return response()->json(['message' => 'That audio is ' . $fmt((int) round((float) $inDur)) . ' long. The limit is ' . $fmt($limit) . '. Trim it and try again.'], 422);
+            }
+
+            exec("\"{$ff}\" -y -i \"{$p($tmpIn)}\" -vn -t {$limit} -ac 2 -ar 44100 -c:a libmp3lame -b:a 160k \"{$p($tmpOut)}\" 2>&1", $lines, $code);
             if ($code !== 0 || !file_exists($tmpOut) || filesize($tmpOut) < 2000) {
                 Log::warning('Sound convert failed', ['code' => $code, 'tail' => implode("\n", array_slice($lines, -8))]);
                 return response()->json(['message' => 'We could not read that audio. Try a different file.'], 422);
@@ -139,6 +150,69 @@ class SoundController extends Controller
             @unlink($tmpIn);
             @unlink($tmpOut);
         }
+    }
+
+    // ── Sound page: everything that uses one sound ─────────────────────────────
+
+    private function canView(Sound $s): bool
+    {
+        if (!$s->is_active) return false;
+        if ($s->source !== 'custom' || $s->is_public) return true;
+        $u = Auth::user();
+        return $u && ($u->id === $s->user_id || $u->role === 'admin');
+    }
+
+    /** Videos that use this sound (music videos) plus the video the sound was taken from. */
+    private function videosQuery(Sound $sound)
+    {
+        return Video::active()
+            ->where(fn ($q) => $q->where('sound_id', $sound->id)->when($sound->video_id, fn ($w) => $w->orWhere('id', $sound->video_id)))
+            ->with(['user:id,name,username,avatar,is_verified,location', 'sound'])
+            ->latest('published_at');
+    }
+
+    /** GET /sound/{sound}  (Inertia page) */
+    public function page(Sound $sound)
+    {
+        abort_unless($this->canView($sound), 404);
+
+        $q = $this->videosQuery($sound);
+        $total = (clone $q)->count();
+        $rows = $q->simplePaginate(18);
+
+        return Inertia::render('Sound/Show', [
+            'sound'    => $sound->toApi(Auth::id()),
+            'total'    => $total,
+            'videos'   => $rows->items(),
+            'has_more' => $rows->hasMorePages(),
+        ]);
+    }
+
+    /** GET /sound/from-video/{ulid}  → the sound page of a video's own (original) sound */
+    public function fromVideo(string $ulid)
+    {
+        $video = Video::where('ulid', $ulid)->firstOrFail();
+        $id = $video->sound_id
+            ?: Sound::active()->where('source', 'original')->where('video_id', $video->id)->value('id');
+        abort_unless($id, 404);
+
+        return redirect('/sound/' . $id);
+    }
+
+    /** GET /api/sounds/{sound}  (used by "Use this sound" in the uploader) */
+    public function show(Sound $sound): JsonResponse
+    {
+        abort_unless($this->canView($sound), 404);
+        return response()->json(['sound' => $sound->toApi(Auth::id())]);
+    }
+
+    /** GET /api/sounds/{sound}/videos?page=N  ("Load more" on the sound page) */
+    public function videos(Sound $sound): JsonResponse
+    {
+        abort_unless($this->canView($sound), 404);
+        $rows = $this->videosQuery($sound)->simplePaginate(18);
+
+        return response()->json(['data' => $rows->items(), 'has_more' => $rows->hasMorePages()]);
     }
 
     /** DELETE /api/sounds/{sound}  (owner or admin). Videos that already used it keep their baked-in audio. */

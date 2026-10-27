@@ -24,6 +24,7 @@ import { useHlsVideo } from '@/lib/useHlsVideo'
 import TextOverlays from '@/Components/Video/TextOverlays'
 import SoundMarquee from '@/Components/Video/SoundMarquee'
 import { ENHANCE_CSS } from '@/lib/media'
+const soundHref = (v) => (v.sound_credit ? `/sound/${v.sound_credit.id}` : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null)
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -568,7 +569,7 @@ export default function VideoCard({ video, isActive }) {
             ))}
           </div>
         )}
-        <SoundMarquee sound={video.sound_credit} username={video.user?.username} style={{ marginTop: 6 }} />
+        <SoundMarquee sound={video.sound_credit} username={video.user?.username} href={soundHref(video)} style={{ marginTop: 6 }} />
         {video.user?.location && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 4 }}>
             <RiMapPinLine size={11} color="rgba(255,255,255,0.55)" />

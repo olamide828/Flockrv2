@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
 import { fmtTime } from '../../lib/media'
+import { WaveScrubber, useWaveform } from './AudioWave'
 import CreateSound from './CreateSound'
 import { S, Spinner } from './ui'
 
@@ -53,6 +54,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
     const [hasMore, setHasMore] = useState(false)
     const [playingId, setPlayingId] = useState(null)
     const [creating, setCreating] = useState(false)
+    const [playhead, setPlayhead] = useState(null)
 
     const [sel, setSel] = useState(null)
     const [start, setStart] = useState(0)
@@ -129,6 +131,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         choose(sound)
     }
 
+    const { peaks } = useWaveform(sel?.url, 72, sel?.id)
     const maxStart = sel && videoDuration ? Math.max(0, Math.floor((sel.duration || 0) - videoDuration)) : 0
 
     useEffect(() => { if (audioRef.current) audioRef.current.volume = musicVol / 100 }, [musicVol])
@@ -224,7 +227,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 {!creating && (sel || current) && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '12px 18px calc(env(safe-area-inset-bottom) + 14px)', background: '#0d0d0d', display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {sel && <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>♪ {sel.title} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>· {sel.artist}</span></p>}
-                        {sel && maxStart > 0 && <Slider label="Start at" value={start} min={0} max={maxStart} onChange={seek} format={fmtTime} />}
+                        {sel && maxStart > 0 && sel.duration > 0 && <WaveScrubber peaks={peaks} duration={sel.duration} windowSec={videoDuration || sel.duration} start={start} onChange={seek} playhead={playingId === sel.id ? playhead : null} />}
                         {sel && <Slider label="Music volume" value={musicVol} onChange={setMusicVol} format={v => `${v}%`} />}
                         {hasOwnAudio && <Slider label="Your video's sound" value={origVol} onChange={setOrigVol} format={v => (v === 0 ? 'Off' : `${v}%`)} />}
                         <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
@@ -234,7 +237,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     </div>
                 )}
             </div>
-            <audio ref={audioRef} preload="none" onEnded={() => setPlayingId(null)} />
+            <audio ref={audioRef} preload="none" onEnded={() => setPlayingId(null)} onTimeUpdate={e => setPlayhead(e.currentTarget.currentTime)} />
         </div>
     )
 }

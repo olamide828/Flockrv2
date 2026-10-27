@@ -46,6 +46,7 @@ import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 import TextOverlays from '@/Components/Video/TextOverlays';
 import SoundMarquee from '@/Components/Video/SoundMarquee';
 import { ENHANCE_CSS } from '@/lib/media';
+const soundHref = (v) => (v.sound_credit ? `/sound/${v.sound_credit.id}` : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -667,7 +668,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     )}
                     {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0, lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.7)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
                     {video.description && <ExpandableDescription text={video.description} />}
-                    <SoundMarquee sound={video.sound_credit} username={video.user?.username} />
+                    <SoundMarquee sound={video.sound_credit} username={video.user?.username} href={soundHref(video)} />
                     {video.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{video.hashtags.slice(0, 5).map((tag, i) => (
                         <Link key={i} href={`/explore?q=${encodeURIComponent(tag.replace(/^#/, ''))}`}
                             onClick={e => e.stopPropagation()}
@@ -719,7 +720,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                                 {tag.startsWith('#') ? tag : `#${tag}`}
                             </Link>
                         ))}</div>}
-                        <SoundMarquee sound={video.sound_credit} username={video.user?.username} style={{ marginTop: 10, maxWidth: '100%' }} />
+                        <SoundMarquee sound={video.sound_credit} username={video.user?.username} href={soundHref(video)} style={{ marginTop: 10, maxWidth: '100%' }} />
                         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                             <button onClick={() => openSheet('share')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                                 <RiShareForwardLine size={14} /> Share

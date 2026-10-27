@@ -269,8 +269,9 @@ $hashtags = $request->filled('hashtags')
             'hashtags' => $hashtags,
             'video_url' => $path,
             'file_size_bytes' => $file->getSize(),
-            // A mix is pending when music was chosen: stay out of the feed until MixSoundJob is done
-            'status' => $sound ? 'processing' : 'active',
+            // Live immediately, like TikTok. The music mix (if any) and the streaming versions finish in the
+            // background and are swapped in when ready.
+            'status' => 'active',
             'published_at' => now(),
             'sound_id' => $sound?->id,
             'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
@@ -301,12 +302,19 @@ $hashtags = $request->filled('hashtags')
     app(\App\Services\VideoCategoryTagger::class)->tag($video->fresh());
 });
 
-        // After video is activated — notify followers
-        $seller = Auth::user();
-        $seller->followers()->chunk(100, function ($followers) use ($video) {
-            foreach ($followers as $follower) {
-                $follower->notify(new \App\Notifications\NewVideoNotification($video));
-            }
+        // Notify followers from the queue, not inline. Doing it inline made the upload request wait for every
+        // follower, which on a big account runs past the gateway timeout and shows up as a 503.
+        $videoId  = $video->id;
+        $sellerId = Auth::id();
+        dispatch(function () use ($videoId, $sellerId) {
+            $v      = Video::find($videoId);
+            $seller = \App\Models\User::find($sellerId);
+            if (!$v || !$seller) return;
+            $seller->followers()->chunk(100, function ($followers) use ($v) {
+                foreach ($followers as $follower) {
+                    $follower->notify(new \App\Notifications\NewVideoNotification($v));
+                }
+            });
         });
 
         // Music mix (if any), original-sound extraction (if the creator allows reuse), then the existing processing

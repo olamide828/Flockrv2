@@ -21,14 +21,32 @@ class ProcessVideoJob implements ShouldQueue
     // the queue's retry_after window, which is what produced "attempted too many times".
     public int $tries   = 1;
 
+    // Longest side capped at 1280 (portrait 1080x1920 becomes 720x1280, landscape 1920x1080 becomes 1280x720),
+    // never upscaled. The old filters left portrait videos at full 1080x1920 for the MP4 and shrank the HLS
+    // stream to 406x720 (blurry), while using far more CPU and memory than needed.
+    private const LONG_SIDE_1280 = "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'";
+
     public function __construct(public Video $video) {}
+
+    /**
+     * Run ffmpeg at low priority so encoding never starves web requests on the same machine
+     * (a starved web process is what shows up as 503s while a video is processing).
+     */
+    private function ffBin(string $ffmpeg): string
+    {
+        foreach (['/usr/bin/nice', '/bin/nice'] as $nice) {
+            if (is_executable($nice)) return $nice . ' -n 15 ' . $ffmpeg;
+        }
+        return $ffmpeg;
+    }
 
     public function handle(): void
     {
         $videoSource = null;
         try {
-            $this->video->update(['status' => 'processing']);
-
+            // Do NOT flip the video to "processing": it is already live (VideoController publishes on upload),
+            // and everything below is an upgrade, so viewers never see a processing screen.
+            $t0 = microtime(true);
             $disk = config('filesystems.default', 'public');
 
             // ── Get the video source URL/path for FFmpeg ──────────────────────
@@ -48,6 +66,7 @@ class ProcessVideoJob implements ShouldQueue
             // stream below are upgrades that get swapped in when they are ready.
             $thumbnailKey = $this->generateThumbnail($videoSource, $disk);
             $duration     = $this->getDuration($videoSource);
+            Log::info("ProcessVideoJob #{$this->video->id}: thumbnail ready", ['seconds' => round(microtime(true) - $t0, 1)]);
 
             $this->video->update(array_filter([
                 'status'           => 'active',
@@ -60,6 +79,7 @@ class ProcessVideoJob implements ShouldQueue
             $optimizedKey = null;
             $hlsKey       = null;
             try { $optimizedKey = $this->optimizeForStreaming($videoSource, $disk); } catch (\Throwable $e) { Log::warning("ProcessVideoJob: optimise failed for #{$this->video->id}: " . $e->getMessage()); }
+            Log::info("ProcessVideoJob #{$this->video->id}: optimised mp4", ['seconds' => round(microtime(true) - $t0, 1), 'ok' => (bool) $optimizedKey]);
             try { $hlsKey = $this->generateHls($videoSource, $disk); } catch (\Throwable $e) { Log::warning("ProcessVideoJob: HLS failed for #{$this->video->id}: " . $e->getMessage()); }
 
             $this->video->update(array_filter([
@@ -70,6 +90,7 @@ class ProcessVideoJob implements ShouldQueue
             Log::info("ProcessVideoJob: video #{$this->video->id} done", [
                 'thumbnail' => $thumbnailKey,
                 'duration'  => $duration,
+                'seconds'   => round(microtime(true) - $t0, 1),
             ]);
 
         } catch (\Throwable $e) {
@@ -125,12 +146,17 @@ class ProcessVideoJob implements ShouldQueue
     {
         try {
             Log::info("ProcessVideoJob: downloading video to temp (no CDN URL configured)");
-            $contents = Storage::disk($disk)->get($key);
-            if (!$contents) return null;
+            // Stream to disk: loading a 60MB video into PHP memory can exceed memory_limit and kill the worker
+            // mid-job, which is exactly what ends in "attempted too many times".
+            $in = Storage::disk($disk)->readStream($key);
+            if (!is_resource($in)) return null;
 
             $ext     = pathinfo($key, PATHINFO_EXTENSION) ?: 'mp4';
             $tmpPath = sys_get_temp_dir() . '/' . Str::uuid() . '.' . $ext;
-            file_put_contents($tmpPath, $contents);
+            $out     = fopen($tmpPath, 'wb');
+            stream_copy_to_stream($in, $out);
+            fclose($out);
+            fclose($in);
             return $tmpPath;
         } catch (\Throwable $e) {
             Log::error("ProcessVideoJob: download failed: " . $e->getMessage());
@@ -160,8 +186,8 @@ private function generateThumbnail(string $videoSource, string $disk): ?string
     $tmpThumb = sys_get_temp_dir() . '/' . Str::uuid() . '.jpg';
 
     $cmd = sprintf(
-        '%s -ss 00:00:01 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
-        $ffmpeg,
+        '%s -hide_banner -nostats -loglevel error -ss 00:00:01 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+        $this->ffBin($ffmpeg),
         escapeshellarg($videoSource),
         escapeshellarg($tmpThumb)
     );
@@ -170,8 +196,8 @@ private function generateThumbnail(string $videoSource, string $disk): ?string
 
     if ($returnCode !== 0 || !file_exists($tmpThumb) || filesize($tmpThumb) === 0) {
         $cmdFallback = sprintf(
-            '%s -ss 00:00:00 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
-            $ffmpeg,
+            '%s -hide_banner -nostats -loglevel error -ss 00:00:00 -i %s -vframes 1 -vf "scale=720:-2" -q:v 3 %s 2>&1',
+            $this->ffBin($ffmpeg),
             escapeshellarg($videoSource),
             escapeshellarg($tmpThumb)
         );
@@ -188,11 +214,9 @@ private function generateThumbnail(string $videoSource, string $disk): ?string
 
     $key = 'thumbnails/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.jpg';
 
-    Storage::disk($disk)->put(
-        $key,
-        file_get_contents($tmpThumb),
-        ['ContentType' => 'image/jpeg', 'visibility' => 'public']
-    );
+    $h = fopen($tmpThumb, 'rb');
+    Storage::disk($disk)->put($key, $h, ['ContentType' => 'image/jpeg', 'visibility' => 'public']);
+    if (is_resource($h)) fclose($h);
 
     @unlink($tmpThumb);
 
@@ -243,9 +267,10 @@ private function getDuration(string $videoSource): ?int
     // -crf 23 / scale caps bitrate and resolution so nothing oversized
     // gets served untouched.
     $cmd = sprintf(
-        '%s -i %s -c:v libx264 -preset veryfast -crf 23 -vf "scale=\'min(1280,iw)\':-2" -c:a aac -b:a 128k -movflags +faststart -y %s 2>&1',
-        $ffmpeg,
+        '%s -hide_banner -nostats -loglevel error -i %s -threads 2 -c:v libx264 -preset veryfast -crf 23 -vf %s -c:a aac -b:a 128k -movflags +faststart -y %s 2>&1',
+        $this->ffBin($ffmpeg),
         escapeshellarg($videoSource),
+        escapeshellarg(self::LONG_SIDE_1280),
         escapeshellarg($tmpOut)
     );
 
@@ -260,11 +285,9 @@ private function getDuration(string $videoSource): ?int
 
     $key = 'videos/' . now()->format('Y/m/d') . '/' . Str::uuid() . '.mp4';
 
-    Storage::disk($disk)->put(
-        $key,
-        file_get_contents($tmpOut),
-        ['ContentType' => 'video/mp4', 'visibility' => 'public']
-    );
+    $h = fopen($tmpOut, 'rb');
+    Storage::disk($disk)->put($key, $h, ['ContentType' => 'video/mp4', 'visibility' => 'public']);
+    if (is_resource($h)) fclose($h);
 
     @unlink($tmpOut);
 
@@ -283,9 +306,10 @@ private function getDuration(string $videoSource): ?int
         $playlist = $tmpDir . '/index.m3u8';
 
         $cmd = sprintf(
-            '%s -i %s -vf "scale=-2:720" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -hls_time 6 -hls_list_size 0 -hls_flags independent_segments -hls_segment_filename %s -f hls %s -y 2>&1',
-            $ffmpeg,
+            '%s -hide_banner -nostats -loglevel error -i %s -threads 2 -vf %s -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -hls_time 6 -hls_list_size 0 -hls_flags independent_segments -hls_segment_filename %s -f hls %s -y 2>&1',
+            $this->ffBin($ffmpeg),
             escapeshellarg($videoSource),
+            escapeshellarg(self::LONG_SIDE_1280),
             escapeshellarg($tmpDir . '/seg_%03d.ts'),
             escapeshellarg($playlist)
         );
@@ -303,9 +327,11 @@ private function getDuration(string $videoSource): ?int
         foreach (glob($tmpDir . '/*') as $file) {
             $filename    = basename($file);
             $contentType = str_ends_with($filename, '.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
-            Storage::disk($disk)->put("{$prefix}/{$filename}", file_get_contents($file), [
+            $h = fopen($file, 'rb');
+            Storage::disk($disk)->put("{$prefix}/{$filename}", $h, [
                 'ContentType' => $contentType, 'visibility' => 'public',
             ]);
+            if (is_resource($h)) fclose($h);
         }
 
         $this->cleanupTmpDir($tmpDir);

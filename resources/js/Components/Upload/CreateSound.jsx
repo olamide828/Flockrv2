@@ -2,9 +2,11 @@ import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { RiArrowLeftLine, RiFileMusicLine, RiMicFill, RiStopFill } from 'react-icons/ri'
 import { fmtTime } from '../../lib/media'
+import AudioWave from './AudioWave'
 import { S, Spinner } from './ui'
 
-const MAX = 90
+const MAX = 150            // recording limit in seconds (2:30)
+const MAX_MB = 25
 
 function pickAudioMime() {
     if (typeof MediaRecorder === 'undefined') return ''
@@ -101,12 +103,12 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
         const f = list[0]
         if (!f) return
         if (isAdmin && library && list.length > 1) {
-            if (list.some(x => x.size > 15 * 1024 * 1024)) { setError('Every file must be under 15MB.'); return }
+            if (list.some(x => x.size > MAX_MB * 1024 * 1024)) { setError('Every file must be under 25MB.'); return }
             setError(null); setBatch(list); setBlob(null); setFileName(`${list.length} files selected`)
             return
         }
         setBatch([])
-        if (f.size > 15 * 1024 * 1024) { setError('Audio must be under 15MB.'); return }
+        if (f.size > MAX_MB * 1024 * 1024) { setError('Audio must be under 25MB.'); return }
         setError(null)
         setBlob(f)
         setFileName(f.name)
@@ -198,18 +200,18 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
                         {recording ? <RiStopFill size={32} /> : <RiMicFill size={34} color="#EF4444" />}
                     </button>
                     <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>
-                        {recording ? `Recording… ${fmtTime(elapsed)} / ${fmtTime(MAX)}` : blob && !fileName ? 'Recorded. Tap to record again.' : `Tap to record (up to ${MAX}s)`}
+                        {recording ? `Recording… ${fmtTime(elapsed)} / ${fmtTime(MAX)}` : blob && !fileName ? 'Recorded. Tap to record again.' : `Tap to record (up to ${fmtTime(MAX)})`}
                     </span>
                 </div>
             ) : (
                 <button onClick={() => fileRef.current?.click()} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '26px 16px', borderRadius: 16, border: '1.5px dashed rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13 }}>
                     <RiFileMusicLine size={28} color="#FF6B35" />
-                    {fileName || (isAdmin && library ? 'Choose one or many MP3 files (max 15MB each)' : 'Choose an MP3, M4A, WAV or OGG file (max 15MB)')}
+                    {fileName || (isAdmin && library ? 'Choose one or many MP3 files (max 25MB each)' : 'Choose an MP3, M4A, WAV or OGG file (max 25MB)')}
                 </button>
             )}
             <input ref={fileRef} type="file" multiple={isAdmin && library} accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" onChange={pickFile} style={{ display: 'none' }} />
 
-            {previewUrl && <audio src={previewUrl} controls style={{ width: '100%' }} />}
+            {previewUrl && <AudioWave src={previewUrl} seed={title.length + 3} />}
 
             {batch.length === 0 && <input value={title} onChange={e => setTitle(e.target.value.slice(0, 80))} placeholder="Name your sound" style={S.inp} />}
             {batch.length > 0 && <p style={{ margin: 0, color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Each file is named from its file name (dashes become spaces). The same artist and licence below are applied to all of them.</p>}

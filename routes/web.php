@@ -20,6 +20,7 @@ use App\Http\Controllers\FollowController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SuspensionController;
+use App\Http\Controllers\SoundController;
 
 // ── Public pages ──────────────────────────────────────────────────────────────
 Route::get('/', [VideoController::class, 'index'])->name('home');
@@ -35,6 +36,9 @@ Route::get('/events/{event}', [EventController::class, 'showPage']);
 
 Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
 Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
+
+Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);   // keep this ABOVE the next line
+Route::get('/sound/{sound}', [SoundController::class, 'page'])->name('sound.show');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
