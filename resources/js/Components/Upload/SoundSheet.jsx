@@ -1,8 +1,8 @@
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
-import { fmtTime } from '../../lib/media'
-import { WaveScrubber, useWaveform } from './AudioWave'
+import { attachAudioSource, fmtTime } from '../../lib/media'
+import { MAX_USE_SECONDS, WaveScrubber } from './AudioWave'
 import CreateSound from './CreateSound'
 import { S, Spinner } from './ui'
 
@@ -10,9 +10,10 @@ const TABS = [
     { id: 'library',  label: 'Library',         hint: 'Royalty-free music cleared for use in videos' },
     { id: 'creators', label: 'Creator sounds',  hint: 'Original sounds from videos on Flockr' },
     { id: 'mine',     label: 'My sounds',       hint: 'Sounds you recorded or uploaded' },
+    { id: 'epidemic', label: 'Epidemic',        hint: 'Epidemic Sound catalogue', optional: true },
 ]
 
-const hue = (id) => (Number(id) * 47) % 360
+const hue = (id) => (Number(id) || [...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0)) * 47 % 360
 
 function Cover({ sound, playing, onToggle }) {
     return (
@@ -58,6 +59,9 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
 
     const [sel, setSel] = useState(null)
     const [start, setStart] = useState(0)
+    const [end, setEnd] = useState(0)
+    const [epidemicOn, setEpidemicOn] = useState(false)
+    const [importing, setImporting] = useState(false)
     const [musicVol, setMusicVol] = useState(70)
     const [origVol, setOrigVol] = useState(100)
 
@@ -69,6 +73,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         if (!open) { audioRef.current?.pause(); setPlayingId(null); setCreating(false); return }
         setSel(current?.sound ?? null)
         setStart(current?.start ?? 0)
+        setEnd(current?.end ?? 0)
         setMusicVol(Math.round((current?.musicVolume ?? 0.7) * 100))
         setOrigVol(Math.round(originalVolume * 100))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,6 +89,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
             const rows = Array.isArray(data) ? data : (data?.data ?? [])
             setItems(prev => (reset ? rows : [...prev, ...rows]))
             setHasMore(!!data?.has_more)
+            if (data?.meta?.epidemic) setEpidemicOn(true)
         } catch {
             if (id === reqId.current) setError('Could not load sounds. Check your connection and try again.')
         } finally {
@@ -97,20 +103,34 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         return () => clearTimeout(t)
     }, [open, tab, q, load])
 
-    const togglePreview = (sound, from = 0) => {
+    const togglePreview = async (sound, from = 0) => {
         const a = audioRef.current
         if (!a) return
         if (playingId === sound.id) { a.pause(); setPlayingId(null); return }
-        a.src = sound.url
-        a.volume = musicVol / 100
-        const go = () => { a.currentTime = from; a.play().then(() => setPlayingId(sound.id)).catch(() => setPlayingId(null)) }
-        if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true })
-        a.load()
+        try {
+            let url = sound.url
+            if (!url && sound.source === 'epidemic') {
+                const { data } = await axios.get(`/api/sounds/epidemic/${sound.external_id}/preview`)
+                url = data.url
+            }
+            if (!url) return
+            a.pause()
+            a.volume = musicVol / 100
+            await attachAudioSource(a, url)
+            const go = () => { try { a.currentTime = from } catch { /* not seekable yet */ } a.play().then(() => setPlayingId(sound.id)).catch(() => setPlayingId(null)) }
+            if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true })
+        } catch {
+            setError('Could not play that preview.')
+        }
     }
+
+    // Default range: as much as the video can use, never more than 2:30 or the sound itself
+    const defaultEnd = (sound, from = 0) => Math.min(sound.duration || MAX_USE_SECONDS, from + Math.min(videoDuration || 60, MAX_USE_SECONDS))
 
     const choose = (sound) => {
         setSel(sound)
         setStart(0)
+        setEnd(defaultEnd(sound, 0))
         if (playingId !== sound.id) togglePreview(sound, 0)
     }
 
@@ -131,20 +151,32 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         choose(sound)
     }
 
-    const { peaks } = useWaveform(sel?.url, 72, sel?.id)
-    const maxStart = sel && videoDuration ? Math.max(0, Math.floor((sel.duration || 0) - videoDuration)) : 0
-
     useEffect(() => { if (audioRef.current) audioRef.current.volume = musicVol / 100 }, [musicVol])
 
-    const seek = (v) => {
-        setStart(v)
-        if (audioRef.current && playingId) audioRef.current.currentTime = v
+    const onRange = ({ start: s0, end: e0 }) => {
+        if (s0 !== start && audioRef.current && playingId) audioRef.current.currentTime = s0
+        setStart(s0)
+        setEnd(e0)
     }
 
-    const apply = () => {
+    const apply = async () => {
         audioRef.current?.pause()
         setPlayingId(null)
-        onApply({ sound: sel, start, musicVolume: musicVol / 100 }, origVol / 100)
+        let chosen = sel
+        if (sel.source === 'epidemic') {
+            // Epidemic tracks are copied into our library the first time someone uses them
+            setImporting(true)
+            try {
+                const { data } = await axios.post(`/api/sounds/epidemic/${sel.external_id}/import`)
+                chosen = data.sound
+            } catch (e) {
+                setImporting(false)
+                setError(e?.response?.data?.message || 'Could not add that track. Try another one.')
+                return
+            }
+            setImporting(false)
+        }
+        onApply({ sound: chosen, start, end: end || defaultEnd(chosen, start), musicVolume: musicVol / 100 }, origVol / 100)
     }
 
     if (!open) return null
@@ -173,9 +205,9 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: 8, padding: '0 18px 10px' }}>
-                    {TABS.map(t => (
-                        <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id} style={{ padding: '8px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', background: tab === t.id ? '#fff' : 'rgba(255,255,255,0.07)', color: tab === t.id ? '#000' : 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 700 }}>
+                <div style={{ display: 'flex', gap: 8, padding: '0 18px 10px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {TABS.filter(t => !t.optional || epidemicOn || tab === t.id).map(t => (
+                        <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id} style={{ padding: '8px 14px', whiteSpace: 'nowrap', flexShrink: 0, borderRadius: 999, border: 'none', cursor: 'pointer', background: tab === t.id ? '#fff' : 'rgba(255,255,255,0.07)', color: tab === t.id ? '#000' : 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 700 }}>
                             {t.label}
                         </button>
                     ))}
@@ -227,17 +259,17 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 {!creating && (sel || current) && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '12px 18px calc(env(safe-area-inset-bottom) + 14px)', background: '#0d0d0d', display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {sel && <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>♪ {sel.title} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>· {sel.artist}</span></p>}
-                        {sel && maxStart > 0 && sel.duration > 0 && <WaveScrubber peaks={peaks} duration={sel.duration} windowSec={videoDuration || sel.duration} start={start} onChange={seek} playhead={playingId === sel.id ? playhead : null} />}
+                        {sel && sel.duration > 0 && <WaveScrubber src={sel.url} waveformUrl={sel.waveform_url} seed={sel.id} duration={sel.duration} start={start} end={end || defaultEnd(sel, start)} onChange={onRange} playhead={playingId === sel.id ? playhead : null} videoSec={videoDuration || 0} />}
                         {sel && <Slider label="Music volume" value={musicVol} onChange={setMusicVol} format={v => `${v}%`} />}
                         {hasOwnAudio && <Slider label="Your video's sound" value={origVol} onChange={setOrigVol} format={v => (v === 0 ? 'Off' : `${v}%`)} />}
                         <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
                             {current && <button onClick={() => { audioRef.current?.pause(); onRemove() }} style={{ ...S.outlineBtn, padding: '12px 18px', fontSize: 13 }}>Remove</button>}
-                            <button onClick={sel ? apply : onClose} style={{ ...S.primaryBtn, flex: 1, padding: '12px 0', fontSize: 14 }}>{sel ? 'Use this sound' : 'Done'}</button>
+                            <button onClick={sel ? apply : onClose} disabled={importing} style={{ ...S.primaryBtn, flex: 1, padding: '12px 0', fontSize: 14 }}>{importing ? <Spinner size={16} /> : sel ? 'Use this sound' : 'Done'}</button>
                         </div>
                     </div>
                 )}
             </div>
-            <audio ref={audioRef} preload="none" onEnded={() => setPlayingId(null)} onTimeUpdate={e => setPlayhead(e.currentTarget.currentTime)} />
+            <audio ref={audioRef} preload="none" onEnded={() => setPlayingId(null)} onTimeUpdate={e => { const t = e.currentTarget.currentTime; setPlayhead(t); if (sel && playingId === sel.id && end && t >= end) e.currentTarget.currentTime = start }} />
         </div>
     )
 }

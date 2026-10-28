@@ -384,6 +384,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
     Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
     Route::delete('/sounds/{sound}', [SoundController::class, 'destroy']);
+    Route::get('/sounds/epidemic/{trackId}/preview', [SoundController::class, 'epidemicPreview']);
+    Route::post('/sounds/epidemic/{trackId}/import', [SoundController::class, 'epidemicImport']);
     Route::get('/sounds/{sound}', [SoundController::class, 'show']);
 
 

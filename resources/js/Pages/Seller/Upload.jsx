@@ -49,7 +49,7 @@ export default function Upload({ products: initialProducts = [] }) {
     const [gesturing, setGesturing] = useState(false)
 
     // Sound
-    const [sound, setSound] = useState(null)               // { sound, start, musicVolume }
+    const [sound, setSound] = useState(null)               // { sound, start, end, musicVolume }
     const preSound = useRef(null)                          // sound chosen on a sound page ("Use this sound"), kept across retakes
     const [soundSheet, setSoundSheet] = useState(false)
     const [allowReuse, setAllowReuse] = useState(true)
@@ -117,7 +117,12 @@ export default function Upload({ products: initialProducts = [] }) {
         const onPause = () => a.pause()
         const onSeek = () => align()
         let last = 0
-        const onTime = () => { if (v.currentTime < last - 0.3) align(); last = v.currentTime }
+        const endT = sound.end ?? Infinity
+        const onTime = () => {
+            if (v.currentTime < last - 0.3) { align(); if (!v.paused) a.play().catch(() => {}) }   // video looped: music restarts too
+            last = v.currentTime
+            if (a.currentTime >= endT && !a.paused) a.pause()                                       // chosen part of the sound is over
+        }
         v.addEventListener('play', onPlay)
         v.addEventListener('playing', onPlay)
         v.addEventListener('pause', onPause)
@@ -288,6 +293,7 @@ export default function Upload({ products: initialProducts = [] }) {
             if (sound) {
                 fd.append('sound_id', String(sound.sound.id))
                 fd.append('sound_start', String(Math.round(sound.start)))
+                if (sound.end) fd.append('sound_end', String(Math.round(sound.end * 10) / 10))
                 fd.append('music_volume', String(sound.musicVolume))
             }
 
@@ -510,7 +516,7 @@ export default function Upload({ products: initialProducts = [] }) {
                                 </div>
                                 <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
                                     {sound
-                                        ? `Mixed in from ${fmtTime(sound.start)} at ${Math.round(sound.musicVolume * 100)}% volume${hasOwnAudio ? `, your own audio at ${muted ? 0 : Math.round(originalVolume * 100)}%` : ''}. This credit shows under your video.`
+                                        ? `Mixed in from ${fmtTime(sound.start)}${sound.end ? ` to ${fmtTime(sound.end)}` : ''} at ${Math.round(sound.musicVolume * 100)}% volume${hasOwnAudio ? `, your own audio at ${muted ? 0 : Math.round(originalVolume * 100)}%` : ''}. This credit shows under your video.`
                                         : hasOwnAudio ? 'Your video plays with its own audio. Add music from the library, or record your own sound.' : 'Silent video. Add a sound to bring it to life.'}
                                 </p>
                                 {hasOwnAudio && !sound && (

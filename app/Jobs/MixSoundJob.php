@@ -30,6 +30,7 @@ class MixSoundJob implements ShouldQueue
         public readonly int   $start = 0,
         public readonly float $musicVolume = 0.7,
         public readonly float $originalVolume = 1.0,
+        public readonly ?float $end = null,        // end of the part of the sound to use (seconds); null = until the video ends
     ) {}
 
     public function handle(): void
@@ -57,7 +58,8 @@ class MixSoundJob implements ShouldQueue
             $start    = ($sound->duration > 0 && $this->start >= $sound->duration) ? 0 : max(0, $this->start);
             $f        = fn (float $v) => sprintf('%.3F', $v);
 
-            $m = "[1:a]aresample=44100,atrim=start={$start},asetpts=PTS-STARTPTS,volume={$f($mv)},apad";
+            $endPart = ($this->end !== null && $this->end > $start) ? ':end=' . $f(min($this->end, $start + 150)) : '';
+            $m = "[1:a]aresample=44100,atrim=start={$start}{$endPart},asetpts=PTS-STARTPTS,volume={$f($mv)},apad";
             $filter = $ov > 0.001
                 ? "[0:a]aresample=44100,volume={$f($ov)},apad[a0];{$m}[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[a]"
                 : "{$m}[a]";

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Sound;
 use App\Models\Video;
+use App\Services\EpidemicSound;
 use Inertia\Inertia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,8 +17,6 @@ class SoundController extends Controller
 {
     private const PAGE = 30;
     private const MAX_PER_USER = 30;
-    private const MAX_SECONDS = 150;        // sellers: 2:30 (a video is max 60s; they pick which part to use)
-    private const MAX_SECONDS_LIBRARY = 600; // admins adding full tracks to the library
 
     /**
      * GET /api/sounds?tab=library|creators|mine&q=...&offset=0
@@ -27,10 +26,23 @@ class SoundController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $tab    = in_array($request->query('tab'), ['creators', 'mine'], true) ? $request->query('tab') : 'library';
+        $tab    = in_array($request->query('tab'), ['creators', 'mine', 'epidemic'], true) ? $request->query('tab') : 'library';
         $q      = trim((string) $request->query('q', ''));
         $offset = max(0, (int) $request->query('offset', 0));
         $me     = Auth::id();
+        $es     = app(EpidemicSound::class);
+        $meta   = ['epidemic' => $es->enabled()];
+
+        if ($tab === 'epidemic') {
+            if (!$es->enabled()) return response()->json(['data' => [], 'has_more' => false, 'meta' => $meta]);
+            try {
+                $r = $es->search($q, $offset, self::PAGE);
+            } catch (\Throwable $e) {
+                Log::warning('Epidemic search failed', ['error' => $e->getMessage()]);
+                return response()->json(['message' => $e->getMessage()], 502);
+            }
+            return response()->json($r + ['meta' => $meta]);
+        }
 
         $query = Sound::active();
         if ($tab === 'library') {
@@ -55,12 +67,13 @@ class SoundController extends Controller
         return response()->json([
             'data'     => $rows->take(self::PAGE)->map(fn ($s) => $s->toApi($me))->values(),
             'has_more' => $rows->count() > self::PAGE,
+            'meta'     => $meta,
         ]);
     }
 
     /**
      * POST /api/sounds  (multipart)
-     * A seller records or uploads their own sound. It is converted to MP3 (max 2:30) and kept private
+     * A seller records or uploads their own sound. It is stored as MP3 (any length) and kept private
      * ("My sounds") unless they choose to share it, in which case they must confirm they hold the rights.
      * Admins can add a track straight to the library (library=1) together with its licence details.
      */
@@ -73,7 +86,7 @@ class SoundController extends Controller
         $isAdmin = $user->role === 'admin';
 
         $request->validate([
-            'audio'       => 'required|file|max:25600|mimetypes:audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/m4a,audio/aac,audio/x-aac,audio/wav,audio/x-wav,audio/ogg,audio/webm,video/webm,video/mp4,application/ogg',
+            'audio'       => 'required|file|max:204800|mimetypes:audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/m4a,audio/aac,audio/x-aac,audio/wav,audio/x-wav,audio/ogg,audio/webm,video/webm,video/mp4,application/ogg',
             'title'       => 'required|string|max:80',
             'artist'      => 'nullable|string|max:80',
             'is_public'   => 'nullable|boolean',
@@ -83,7 +96,7 @@ class SoundController extends Controller
             'license_url' => 'nullable|url|max:255',
             'attribution' => 'nullable|string|max:255',
         ], [
-            'audio.max'       => 'Audio must be under 25MB.',
+            'audio.max'       => 'Audio must be under 200MB.',
             'audio.mimetypes' => 'Use an MP3, M4A, WAV, OGG or WebM audio file.',
         ]);
 
@@ -106,30 +119,30 @@ class SoundController extends Controller
             $ff  = $p(config('flockr.ffmpeg_path', '/var/www/bin/ffmpeg'));
             $fp  = $p(config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
 
-            // Reject (don't silently cut) audio that is too long, so nobody loses the part they wanted
-            $limit = $library ? self::MAX_SECONDS_LIBRARY : self::MAX_SECONDS;
-            $inDur = trim((string) shell_exec("\"{$fp}\" -v error -show_entries format=duration -of csv=p=0 \"{$p($tmpIn)}\" 2>&1"));
-            if (is_numeric($inDur) && (float) $inDur > $limit + 1) {
-                $fmt = fn (int $s) => floor($s / 60) . ':' . str_pad((string) ($s % 60), 2, '0', STR_PAD_LEFT);
-                return response()->json(['message' => 'That audio is ' . $fmt((int) round((float) $inDur)) . ' long. The limit is ' . $fmt($limit) . '. Trim it and try again.'], 422);
+            // No length limit on what people add. (The part of a sound a video can USE is capped at 2:30 in the
+            // uploader.) MP3s are stored untouched, so even a very long file is instant; anything else becomes MP3.
+            set_time_limit(300);
+            $isMp3 = in_array($upload->getMimeType(), ['audio/mpeg', 'audio/mp3'], true) || strtolower($upload->getClientOriginalExtension()) === 'mp3';
+            $final = $tmpIn;
+            if (!$isMp3) {
+                exec("\"{$ff}\" -y -hide_banner -nostats -loglevel error -i \"{$p($tmpIn)}\" -vn -ac 2 -ar 44100 -c:a libmp3lame -b:a 160k \"{$p($tmpOut)}\" 2>&1", $lines, $code);
+                if ($code !== 0 || !file_exists($tmpOut) || filesize($tmpOut) < 2000) {
+                    Log::warning('Sound convert failed', ['code' => $code, 'tail' => implode("\n", array_slice($lines, -8))]);
+                    return response()->json(['message' => 'We could not read that audio. Try a different file.'], 422);
+                }
+                $final = $tmpOut;
             }
 
-            exec("\"{$ff}\" -y -i \"{$p($tmpIn)}\" -vn -t {$limit} -ac 2 -ar 44100 -c:a libmp3lame -b:a 160k \"{$p($tmpOut)}\" 2>&1", $lines, $code);
-            if ($code !== 0 || !file_exists($tmpOut) || filesize($tmpOut) < 2000) {
-                Log::warning('Sound convert failed', ['code' => $code, 'tail' => implode("\n", array_slice($lines, -8))]);
-                return response()->json(['message' => 'We could not read that audio. Try a different file.'], 422);
-            }
-
-            $dur = trim((string) shell_exec("\"{$fp}\" -v error -show_entries format=duration -of csv=p=0 \"{$p($tmpOut)}\" 2>&1"));
+            $dur = trim((string) shell_exec("\"{$fp}\" -v error -show_entries format=duration -of csv=p=0 \"{$p($final)}\" 2>&1"));
             $seconds = is_numeric($dur) ? (int) round((float) $dur) : 0;
             if ($seconds < 1) {
-                return response()->json(['message' => 'That audio is too short.'], 422);
+                return response()->json(['message' => 'We could not read that audio, or it is too short.'], 422);
             }
 
             $disk = config('filesystems.default', 'public');
             $dir  = $library ? 'sounds/library' : 'sounds/user';
             $name = Str::lower(Str::random(12)) . '.mp3';
-            Storage::disk($disk)->putFileAs($dir, new \Illuminate\Http\File($tmpOut), $name, 'public');
+            Storage::disk($disk)->putFileAs($dir, new \Illuminate\Http\File($final), $name, 'public');
 
             $sound = Sound::create([
                 'source'      => $library ? 'library' : 'custom',
@@ -149,6 +162,70 @@ class SoundController extends Controller
         } finally {
             @unlink($tmpIn);
             @unlink($tmpOut);
+        }
+    }
+
+    /** GET /api/sounds/epidemic/{trackId}/preview → { url } (short-lived stream link) */
+    public function epidemicPreview(string $trackId): JsonResponse
+    {
+        $es = app(EpidemicSound::class);
+        abort_unless($es->enabled(), 404);
+        try {
+            return response()->json(['url' => $es->previewUrl($trackId)]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+    }
+
+    /**
+     * POST /api/sounds/epidemic/{trackId}/import
+     * Copies a track into our sounds table the first time someone uses it (so the video mixer can read it).
+     * One download per track, ever: later uses reuse the stored copy.
+     */
+    public function epidemicImport(string $trackId): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user || !in_array($user->role, ['seller', 'admin'], true)) {
+            return response()->json(['message' => 'Only sellers can use this.'], 403);
+        }
+        $es = app(EpidemicSound::class);
+        abort_unless($es->enabled(), 404);
+
+        $existing = Sound::where('source', 'epidemic')->where('external_id', $trackId)->first();
+        if ($existing) {
+            if (!$existing->is_active) return response()->json(['message' => 'This track is no longer available.'], 410);
+            return response()->json(['sound' => $existing->toApi($user->id)]);
+        }
+
+        $tmp = null;
+        try {
+            $meta = $es->track($trackId);
+            $tmp  = $es->downloadToTemp($trackId);
+
+            $disk = config('filesystems.default', 'public');
+            $name = 'sounds/epidemic/' . Str::lower(Str::random(14)) . '.mp3';
+            Storage::disk($disk)->putFileAs('sounds/epidemic', new \Illuminate\Http\File($tmp), basename($name), 'public');
+
+            $sound = Sound::create([
+                'source'      => 'epidemic',
+                'external_id' => $trackId,
+                'title'       => Str::limit($meta['title'], 80, ''),
+                'artist'      => Str::limit($meta['artist'], 80, ''),
+                'file_path'   => $name,
+                'cover_path'  => $meta['cover_url'],
+                'duration'    => $meta['duration'],
+                'license'     => 'Epidemic Sound',
+                'license_url' => 'https://www.epidemicsound.com/',
+                'is_active'   => true,
+                'is_public'   => true,
+            ]);
+
+            return response()->json(['sound' => $sound->toApi($user->id)], 201);
+        } catch (\Throwable $e) {
+            Log::warning('Epidemic import failed', ['track' => $trackId, 'error' => $e->getMessage()]);
+            return response()->json(['message' => $e->getMessage()], 502);
+        } finally {
+            if ($tmp) @unlink($tmp);
         }
     }
 

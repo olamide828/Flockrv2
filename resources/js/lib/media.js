@@ -138,3 +138,36 @@ export async function photoToVideoFile(blob, seconds = PHOTO_SECONDS) {
         URL.revokeObjectURL(url)
     }
 }
+
+let hlsPromise = null
+/** hls.js from a CDN, only loaded when an HLS preview is played in a browser without native HLS (Chrome/Firefox). */
+function loadHls() {
+    if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
+    if (window.Hls) return Promise.resolve(window.Hls)
+    hlsPromise = hlsPromise || new Promise((ok, no) => {
+        const sc = document.createElement('script')
+        sc.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js'
+        sc.onload = () => ok(window.Hls)
+        sc.onerror = () => { hlsPromise = null; no(new Error('hls load failed')) }
+        document.head.appendChild(sc)
+    })
+    return hlsPromise
+}
+
+/** Points an <audio> at a URL; understands HLS (.m3u8) streams on every browser. */
+export async function attachAudioSource(audio, url) {
+    audio._hls?.destroy?.()
+    audio._hls = null
+    if (/\.m3u8(\?|$)/.test(url) && !audio.canPlayType('application/vnd.apple.mpegurl')) {
+        const Hls = await loadHls()
+        if (Hls?.isSupported()) {
+            const h = new Hls()
+            h.loadSource(url)
+            h.attachMedia(audio)
+            audio._hls = h
+            return
+        }
+    }
+    audio.src = url
+    audio.load()
+}

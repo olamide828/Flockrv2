@@ -241,7 +241,8 @@ class VideoController extends Controller
             'overlay_images'     => 'nullable|array|max:20',      // one PNG per v2 text overlay, in order
             'overlay_images.*'   => 'file|mimes:png|max:4096',
             'sound_id'           => 'nullable|integer|exists:sounds,id',
-            'sound_start'        => 'nullable|integer|min:0|max:3600',
+            'sound_start'        => 'nullable|integer|min:0|max:86400',
+            'sound_end'          => 'nullable|numeric|min:0|max:86400',
             'music_volume'       => 'nullable|numeric|min:0|max:1',
             'original_volume'    => 'nullable|numeric|min:0|max:1',
             'allow_sound_reuse'  => 'nullable|boolean',
@@ -322,7 +323,11 @@ $hashtags = $request->filled('hashtags')
         $volume = fn (string $k, float $d) => $request->filled($k) ? (float) $request->input($k) : $d;
         if ($sound) {
             $sound->increment('uses_count');
-            $jobs[] = new MixSoundJob($video, $sound->id, (int) $request->input('sound_start', 0), $volume('music_volume', 0.7), $volume('original_volume', 1.0));
+            // The part of the sound to use is limited to 2:30 (start..end); the sound itself can be any length
+            $sStart = (int) $request->input('sound_start', 0);
+            $sEnd   = $request->filled('sound_end') ? min((float) $request->input('sound_end'), $sStart + 150) : null;
+            if ($sEnd !== null && $sEnd <= $sStart) $sEnd = null;
+            $jobs[] = new MixSoundJob($video, $sound->id, $sStart, $volume('music_volume', 0.7), $volume('original_volume', 1.0), $sEnd);
         } elseif ($video->allow_sound_reuse && $volume('original_volume', 1.0) > 0) {
             $jobs[] = new ExtractOriginalSoundJob($video);
         }

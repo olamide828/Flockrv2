@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Sound extends Model
 {
     protected $fillable = [
-        'source', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
+        'source', 'external_id', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
         'duration', 'license', 'license_url', 'attribution', 'uses_count', 'is_active', 'is_public',
     ];
 
@@ -61,6 +61,8 @@ class Sound extends Model
             'mine'       => $viewerId !== null && $this->user_id === $viewerId,
             'is_public'  => $this->is_public,
             'attribution' => $this->attribution,
+            'external_id' => $this->external_id,
+            'waveform_url' => null,
         ];
     }
 }

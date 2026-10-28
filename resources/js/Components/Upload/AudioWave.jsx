@@ -21,7 +21,7 @@ function fakePeaks(seed, n) {
  * Real waveform of an audio URL / blob URL as `bars` values in 0..1.
  * Falls back to a seeded fake waveform if the file can't be fetched or decoded.
  */
-export function useWaveform(src, bars = 64, seed = 1) {
+export function useWaveform(src, bars = 64, seed = 1, { waveformUrl = null, duration = 0, skipDecode = false } = {}) {
     const [peaks, setPeaks] = useState(() => fakePeaks(seed, bars))
     const [real, setReal] = useState(false)
 
@@ -29,11 +29,37 @@ export function useWaveform(src, bars = 64, seed = 1) {
         let dead = false
         setPeaks(fakePeaks(seed, bars))
         setReal(false)
-        if (!src) return undefined
-        const Ctx = window.AudioContext || window.webkitAudioContext
-        if (!Ctx) return undefined
+
+        const reduce = (values) => {            // any-length array of 0..1 -> `bars` values
+            const size = values.length / bars
+            const out = []
+            for (let i = 0; i < bars; i++) {
+                let m = 0
+                for (let j = Math.floor(i * size); j < Math.max(Math.floor(i * size) + 1, Math.floor((i + 1) * size)) && j < values.length; j++) m = Math.max(m, values[j])
+                out.push(m)
+            }
+            const max = Math.max(...out, 0.0001)
+            return out.map(v => Math.max(0.1, v / max))
+        }
 
         ;(async () => {
+            // 1) a ready-made waveform from the provider (BBC audiowaveform JSON: interleaved min/max)
+            if (waveformUrl) {
+                try {
+                    const j = await (await fetch(waveformUrl)).json()
+                    const d = j?.data
+                    if (Array.isArray(d) && d.length > 3) {
+                        const range = 2 ** ((j.bits || 8) - 1)
+                        const vals = []
+                        for (let i = 0; i + 1 < d.length; i += 2) vals.push(Math.max(Math.abs(d[i]), Math.abs(d[i + 1])) / range)
+                        if (!dead) { setPeaks(reduce(vals)); setReal(true) }
+                        return
+                    }
+                } catch { /* fall through */ }
+            }
+            // 2) decode the audio itself (skipped for very long files: decoding hundreds of MB would crash a phone tab)
+            const Ctx = window.AudioContext || window.webkitAudioContext
+            if (!src || !Ctx || duration > 900 || skipDecode) return
             let ctx
             try {
                 const res = await fetch(src)
@@ -44,24 +70,22 @@ export function useWaveform(src, bars = 64, seed = 1) {
                 if (dead) return
                 const ch = audio.getChannelData(0)
                 const size = Math.floor(ch.length / bars) || 1
-                const out = []
+                const vals = []
                 for (let i = 0; i < bars; i++) {
                     let sum = 0
-                    const from = i * size
-                    const step = Math.max(1, Math.floor(size / 200))
                     let n = 0
-                    for (let j = from; j < from + size && j < ch.length; j += step) { sum += ch[j] * ch[j]; n++ }
-                    out.push(Math.sqrt(sum / (n || 1)))
+                    const step = Math.max(1, Math.floor(size / 200))
+                    for (let j = i * size; j < (i + 1) * size && j < ch.length; j += step) { sum += ch[j] * ch[j]; n++ }
+                    vals.push(Math.sqrt(sum / (n || 1)))
                 }
-                const max = Math.max(...out, 0.0001)
-                setPeaks(out.map(v => Math.max(0.1, v / max)))
+                setPeaks(reduce(vals))
                 setReal(true)
             } catch { /* keep the fake waveform */ } finally {
                 try { ctx?.close() } catch { /* ignore */ }
             }
         })()
         return () => { dead = true }
-    }, [src, bars, seed])
+    }, [src, bars, seed, waveformUrl, duration, skipDecode])
 
     return { peaks, real }
 }
@@ -83,10 +107,10 @@ function Bars({ peaks, progress = 0, height, active = ACCENT, idle = 'rgba(255,2
  * Custom audio player (no native controls): play/pause, waveform with progress, tap or drag to seek, time.
  * Pass either `src` (URL / blob URL).
  */
-export default function AudioWave({ src, seed = 1, height = 38, bars = 48 }) {
+export default function AudioWave({ src, seed = 1, height = 38, bars = 48, skipDecode = false }) {
     const el = useRef(null)
     const box = useRef(null)
-    const { peaks } = useWaveform(src, bars, seed)
+    const { peaks } = useWaveform(src, bars, seed, { skipDecode })
     const [playing, setPlaying] = useState(false)
     const [t, setT] = useState(0)
     const [dur, setDur] = useState(0)
@@ -140,45 +164,109 @@ export default function AudioWave({ src, seed = 1, height = 38, bars = 48 }) {
     )
 }
 
+export const MAX_USE_SECONDS = 150   // the part of a sound a video can use: 2:30
+
 /**
- * Pick which part of a long sound to use: the whole sound as a waveform with a highlighted window the
- * length of the video. Tap or drag anywhere to move the window. `playhead` (seconds) shows preview progress.
+ * Choose which part of a sound to use. Shows the WHOLE sound as a waveform with a highlighted range:
+ *  - drag the left or right edge to make the range longer or shorter,
+ *  - drag the middle to slide the range along,
+ *  - the range can never be longer than 2:30 (the box stops growing and says so),
+ *  - long sounds scroll sideways.
+ * `videoSec` marks where the video ends inside the range (music after that point will not play).
  */
-export function WaveScrubber({ peaks, duration, windowSec, start, onChange, playhead = null, height = 54 }) {
-    const box = useRef(null)
-    const dragging = useRef(false)
-    const win = Math.min(windowSec || duration, duration)
-    const maxStart = Math.max(0, Math.floor(duration - win))
+export function WaveScrubber({ src, waveformUrl, seed = 1, duration, start, end, onChange, playhead = null, videoSec = 0, maxSpan = MAX_USE_SECONDS, height = 64 }) {
+    const scroller = useRef(null)
+    const drag = useRef(null)
+    const [W, setW] = useState(320)
+    const [capped, setCapped] = useState(false)
+    const minSpan = Math.min(1, duration)
 
-    const move = (clientX) => {
-        const r = box.current?.getBoundingClientRect()
-        if (!r || !duration) return
-        const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
-        const centre = ratio * duration
-        onChange(Math.round(Math.min(maxStart, Math.max(0, centre - win / 2))))
+    useEffect(() => {
+        const el = scroller.current
+        if (!el) return undefined
+        const ro = new ResizeObserver(() => setW(el.clientWidth || 320))
+        ro.observe(el)
+        setW(el.clientWidth || 320)
+        return () => ro.disconnect()
+    }, [])
+
+    const pxPerSec = Math.max(W / Math.max(duration, 1), (W * 0.9) / maxSpan)   // at least: a full 2:30 box fills ~90% of the width
+    const contentW = Math.max(W, duration * pxPerSec)
+    const bars = Math.max(24, Math.floor(contentW / 4))
+    const { peaks } = useWaveform(src, bars, seed, { waveformUrl, duration })
+
+    // Bring the range into view when the sound changes
+    useEffect(() => {
+        if (scroller.current) scroller.current.scrollLeft = Math.max(0, start * pxPerSec - W * 0.15)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [src, duration])
+
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+    const begin = (mode) => (e) => {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+        drag.current = { mode, x0: e.clientX, s0: start, e0: end }
     }
+    const move = (e) => {
+        const d = drag.current
+        if (!d) return
+        const dt = (e.clientX - d.x0) / pxPerSec
+        let s = d.s0
+        let en = d.e0
+        let hit = false
+        if (d.mode === 'body') {
+            const shift = clamp(dt, -d.s0, duration - d.e0)
+            s = d.s0 + shift
+            en = d.e0 + shift
+        } else if (d.mode === 'left') {
+            const lo = Math.max(0, d.e0 - maxSpan)
+            const raw = d.s0 + dt
+            hit = raw < lo && lo > 0
+            s = clamp(raw, lo, d.e0 - minSpan)
+        } else {
+            const hi = Math.min(duration, d.s0 + maxSpan)
+            const raw = d.e0 + dt
+            hit = raw > hi && hi < duration
+            en = clamp(raw, d.s0 + minSpan, hi)
+        }
+        setCapped(hit)
+        onChange({ start: Math.round(s * 10) / 10, end: Math.round(en * 10) / 10 })
+    }
+    const finish = () => { drag.current = null; setCapped(false) }
 
-    const from = start / duration
-    const to = (start + win) / duration
-    const progress = playhead != null && duration ? playhead / duration : from
+    const x = (t) => t * pxPerSec
+    const span = end - start
+    const accent = capped ? '#EF4444' : ACCENT
+    const videoCut = videoSec > 0 && videoSec < span ? start + videoSec : null
+    const handle = { position: 'absolute', top: 0, bottom: 0, width: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'ew-resize', touchAction: 'none', zIndex: 3 }
+    const grip = { width: 5, height: 26, borderRadius: 3, background: '#fff', boxShadow: '0 0 0 1px rgba(0,0,0,0.4)' }
 
     return (
         <div>
-            <div
-                ref={box}
-                onPointerDown={e => { dragging.current = true; e.currentTarget.setPointerCapture?.(e.pointerId); move(e.clientX) }}
-                onPointerMove={e => { if (dragging.current) move(e.clientX) }}
-                onPointerUp={() => { dragging.current = false }}
-                onPointerCancel={() => { dragging.current = false }}
-                style={{ position: 'relative', cursor: 'ew-resize', touchAction: 'none', padding: '4px 0' }}
-            >
-                <Bars peaks={peaks} progress={progress} height={height} from={from} to={to} idle="rgba(255,255,255,0.7)" />
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${from * 100}%`, width: `${(to - from) * 100}%`, border: `2px solid ${ACCENT}`, borderRadius: 8, pointerEvents: 'none', boxSizing: 'border-box' }} />
+            <div ref={scroller} style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', touchAction: 'pan-x' }}>
+                <div style={{ position: 'relative', width: contentW, padding: '6px 0' }}>
+                    <Bars peaks={peaks} progress={playhead != null && duration ? playhead / duration : 0} height={height} from={start / duration} to={end / duration} idle="rgba(255,255,255,0.75)" active="#fff" />
+
+                    {/* The range */}
+                    <div
+                        onPointerDown={begin('body')} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}
+                        style={{ position: 'absolute', top: 2, bottom: 2, left: x(start), width: Math.max(8, x(span)), border: `2px solid ${accent}`, borderRadius: 10, background: capped ? 'rgba(239,68,68,0.12)' : 'rgba(255,107,53,0.10)', boxSizing: 'border-box', cursor: 'grab', touchAction: 'none', zIndex: 2, transition: 'border-color 0.12s' }}
+                    >
+                        {videoCut != null && (
+                            <div style={{ position: 'absolute', top: 0, bottom: 0, left: x(videoCut - start), right: 0, background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.5) 4px, rgba(0,0,0,0.3) 4px, rgba(0,0,0,0.3) 8px)', borderRadius: '0 8px 8px 0', pointerEvents: 'none' }} />
+                        )}
+                        <div onPointerDown={e => { e.stopPropagation(); begin('left')(e) }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} style={{ ...handle, left: -15 }}><span style={grip} /></div>
+                        <div onPointerDown={e => { e.stopPropagation(); begin('right')(e) }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} style={{ ...handle, right: -15 }}><span style={grip} /></div>
+                    </div>
+                </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: 'rgba(255,255,255,0.45)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                <span>Starts at <b style={{ color: ACCENT }}>{fmtTime(start)}</b></span>
-                <span>Drag to choose the part · {fmtTime(duration)} total</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 6, color: 'rgba(255,255,255,0.5)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                <span>Using <b style={{ color: accent }}>{fmtTime(start)} – {fmtTime(end)}</b> ({fmtTime(span)})</span>
+                <span style={{ color: capped ? '#EF4444' : undefined, fontWeight: capped ? 800 : 400 }}>{capped ? `Max ${fmtTime(maxSpan)}` : `${fmtTime(duration)} total · max ${fmtTime(maxSpan)}`}</span>
             </div>
+            {videoCut != null && (
+                <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>Your video is {fmtTime(videoSec)} long, so the striped part won&apos;t play.</p>
+            )}
         </div>
     )
 }
