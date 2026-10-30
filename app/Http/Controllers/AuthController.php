@@ -276,12 +276,12 @@ public function sendVerification(Request $request): RedirectResponse
     // Terms of service and privacy policy pages are static, so we can just return Inertia views
     public function terms(): Response
     {
-        return Inertia::render('Auth/Terms');
+        return Inertia::render('Legal/Terms');
     }
 
     public function privacy(): Response
     {
-        return Inertia::render('Auth/Privacy');
+        return Inertia::render('Legal/Privacy');
     }
 
     // ── Social Auth ───────────────────────────────────────────────────────────

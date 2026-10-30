@@ -225,6 +225,59 @@ class VideoController extends Controller
 
     // ── API ───────────────────────────────────────────────────────────────────
 
+    /**
+     * POST /api/videos/upload-url
+     * Gives the browser a short-lived link so it can send the video straight to R2/S3. The (large) video then never
+     * passes through PHP: no worker is tied up for a minute while a phone uploads 60MB, which is what makes the
+     * site answer 503 when several people (or one big upload plus normal traffic) hit a small server at once.
+     * Returns { direct: false } when the disk can't do this (local dev): the browser then uploads the normal way.
+     */
+    public function uploadUrl(Request $request): JsonResponse
+    {
+        if (!Auth::check() || Auth::user()->role !== 'seller') {
+            return response()->json(['message' => 'Only sellers can upload videos.'], 403);
+        }
+
+        $data = $request->validate([
+            'content_type' => 'required|string|in:video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska',
+            'size'         => 'required|integer|min:1|max:524288000',
+        ]);
+
+        $diskName = config('filesystems.default', 'public');
+        if (config("filesystems.disks.{$diskName}.driver") !== 's3') {
+            return response()->json(['direct' => false]);
+        }
+
+        $ext = match ($data['content_type']) {
+            'video/webm'       => 'webm',
+            'video/quicktime'  => 'mov',
+            'video/x-msvideo'  => 'avi',
+            'video/x-matroska' => 'mkv',
+            default            => 'mp4',
+        };
+        $key = 'videos/' . now()->format('Y/m/d') . '/' . \Illuminate\Support\Str::uuid() . '.' . $ext;
+
+        try {
+            $signed = Storage::disk($diskName)->temporaryUploadUrl($key, now()->addMinutes(45), ['ContentType' => $data['content_type']]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Direct upload link failed, falling back', ['error' => $e->getMessage()]);
+            return response()->json(['direct' => false]);
+        }
+
+        return response()->json([
+            'direct'  => true,
+            'url'     => $signed['url'],
+            'headers' => $signed['headers'] ?? [],
+            'key'     => $key,
+            'token'   => self::uploadKeyToken($key, (int) Auth::id()),
+        ]);
+    }
+
+    private static function uploadKeyToken(string $key, int $userId): string
+    {
+        return hash_hmac('sha256', $key . '|' . $userId, (string) config('app.key'));
+    }
+
     public function store(Request $request): JsonResponse
     {
         if (!Auth::check() || Auth::user()->role !== 'seller') {
@@ -232,7 +285,9 @@ class VideoController extends Controller
         }
 
         $request->validate([
-            'video' => 'required|file|mimes:mp4,mov,webm,avi,mkv|max:512000',
+            'video'     => 'required_without:video_key|file|mimes:mp4,mov,webm,avi,mkv|max:512000',
+            'video_key'   => 'required_without:video|string|max:255',
+            'video_token' => 'required_with:video_key|string|max:128',   // set when the browser already uploaded the file straight to storage
             'title' => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
             'hashtags' => 'nullable|string',
@@ -246,9 +301,11 @@ class VideoController extends Controller
             'music_volume'       => 'nullable|numeric|min:0|max:1',
             'original_volume'    => 'nullable|numeric|min:0|max:1',
             'allow_sound_reuse'  => 'nullable|boolean',
+            'rights'             => 'accepted',
             'enhance'            => 'nullable|boolean',
         ], [
             'video.max' => 'Video must be under 500MB.',
+            'rights.accepted' => 'Please confirm you have the rights to everything in your video.',
             'video.mimes' => 'Only MP4, MOV, WebM, AVI and MKV files are allowed.',
             'video.file' => 'Please select a valid video file.',
         ]);
@@ -257,8 +314,28 @@ class VideoController extends Controller
 $hashtags = $request->filled('hashtags')
     ? array_values(array_filter(array_map('trim', preg_split('/[\s,#]+/', $request->hashtags))))
     : [];
-        $file = $request->file('video');
-        $path = $this->storageService->uploadVideo($file);
+        if ($request->filled('video_key')) {
+            // The browser uploaded the file straight to storage (see uploadUrl()); verify it, don't trust the key blindly
+            $key  = (string) $request->input('video_key');
+            $disk = Storage::disk(config('filesystems.default', 'public'));
+            // The key must be one we signed for THIS user (stateless HMAC, so it works across servers/caches)
+            $okKey = str_starts_with($key, 'videos/') && !str_contains($key, '..')
+                && hash_equals(self::uploadKeyToken($key, (int) Auth::id()), (string) $request->input('video_token'));
+            if (!$okKey || !$disk->exists($key)) {
+                return response()->json(['message' => 'The video file did not arrive. Please try again.', 'errors' => ['video' => ['The video file did not arrive. Please try again.']]], 422);
+            }
+            $size = (int) $disk->size($key);
+            if ($size > 500 * 1024 * 1024) {
+                $disk->delete($key);
+                return response()->json(['message' => 'Video must be under 500MB.', 'errors' => ['video' => ['Video must be under 500MB.']]], 422);
+            }
+            $path     = $key;
+            $fileSize = $size;
+        } else {
+            $file     = $request->file('video');
+            $path     = $this->storageService->uploadVideo($file);
+            $fileSize = $file->getSize();
+        }
 
         // Chosen sound (library track or another creator's original sound). Must still be active.
         $sound = $request->filled('sound_id') ? Sound::active()->find($request->integer('sound_id')) : null;
@@ -269,7 +346,7 @@ $hashtags = $request->filled('hashtags')
             'description' => $request->input('description'),
             'hashtags' => $hashtags,
             'video_url' => $path,
-            'file_size_bytes' => $file->getSize(),
+            'file_size_bytes' => $fileSize,
             // Live immediately, like TikTok. The music mix (if any) and the streaming versions finish in the
             // background and are swapped in when ready.
             'status' => 'active',

@@ -68,6 +68,7 @@ export default function SoundShow({ sound, total = 0, videos: first = [], has_mo
                             {total.toLocaleString()} video{total === 1 ? '' : 's'}{sound.duration ? ` · ${fmtTime(sound.duration)}` : ''}
                         </p>
                         {sound.attribution && <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>{sound.attribution}</p>}
+                        <a href={`/copyright?sound=${sound.id}`} style={{ display: 'inline-block', marginTop: 6, color: 'rgba(255,255,255,0.4)', fontSize: 11, textDecoration: 'underline' }}>Report this sound</a>
                     </div>
                 </div>
 

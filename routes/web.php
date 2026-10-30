@@ -36,8 +36,9 @@ Route::get('/events/{event}', [EventController::class, 'showPage']);
 
 Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
 Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
+Route::get('/copyright', [\App\Http\Controllers\CopyrightController::class, 'page']);
 
-Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);   // keep this ABOVE the next line
+Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);   
 Route::get('/sound/{sound}', [SoundController::class, 'page'])->name('sound.show');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name
 Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
 Route::get('/events', [AdminController::class, 'eventsPage'])->name('admin.events');
 Route::get('/support-tickets', [AdminController::class, 'supportTickets'])->name('admin.support-tickets');
+Route::get('/music', [\App\Http\Controllers\AdminMusicController::class, 'page'])->name('admin.music');
     });
 });
 

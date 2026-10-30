@@ -39,6 +39,9 @@ class WatermarkVideoJob implements ShouldQueue
      */
     private array $layers = [];
 
+    /** [w, h] the video is scaled to before the watermark is drawn (null = keep its own size) */
+    private ?array $scaleTo = null;
+
     public function __construct(
         public readonly Video  $video,
         public readonly string $cacheKey,
@@ -47,6 +50,7 @@ class WatermarkVideoJob implements ShouldQueue
 
     public function handle(): void
     {
+        $t0   = microtime(true);
         $uuid = Str::uuid();
         $tmp  = sys_get_temp_dir() . DIRECTORY_SEPARATOR;
 
@@ -60,6 +64,10 @@ class WatermarkVideoJob implements ShouldQueue
 
             // 2. Probe dimensions, duration and whether there is an audio track
             [$vw, $vh] = $this->probeDimensions($tmpInput);
+            // Longest side capped at 1280 (a 1080x1920 phone video becomes 720x1280): far less CPU and memory, and
+            // plenty sharp for a shared copy. Without this a 1080p encode could exceed the worker's time or memory.
+            [$vw, $vh, $scaled] = $this->targetSize($vw, $vh);
+            $this->scaleTo = $scaled ? [$vw, $vh] : null;
             $dur       = $this->probeDuration($tmpInput);
             $hasAudio  = $this->probeHasAudio($tmpInput);
 
@@ -95,7 +103,7 @@ class WatermarkVideoJob implements ShouldQueue
             $url = Storage::disk($disk)->url($this->outputPath);
 
             Cache::put($this->cacheKey, ['status' => 'done', 'url' => $url], now()->addMinutes(30));
-            Log::info('WatermarkVideoJob done', ['ulid' => $this->video->ulid, 'url' => $url]);
+            Log::info('WatermarkVideoJob done', ['ulid' => $this->video->ulid, 'url' => $url, 'seconds' => round(microtime(true) - $t0, 1), 'peak_mb' => round(memory_get_peak_usage(true) / 1048576)]);
 
         } catch (\Throwable $e) {
             Cache::put($this->cacheKey, ['status' => 'error', 'message' => $e->getMessage()], now()->addMinutes(5));
@@ -126,6 +134,8 @@ class WatermarkVideoJob implements ShouldQueue
         $D    = $this->fmt($dur);
         $out  = self::OUTRO_DURATION;
         $fmt  = fn (float $v): string => $this->fmt($v);
+
+        $scale = $this->scaleTo ? ',scale=' . $this->scaleTo[0] . ':' . $this->scaleTo[1] . ':flags=bicubic' : '';
 
         // "Enhance" look chosen by the creator (same recipe as the CSS filter used on playback)
         $enhance = $this->video->enhance ? ',eq=contrast=1.07:saturation=1.14:brightness=0.02,unsharp=5:5:0.5:5:5:0.0' : '';
@@ -209,9 +219,9 @@ class WatermarkVideoJob implements ShouldQueue
         $draws = $this->buildOverlayDraws($vw, $vh);
         $nl    = count($this->layers);
         if ($draws === '' && $nl === 0) {
-            $L[] = '[0:v]fps=30,setsar=1' . $enhance . ',format=yuv420p[base]';
+            $L[] = '[0:v]fps=30' . $scale . ',setsar=1' . $enhance . ',format=yuv420p[base]';
         } else {
-            $L[] = '[0:v]fps=30,setsar=1' . $enhance . ',format=yuv420p[b0]';
+            $L[] = '[0:v]fps=30' . $scale . ',setsar=1' . $enhance . ',format=yuv420p[b0]';
             $cur = 'b0';
             if ($draws !== '') {
                 $L[] = '[b0]' . $draws . ($nl === 0 ? '[base]' : '[bd]');
@@ -249,7 +259,7 @@ class WatermarkVideoJob implements ShouldQueue
         $L[] = '[v6]'
              . $text('flockr', $bsz, '(w-text_w)/2', $yAt($yBr, 0.15), 'white',    1.0,  $rise(0.15)) . ','
              . $text($user,    $usz, '(w-text_w)/2', $yAt($yUs, 0.30), '0xFF6B35', 1.0,  $rise(0.30)) . ','
-             . $text('Shop What You Watch', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
+             . $text('Discover. Shop. Connect.', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
              . '[outv]';
 
         // ── Audio: original track, then the outro sound (or silence) ──────────
@@ -278,7 +288,7 @@ class WatermarkVideoJob implements ShouldQueue
             ? " -i \"" . $this->p($sound) . "\""
             : " -f lavfi -t {$out} -i anullsrc=r=44100:cl=stereo";
 
-        $cmd = "\"{$ff}\" -y"
+        $cmd = $this->niceBin() . "\"{$ff}\" -y -hide_banner -nostats -loglevel error"
              . " -i \"" . $this->p($input) . "\""
              . $loop . " -i \"" . $this->p($wmLogo) . "\""
              . $loop . " -i \"" . $this->p($outroLogo) . "\""
@@ -286,7 +296,7 @@ class WatermarkVideoJob implements ShouldQueue
              . $this->layerInputs($loop)
              . " -/filter_complex \"" . $this->p($filterFile) . "\""
              . " -map \"[outv]\" -map \"[outa]\""
-             . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset fast -crf 28"
+             . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset veryfast -crf 25 -threads 2"
              . " -c:a aac -ar 44100 -ac 2"
              . " -movflags +faststart"
              . " \"" . $this->p($output) . "\" 2>&1";
@@ -307,6 +317,31 @@ class WatermarkVideoJob implements ShouldQueue
             Log::error('WatermarkVideoJob ffmpeg failed', ['code' => $code, 'tail' => $tail]);
             throw new \RuntimeException("FFmpeg failed (code {$code}):\n{$tail}");
         }
+    }
+
+    /** Run at low priority so a download never starves web requests when they share a machine. */
+    private function niceBin(): string
+    {
+        foreach (['/usr/bin/nice', '/bin/nice'] as $n) {
+            if (is_executable($n)) return $n . ' -n 10 ';
+        }
+        return '';
+    }
+
+    /** Cap the longest side at 1280 (even numbers). Returns [w, h, wasScaled]. */
+    private function targetSize(int $w, int $h): array
+    {
+        $long = max($w, $h);
+        if ($long <= 1280 || $w < 2 || $h < 2) return [$w, $h, false];
+        $k = 1280 / $long;
+        return [(int) (round($w * $k / 2) * 2), (int) (round($h * $k / 2) * 2), true];
+    }
+
+    /** The worker killed the job or it ran out of attempts: tell the browser now instead of letting it poll for minutes. */
+    public function failed(\Throwable $e): void
+    {
+        Log::error('WatermarkVideoJob gave up', ['ulid' => $this->video->ulid, 'error' => $e->getMessage()]);
+        Cache::put($this->cacheKey, ['status' => 'error', 'message' => 'The download could not be prepared. Please try again.'], now()->addMinutes(5));
     }
 
     private function fmt(float $v): string

@@ -338,6 +338,7 @@ Route::post('/chirp/product-insight', function (\Illuminate\Http\Request $reques
 });
 
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
+Route::post('/copyright-claim', [\App\Http\Controllers\CopyrightController::class, 'submit'])->middleware('throttle:6,60');
 Route::get('/sounds/{sound}/videos', [SoundController::class, 'videos']);   // public: "Load more" on the sound page
 Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
 Route::middleware('auth')->post('/feed/reset', function () {
@@ -380,12 +381,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Videos
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
+    Route::post('/videos/upload-url', [VideoController::class, 'uploadUrl']);   // direct-to-storage upload link
     Route::post('/videos/upload', [VideoController::class, 'store']);
     Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
     Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
     Route::delete('/sounds/{sound}', [SoundController::class, 'destroy']);
     Route::get('/sounds/epidemic/{trackId}/preview', [SoundController::class, 'epidemicPreview']);
     Route::post('/sounds/epidemic/{trackId}/import', [SoundController::class, 'epidemicImport']);
+    Route::post('/sounds/free/{id}/import', [SoundController::class, 'freeImport']);
     Route::get('/sounds/{sound}', [SoundController::class, 'show']);
 
 
@@ -866,6 +869,27 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
     Route::post('/disputes/{dispute}/resolve', [DisputeController::class, 'resolve']);
 
     Route::post('/tickets/{ticket}/resolve', [AdminController::class, 'resolveTicket']);
+
+        // Sounds, copyright claims, video processing
+        Route::prefix('music')->group(function () {
+            Route::get('/claims', [\App\Http\Controllers\AdminMusicController::class, 'claims']);
+            Route::post('/claims/{claim}/takedown', [\App\Http\Controllers\AdminMusicController::class, 'takedown']);
+            Route::post('/claims/{claim}/reject', [\App\Http\Controllers\AdminMusicController::class, 'reject']);
+            Route::post('/claims/{claim}/restore', [\App\Http\Controllers\AdminMusicController::class, 'restoreClaim']);
+            Route::get('/strikes', [\App\Http\Controllers\AdminMusicController::class, 'strikes']);
+            Route::get('/sounds', [\App\Http\Controllers\AdminMusicController::class, 'sounds']);
+            Route::patch('/sounds/{sound}', [\App\Http\Controllers\AdminMusicController::class, 'updateSound']);
+            Route::post('/sounds/{sound}/toggle', [\App\Http\Controllers\AdminMusicController::class, 'toggleSound']);
+            Route::post('/sounds/{sound}/takedown', [\App\Http\Controllers\AdminMusicController::class, 'takedownSoundAction']);
+            Route::delete('/sounds/{sound}', [\App\Http\Controllers\AdminMusicController::class, 'deleteSound']);
+            Route::get('/sounds/{sound}/videos', [\App\Http\Controllers\AdminMusicController::class, 'soundVideos']);
+            Route::post('/videos/{id}/hide', [\App\Http\Controllers\AdminMusicController::class, 'hideVideo']);
+            Route::post('/videos/{id}/restore', [\App\Http\Controllers\AdminMusicController::class, 'restoreVideo']);
+            Route::post('/videos/{video}/reprocess', [\App\Http\Controllers\AdminMusicController::class, 'reprocess']);
+            Route::get('/stuck', [\App\Http\Controllers\AdminMusicController::class, 'stuck']);
+            Route::post('/heal', [\App\Http\Controllers\AdminMusicController::class, 'heal']);
+            Route::get('/diag', [\App\Http\Controllers\AdminMusicController::class, 'diag']);
+        });
 
         Route::get('/stats', [AdminController::class, 'stats']);
         Route::get('/analytics', [AdminController::class, 'analytics']);

@@ -171,3 +171,23 @@ export async function attachAudioSource(audio, url) {
     audio.src = url
     audio.load()
 }
+
+/**
+ * PUT a file straight to a pre-signed storage URL (no cookies, no app headers: those would trigger a CORS
+ * preflight the bucket doesn't allow). Resolves when storage answers 2xx, rejects otherwise.
+ */
+export function putToUrl(url, headers, file, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PUT', url)
+        Object.entries(headers || {}).forEach(([k, v]) => {
+            if (/^(host|content-length)$/i.test(k)) return          // the browser sets these itself
+            xhr.setRequestHeader(k, Array.isArray(v) ? v[0] : v)
+        })
+        xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress?.(e.loaded / e.total) }
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`storage answered ${xhr.status}`)))
+        xhr.onerror = () => reject(new Error('network or CORS error'))
+        xhr.ontimeout = () => reject(new Error('timeout'))
+        xhr.send(file)
+    })
+}

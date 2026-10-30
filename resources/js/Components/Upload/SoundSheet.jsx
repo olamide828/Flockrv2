@@ -8,6 +8,7 @@ import { S, Spinner } from './ui'
 
 const TABS = [
     { id: 'library',  label: 'Library',         hint: 'Royalty-free music cleared for use in videos' },
+    { id: 'free',     label: 'Free music',      hint: 'Free songs (CC0 / CC BY). Credit is added to your video automatically' },
     { id: 'creators', label: 'Creator sounds',  hint: 'Original sounds from videos on Flockr' },
     { id: 'mine',     label: 'My sounds',       hint: 'Sounds you recorded or uploaded' },
     { id: 'epidemic', label: 'Epidemic',        hint: 'Epidemic Sound catalogue', optional: true },
@@ -163,11 +164,11 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         audioRef.current?.pause()
         setPlayingId(null)
         let chosen = sel
-        if (sel.source === 'epidemic') {
-            // Epidemic tracks are copied into our library the first time someone uses them
+        if (sel.source === 'epidemic' || sel.source === 'openverse') {
+            // External tracks are copied into our library the first time someone uses them
             setImporting(true)
             try {
-                const { data } = await axios.post(`/api/sounds/epidemic/${sel.external_id}/import`)
+                const { data } = await axios.post(sel.source === 'openverse' ? `/api/sounds/free/${sel.external_id}/import` : `/api/sounds/epidemic/${sel.external_id}/import`)
                 chosen = data.sound
             } catch (e) {
                 setImporting(false)

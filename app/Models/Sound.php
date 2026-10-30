@@ -65,4 +65,9 @@ class Sound extends Model
             'waveform_url' => null,
         ];
     }
+
+    public function videos()
+    {
+        return $this->hasMany(Video::class);
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Sound;
 use App\Models\Video;
 use App\Services\EpidemicSound;
+use App\Services\OpenverseAudio;
 use Inertia\Inertia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,12 +27,22 @@ class SoundController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $tab    = in_array($request->query('tab'), ['creators', 'mine', 'epidemic'], true) ? $request->query('tab') : 'library';
+        $tab    = in_array($request->query('tab'), ['creators', 'mine', 'epidemic', 'free'], true) ? $request->query('tab') : 'library';
         $q      = trim((string) $request->query('q', ''));
         $offset = max(0, (int) $request->query('offset', 0));
         $me     = Auth::id();
         $es     = app(EpidemicSound::class);
         $meta   = ['epidemic' => $es->enabled()];
+
+        if ($tab === 'free') {
+            try {
+                $r = app(OpenverseAudio::class)->search($q, intdiv($offset, self::PAGE) + 1, self::PAGE);
+            } catch (\Throwable $e) {
+                Log::warning('Openverse search failed', ['error' => $e->getMessage()]);
+                return response()->json(['message' => $e->getMessage()], 502);
+            }
+            return response()->json($r + ['meta' => $meta]);
+        }
 
         if ($tab === 'epidemic') {
             if (!$es->enabled()) return response()->json(['data' => [], 'has_more' => false, 'meta' => $meta]);
@@ -223,6 +234,58 @@ class SoundController extends Controller
             return response()->json(['sound' => $sound->toApi($user->id)], 201);
         } catch (\Throwable $e) {
             Log::warning('Epidemic import failed', ['track' => $trackId, 'error' => $e->getMessage()]);
+            return response()->json(['message' => $e->getMessage()], 502);
+        } finally {
+            if ($tmp) @unlink($tmp);
+        }
+    }
+
+    /**
+     * POST /api/sounds/free/{id}/import   (Openverse track id)
+     * Copies a free-licence track into our storage the first time someone uses it. The credit line is kept
+     * in sounds.attribution and shown with the video.
+     */
+    public function freeImport(string $id): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user || !in_array($user->role, ['seller', 'admin'], true)) {
+            return response()->json(['message' => 'Only sellers can use this.'], 403);
+        }
+        $existing = Sound::where('source', 'openverse')->where('external_id', $id)->first();
+        if ($existing) {
+            if (!$existing->is_active) return response()->json(['message' => 'This track is no longer available.'], 410);
+            return response()->json(['sound' => $existing->toApi($user->id)]);
+        }
+
+        $tmp = null;
+        try {
+            set_time_limit(180);
+            $ov   = app(OpenverseAudio::class);
+            $meta = $ov->track($id);
+            [$tmp, $secs] = $ov->downloadMp3($meta['_raw_url'], config('flockr.ffmpeg_path', '/var/www/bin/ffmpeg'), config('flockr.ffprobe_path', '/var/www/bin/ffprobe'));
+
+            $disk = config('filesystems.default', 'public');
+            $name = 'sounds/free/' . Str::lower(Str::random(14)) . '.mp3';
+            Storage::disk($disk)->putFileAs('sounds/free', new \Illuminate\Http\File($tmp), basename($name), 'public');
+
+            $sound = Sound::create([
+                'source'      => 'openverse',
+                'external_id' => $id,
+                'title'       => Str::limit($meta['title'], 80, ''),
+                'artist'      => Str::limit($meta['artist'], 80, ''),
+                'file_path'   => $name,
+                'cover_path'  => $meta['cover_url'],
+                'duration'    => $secs ?: $meta['duration'],
+                'license'     => $meta['_license'],
+                'license_url' => $meta['_license_url'],
+                'attribution' => Str::limit($meta['attribution'], 250, ''),
+                'is_active'   => true,
+                'is_public'   => true,
+            ]);
+
+            return response()->json(['sound' => $sound->toApi($user->id)], 201);
+        } catch (\Throwable $e) {
+            Log::warning('Free sound import failed', ['track' => $id, 'error' => $e->getMessage()]);
             return response()->json(['message' => $e->getMessage()], 502);
         } finally {
             if ($tmp) @unlink($tmp);

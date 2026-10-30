@@ -18,6 +18,7 @@ function AdminLayout({ children, active }) {
     { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
     { href: '/admin/disputes', icon: RiAlertLine, label: 'Disputes' },
     { href: '/admin/events', icon: RiAlertLine, label: 'Events' },
+    { href: '/admin/music', icon: RiAlertLine, label: 'Music & copyrigh' },
   ]
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>

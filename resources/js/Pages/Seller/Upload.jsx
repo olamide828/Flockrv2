@@ -13,7 +13,7 @@ import SoundSheet from '../../Components/Upload/SoundSheet'
 import SoundMarquee from '../../Components/Video/SoundMarquee'
 import TextEditor from '../../Components/Upload/TextEditor'
 import { CHint, KEYFRAMES, S, SCard, Spinner } from '../../Components/Upload/ui'
-import { ENHANCE_CSS, PHOTO_SECONDS, fmtTime, photoToVideoFile, probeVideo } from '../../lib/media'
+import { ENHANCE_CSS, PHOTO_SECONDS, fmtTime, photoToVideoFile, probeVideo, putToUrl } from '../../lib/media'
 import { ensureTextFonts, renderOverlayBlob } from '../../lib/textOverlays'
 
 const GALLERY_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo']
@@ -53,6 +53,7 @@ export default function Upload({ products: initialProducts = [] }) {
     const preSound = useRef(null)                          // sound chosen on a sound page ("Use this sound"), kept across retakes
     const [soundSheet, setSoundSheet] = useState(false)
     const [allowReuse, setAllowReuse] = useState(true)
+    const [rights, setRights] = useState(false)
     const [posterUrl, setPosterUrl] = useState(null)     // freeze-frame shown instantly while the recording loads
     // "Enhance" look: on by default, remembered per device
     const [enhance, setEnhance] = useState(() => { try { return localStorage.getItem('flockr.enhance') !== '0' } catch { return true } })
@@ -280,7 +281,6 @@ export default function Upload({ products: initialProducts = [] }) {
                 meta.push({ ...o, frame_w: Math.round(fw), frame_h: Math.round(fh), png_index: meta.length, png_scale: r.scale, png_w: r.width, png_h: r.height })
             }
 
-            fd.append('video', videoFile)
             fd.append('title', title.trim())
             fd.append('description', description.trim())
             fd.append('hashtags', hashtags.trim())
@@ -289,6 +289,7 @@ export default function Upload({ products: initialProducts = [] }) {
             if (videoDuration) fd.append('duration_seconds', Math.max(1, Math.round(videoDuration)))
             fd.append('original_volume', String(muted || !hasOwnAudio ? 0 : originalVolume))
             fd.append('allow_sound_reuse', allowReuse ? '1' : '0')
+            fd.append('rights', rights ? '1' : '0')
             fd.append('enhance', enhance ? '1' : '0')
             if (sound) {
                 fd.append('sound_id', String(sound.sound.id))
@@ -297,10 +298,26 @@ export default function Upload({ products: initialProducts = [] }) {
                 fd.append('music_volume', String(sound.musicVolume))
             }
 
+            // 1) Try to send the video straight to storage (fast, and keeps the big file off our web server).
+            //    Any problem here (no direct support, CORS not set up yet, network) just falls back to step 2.
             setUploadLabel('Uploading…')
+            let direct = false
+            try {
+                const { data: pre } = await axios.post('/api/videos/upload-url', { content_type: videoFile.type || 'video/mp4', size: videoFile.size })
+                if (pre?.direct) {
+                    await putToUrl(pre.url, pre.headers, videoFile, f => setProgress(Math.round(f * 100)))
+                    fd.append('video_key', pre.key)
+                    fd.append('video_token', pre.token)
+                    direct = true
+                }
+            } catch { direct = false }
+
+            // 2) Normal upload: the file goes with the form (or, if step 1 worked, just the small details)
+            if (!direct) { fd.append('video', videoFile); setProgress(0) }
+            else setUploadLabel('Posting…')
             await axios.post('/api/videos/upload', fd, {
                 headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: e => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
+                onUploadProgress: e => { if (!direct && e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
             })
             setDone(true)
             setTimeout(() => router.visit('/seller/dashboard'), 2200)
@@ -602,9 +619,13 @@ export default function Upload({ products: initialProducts = [] }) {
 
                     {/* Bottom: Back / Post */}
                     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30, background: 'linear-gradient(to top, #0a0a0a 65%, transparent)', padding: '28px 16px calc(env(safe-area-inset-bottom) + 14px)' }}>
+                        <label style={{ maxWidth: 520, margin: '0 auto 10px', display: 'flex', gap: 9, alignItems: 'flex-start', color: 'rgba(255,255,255,0.6)', fontSize: 12, lineHeight: 1.45, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={rights} onChange={e => setRights(e.target.checked)} disabled={uploading} style={{ marginTop: 2, accentColor: '#FF6B35', width: 16, height: 16, flexShrink: 0 }} />
+                            <span>I own or have permission to use everything in this video, including the music. I understand it can be removed if a rights holder reports it. <a href="/copyright" target="_blank" rel="noreferrer" style={{ color: '#FF6B35' }}>Copyright policy</a></span>
+                        </label>
                         <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', gap: 10 }}>
                             <button onClick={() => setStage('edit')} disabled={uploading} style={{ ...S.outlineBtn, flex: '0 0 auto' }}><RiArrowLeftLine size={16} /> Back</button>
-                            <button onClick={handleUpload} disabled={uploading} style={{ ...S.primaryBtn, flex: 1, opacity: uploading ? 0.8 : 1 }}>
+                            <button onClick={handleUpload} disabled={uploading || !rights} style={{ ...S.primaryBtn, flex: 1, opacity: uploading || !rights ? 0.55 : 1 }}>
                                 {uploading ? <><Spinner />{uploadLabel === 'Uploading…' ? `${progress}%` : uploadLabel}</> : <><RiUploadCloud2Line size={17} /> Post</>}
                             </button>
                         </div>
