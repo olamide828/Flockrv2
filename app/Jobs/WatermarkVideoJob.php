@@ -249,7 +249,7 @@ class WatermarkVideoJob implements ShouldQueue
         $L[] = '[v6]'
              . $text('flockr', $bsz, '(w-text_w)/2', $yAt($yBr, 0.15), 'white',    1.0,  $rise(0.15)) . ','
              . $text($user,    $usz, '(w-text_w)/2', $yAt($yUs, 0.30), '0xFF6B35', 1.0,  $rise(0.30)) . ','
-             . $text('Discover. Shop. Connect.', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
+             . $text('Shop What You Watch', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
              . '[outv]';
 
         // ── Audio: original track, then the outro sound (or silence) ──────────

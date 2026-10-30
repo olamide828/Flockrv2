@@ -19,3 +19,4 @@ return new class extends Migration
         Schema::table('sounds', fn (Blueprint $t) => $t->dropColumn('external_id'));
     }
 };
+    

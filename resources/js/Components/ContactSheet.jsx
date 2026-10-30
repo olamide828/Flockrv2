@@ -3,7 +3,7 @@ import { RiCloseLine, RiWhatsappLine, RiMailLine, RiFileCopyLine, RiArrowRightSL
 
 
 const WHATSAPP_NUMBER = '2347012591630';
-const SUPPORT_EMAIL = 'support@flockr.com';
+const SUPPORT_EMAIL = 'support@flockr.com.ng';
 
 export default function ContactSheet({ user, onClose, showToast }) {
     const [closing, setClosing] = useState(false);
