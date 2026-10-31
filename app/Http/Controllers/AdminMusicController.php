@@ -6,6 +6,7 @@ use App\Jobs\ProcessVideoJob;
 use App\Models\CopyrightClaim;
 use App\Models\Sound;
 use App\Models\Video;
+use App\Services\CopyrightMailer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -57,26 +58,32 @@ class AdminMusicController extends Controller
     public function takedown(Request $request, CopyrightClaim $claim): JsonResponse
     {
         $data = $request->validate(['scope' => 'required|in:sound,video', 'note' => 'nullable|string|max:1000']);
-        $hidden = 0;
+        $videos = collect();
 
         if ($data['scope'] === 'sound') {
             if (!$claim->sound_id) return response()->json(['message' => 'This claim has no sound attached.'], 422);
-            $hidden = $this->takedownSound(Sound::findOrFail($claim->sound_id));
+            $videos = $this->takedownSound(Sound::findOrFail($claim->sound_id));
         } else {
             if (!$claim->video_id) return response()->json(['message' => 'This claim has no video attached.'], 422);
             $v = Video::find($claim->video_id);
-            if ($v) { $v->delete(); $hidden = 1; }
+            if ($v) { $v->delete(); $videos = collect([$v]); }
         }
 
         $claim->update(['status' => 'actioned', 'action_taken' => $data['scope'], 'admin_note' => $data['note'] ?? null, 'actioned_at' => now(), 'actioned_by' => Auth::id()]);
-        return response()->json(['message' => $data['scope'] === 'sound' ? "Sound switched off and {$hidden} video(s) hidden." : 'Video hidden.']);
+
+        CopyrightMailer::claimant($claim, 'actioned');
+        $suspended = $this->notifySellers($videos, "#{$claim->id}");
+
+        return response()->json(['message' => ($data['scope'] === 'sound' ? "Sound switched off and {$videos->count()} video(s) hidden." : 'Video hidden.')
+            . ' The claimant and seller(s) were emailed.' . ($suspended ? " {$suspended} seller(s) reached the strike limit and were suspended." : '')]);
     }
 
     /** POST /api/admin/music/claims/{claim}/reject   { note? } */
     public function reject(Request $request, CopyrightClaim $claim): JsonResponse
     {
         $claim->update(['status' => 'rejected', 'action_taken' => 'rejected', 'admin_note' => $request->input('note'), 'actioned_at' => now(), 'actioned_by' => Auth::id()]);
-        return response()->json(['message' => 'Claim rejected. Nothing was removed.']);
+        CopyrightMailer::claimant($claim, 'rejected', $request->input('note'));
+        return response()->json(['message' => 'Claim rejected. The claimant was emailed. Nothing was removed.']);
     }
 
     /** POST /api/admin/music/claims/{claim}/restore  (counter-notice won / claim withdrawn) */
@@ -90,26 +97,54 @@ class AdminMusicController extends Controller
             $n = Video::onlyTrashed()->where('id', $claim->video_id)->restore();
         }
         $claim->update(['status' => 'rejected', 'action_taken' => 'restored', 'admin_note' => trim(($claim->admin_note ?? '') . ' | restored: ' . $request->input('note', '')), 'actioned_at' => now(), 'actioned_by' => Auth::id()]);
-        return response()->json(['message' => "Restored. {$n} video(s) are live again."]);
+        CopyrightMailer::claimant($claim, 'restored', $request->input('note'));
+        return response()->json(['message' => "Restored. {$n} video(s) are live again. The claimant was emailed."]);
     }
 
     /** GET /api/admin/music/strikes — sellers with videos removed for copyright (suspend with the normal user action) */
     public function strikes(): JsonResponse
     {
-        $ids = CopyrightClaim::where('status', 'actioned')->get(['video_id', 'sound_id', 'action_taken']);
-        $byUser = [];
-        foreach ($ids as $c) {
-            $vids = $c->action_taken === 'sound'
-                ? Video::withTrashed()->where('sound_id', $c->sound_id)->get(['id', 'user_id'])
-                : Video::withTrashed()->where('id', $c->video_id)->get(['id', 'user_id']);
-            foreach ($vids as $v) $byUser[$v->user_id] = ($byUser[$v->user_id] ?? 0) + 1;
-        }
+        $byUser = $this->strikeCounts();
         arsort($byUser);
         $users = \App\Models\User::withTrashed()->whereIn('id', array_keys($byUser))->get(['id', 'name', 'username', 'is_active'])->keyBy('id');
 
         return response()->json(['data' => collect($byUser)->map(fn ($n, $uid) => [
             'user' => $users[$uid] ?? null, 'strikes' => $n,
         ])->values()]);
+    }
+
+    /** @return array<int,int> seller id => number of separate actioned claims that hit them (one claim = one strike) */
+    private function strikeCounts(): array
+    {
+        $byUser = [];
+        foreach (CopyrightClaim::where('status', 'actioned')->get(['video_id', 'sound_id', 'action_taken']) as $c) {
+            $owners = ($c->action_taken === 'sound'
+                ? Video::withTrashed()->where('sound_id', $c->sound_id)
+                : Video::withTrashed()->where('id', $c->video_id))->pluck('user_id')->unique();
+            foreach ($owners as $uid) $byUser[$uid] = ($byUser[$uid] ?? 0) + 1;
+        }
+        return $byUser;
+    }
+
+    /** Emails each affected seller and suspends anyone who reached the strike limit. Returns how many were suspended. */
+    private function notifySellers($videos, string $ref): int
+    {
+        $counts    = $this->strikeCounts();
+        $limit     = (int) config('legal.auto_suspend_at', 3);
+        $suspended = 0;
+
+        foreach ($videos->groupBy('user_id') as $uid => $vids) {
+            $u = \App\Models\User::withTrashed()->find($uid);
+            if (!$u) continue;
+            CopyrightMailer::seller($u->email, $u->name, $vids->count() > 1 ? "{$vids->count()} videos using this music" : ($vids->first()->title ?: 'your video'), $ref);
+
+            if ($limit > 0 && ($counts[$uid] ?? 0) >= $limit && $u->is_active && $u->role !== 'admin' && !$u->trashed()) {
+                $u->update(['is_active' => false, 'suspension_reason' => 'Repeated copyright infringement', 'suspended_at' => now()]);
+                CopyrightMailer::suspended($u->email, $u->name);
+                $suspended++;
+            }
+        }
+        return $suspended;
     }
 
     // ── Sounds ───────────────────────────────────────────────────────────────
@@ -152,8 +187,8 @@ class AdminMusicController extends Controller
     /** POST /api/admin/music/sounds/{sound}/takedown — switch off AND hide every video using it */
     public function takedownSoundAction(Sound $sound): JsonResponse
     {
-        $n = $this->takedownSound($sound);
-        return response()->json(['message' => "Sound switched off and {$n} video(s) hidden."]);
+        $videos = $this->takedownSound($sound);
+        return response()->json(['message' => "Sound switched off and {$videos->count()} video(s) hidden."]);
     }
 
     /** DELETE /api/admin/music/sounds/{sound} — removes the file too. Videos that used it keep playing (their audio is already mixed in). */
@@ -217,11 +252,12 @@ class AdminMusicController extends Controller
 
     // ── shared ───────────────────────────────────────────────────────────────
 
-    private function takedownSound(Sound $sound): int
+    /** Switches the sound off and hides every video using it. Returns the hidden videos. */
+    private function takedownSound(Sound $sound)
     {
         $sound->update(['is_active' => false]);
-        $ids = Video::where('sound_id', $sound->id)->pluck('id');
-        Video::whereIn('id', $ids)->get()->each->delete();
-        return $ids->count();
+        $videos = Video::where('sound_id', $sound->id)->get();
+        $videos->each->delete();
+        return $videos;
     }
 }

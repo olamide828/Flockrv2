@@ -3,7 +3,7 @@ import {
     RiCloseLine, RiUserLine, RiSettings4Line, RiBarChart2Line,
     RiShoppingBasketLine, RiShareForwardLine, RiLogoutBoxLine,
     RiArrowRightSLine, RiWallet3Line, RiVerifiedBadgeFill,
-    RiVipDiamondLine, RiBugLine, RiCustomerService2Line,
+    RiVipDiamondLine, RiBugLine, RiCustomerService2Line, RiFlagLine,
 } from 'react-icons/ri';
 import { AvatarImage } from '@/Layouts/AppLayout';
 import ShareProfileSheet from '@/Components/ShareProfileSheet';
@@ -143,6 +143,7 @@ export default function ProfileSheet({ user, onClose, onNavigate, onLogoutClick 
                         )}
                         <Row Icon={RiCustomerService2Line} label="Contact Us" onClick={() => setShowContactSheet(true)} />
                         <Row Icon={RiBugLine} label="Report a Bug" onClick={() => setShowBugSheet(true)} />
+                        <Row Icon={RiFlagLine} label="Content Removal" onClick={() => go('/copyright?tab=report')} />
                     </div>
 
                     <GroupLabel>Share</GroupLabel>

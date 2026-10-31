@@ -36,10 +36,10 @@ class SoundController extends Controller
 
         if ($tab === 'free') {
             try {
-                $r = app(OpenverseAudio::class)->search($q, intdiv($offset, self::PAGE) + 1, self::PAGE);
+                $r = app(OpenverseAudio::class)->search($q, intdiv($offset, OpenverseAudio::PAGE) + 1, OpenverseAudio::PAGE);
             } catch (\Throwable $e) {
                 Log::warning('Openverse search failed', ['error' => $e->getMessage()]);
-                return response()->json(['message' => $e->getMessage()], 502);
+                return response()->json(['data' => [], 'has_more' => false, 'error' => $e->getMessage(), 'meta' => $meta]);
             }
             return response()->json($r + ['meta' => $meta]);
         }
@@ -50,7 +50,7 @@ class SoundController extends Controller
                 $r = $es->search($q, $offset, self::PAGE);
             } catch (\Throwable $e) {
                 Log::warning('Epidemic search failed', ['error' => $e->getMessage()]);
-                return response()->json(['message' => $e->getMessage()], 502);
+                return response()->json(['data' => [], 'has_more' => false, 'error' => $e->getMessage(), 'meta' => ['epidemic' => false]]);
             }
             return response()->json($r + ['meta' => $meta]);
         }
@@ -184,7 +184,7 @@ class SoundController extends Controller
         try {
             return response()->json(['url' => $es->previewUrl($trackId)]);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 502);
+            return response()->json(['message' => $e->getMessage()], 422);
         }
     }
 
@@ -234,7 +234,7 @@ class SoundController extends Controller
             return response()->json(['sound' => $sound->toApi($user->id)], 201);
         } catch (\Throwable $e) {
             Log::warning('Epidemic import failed', ['track' => $trackId, 'error' => $e->getMessage()]);
-            return response()->json(['message' => $e->getMessage()], 502);
+            return response()->json(['message' => $e->getMessage()], 422);
         } finally {
             if ($tmp) @unlink($tmp);
         }
@@ -286,7 +286,7 @@ class SoundController extends Controller
             return response()->json(['sound' => $sound->toApi($user->id)], 201);
         } catch (\Throwable $e) {
             Log::warning('Free sound import failed', ['track' => $id, 'error' => $e->getMessage()]);
-            return response()->json(['message' => $e->getMessage()], 502);
+            return response()->json(['message' => $e->getMessage()], 422);
         } finally {
             if ($tmp) @unlink($tmp);
         }
@@ -311,32 +311,60 @@ class SoundController extends Controller
             ->latest('published_at');
     }
 
-    /** GET /sound/{sound}  (Inertia page) */
-    public function page(Sound $sound)
+    /** GET /sound/{sound}  (Inertia page). Never 404s: the sheet shows "removed" states gracefully. */
+    public function page(string $sound)
     {
-        abort_unless($this->canView($sound), 404);
+        return Inertia::render('Sound/Show', ['soundId' => (int) $sound, 'fromVideo' => null]);
+    }
 
-        $q = $this->videosQuery($sound);
+    /** GET /sound/from-video/{ulid} */
+    public function fromVideo(string $ulid)
+    {
+        return Inertia::render('Sound/Show', ['soundId' => null, 'fromVideo' => $ulid]);
+    }
+
+    /** GET /api/sounds/{id}/sheet  (public) */
+    public function sheet(string $id): JsonResponse
+    {
+        return $this->sheetResponse(Sound::find((int) $id));
+    }
+
+    /** GET /api/sounds/from-video/{ulid}/sheet  (public) */
+    public function sheetFromVideo(string $ulid): JsonResponse
+    {
+        $video = Video::withTrashed()->where('ulid', $ulid)->first();
+        $sound = null;
+        if ($video) {
+            $sid   = $video->sound_id ?: Sound::where('source', 'original')->where('video_id', $video->id)->value('id');
+            $sound = $sid ? Sound::find($sid) : null;
+        }
+        return $this->sheetResponse($sound);
+    }
+
+    /** One answer the sheet can always show: the sound + first videos, or why it is gone. */
+    private function sheetResponse(?Sound $sound): JsonResponse
+    {
+        if (!$sound) return response()->json(['status' => 'removed', 'reason' => 'removed']);
+
+        if (!$this->canView($sound)) {
+            if (!$sound->is_active) {
+                $claimed = \App\Models\CopyrightClaim::where('sound_id', $sound->id)->where('status', 'actioned')->exists();
+                return response()->json(['status' => 'removed', 'reason' => $claimed ? 'copyright' : 'removed']);
+            }
+            return response()->json(['status' => 'removed', 'reason' => 'private']);
+        }
+
+        $q     = $this->videosQuery($sound);
         $total = (clone $q)->count();
-        $rows = $q->simplePaginate(18);
+        $rows  = $q->simplePaginate(18);
 
-        return Inertia::render('Sound/Show', [
+        return response()->json([
+            'status'   => 'ok',
             'sound'    => $sound->toApi(Auth::id()),
             'total'    => $total,
             'videos'   => $rows->items(),
             'has_more' => $rows->hasMorePages(),
         ]);
-    }
-
-    /** GET /sound/from-video/{ulid}  → the sound page of a video's own (original) sound */
-    public function fromVideo(string $ulid)
-    {
-        $video = Video::where('ulid', $ulid)->firstOrFail();
-        $id = $video->sound_id
-            ?: Sound::active()->where('source', 'original')->where('video_id', $video->id)->value('id');
-        abort_unless($id, 404);
-
-        return redirect('/sound/' . $id);
     }
 
     /** GET /api/sounds/{sound}  (used by "Use this sound" in the uploader) */

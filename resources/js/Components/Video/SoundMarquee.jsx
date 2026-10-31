@@ -1,5 +1,5 @@
-import { Link } from '@inertiajs/react'
 import { useLayoutEffect, useRef, useState } from 'react'
+import SoundDetailsSheet from '@/Components/Sound/SoundDetailsSheet'
 
 const CSS = `
 @keyframes fkDisc{to{transform:rotate(360deg)}}
@@ -12,11 +12,15 @@ const hue = (id) => (Number(id || 0) * 47) % 360
  * "♪ Song title · Artist" strip with a spinning disc, like TikTok. The text scrolls only when it is too long
  * to fit. `sound` is video.sound_credit (null = the creator's own audio, shown as "Original sound").
  * Licence credit lines (e.g. CC-BY) are included so required attribution is always visible.
+ * `href` (/sound/ID or /sound/from-video/ULID) makes it tappable: it opens the sound sheet right here, so a removed
+ * sound shows a friendly message instead of a 404 page.
  */
 export default function SoundMarquee({ sound, username, href, style }) {
     const box = useRef(null)
     const txt = useRef(null)
     const [scroll, setScroll] = useState(false)
+    const [open, setOpen] = useState(false)
+    const target = href ? (href.match(/\/sound\/from-video\/([^/?#]+)/) ? { fromVideo: href.match(/\/sound\/from-video\/([^/?#]+)/)[1] } : href.match(/\/sound\/(\d+)/) ? { soundId: Number(href.match(/\/sound\/(\d+)/)[1]) } : null) : null
 
     const label = sound
         ? [sound.title, sound.artist, sound.attribution].filter(Boolean).join(' · ')
@@ -29,10 +33,14 @@ export default function SoundMarquee({ sound, username, href, style }) {
     const h = hue(sound?.id)
     const secs = Math.max(8, label.length * 0.35)
 
-    const Wrap = href ? Link : 'div'
-    const wrapProps = href ? { href, onClick: e => e.stopPropagation(), style: { display: 'flex', alignItems: 'center', gap: 8, maxWidth: 230, textDecoration: 'none', cursor: 'pointer', ...style } } : { style: { display: 'flex', alignItems: 'center', gap: 8, maxWidth: 230, ...style } }
+    const base = { display: 'flex', alignItems: 'center', gap: 8, maxWidth: 230, ...style }
+    const Wrap = target ? 'button' : 'div'
+    const wrapProps = target
+        ? { type: 'button', onClick: e => { e.stopPropagation(); e.preventDefault(); setOpen(true) }, style: { ...base, cursor: 'pointer', background: 'none', border: 'none', padding: 0, textAlign: 'left', font: 'inherit' } }
+        : { style: base }
 
     return (
+        <>
         <Wrap {...wrapProps}>
             <style>{CSS}</style>
             <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, border: '2px solid rgba(255,255,255,0.85)', background: sound?.cover_url ? `center/cover url(${sound.cover_url})` : `linear-gradient(135deg, hsl(${h} 75% 50%), hsl(${(h + 60) % 360} 70% 30%))`, animation: 'fkDisc 4s linear infinite', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -45,5 +53,7 @@ export default function SoundMarquee({ sound, username, href, style }) {
                 </div>
             </div>
         </Wrap>
+            {open && target && <SoundDetailsSheet {...target} onClose={() => setOpen(false)} />}
+        </>
     )
 }

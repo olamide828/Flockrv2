@@ -19,11 +19,13 @@ class CopyrightController extends Controller
     /** GET /copyright?sound=ID | ?video=ULID */
     public function page(Request $request): Response
     {
+        $tab   = $request->query('tab') === 'report' || $request->filled('sound') || $request->filled('video') ? 'report' : 'policy';
         $sound = $request->filled('sound') ? Sound::find((int) $request->query('sound')) : null;
         $video = $request->filled('video') ? Video::where('ulid', $request->query('video'))->first() : null;
 
         return Inertia::render('Legal/Copyright', [
             'email'  => config('legal.email'),
+            'tab'    => $tab,
             'target' => [
                 'sound_id' => $sound?->id,
                 'video'    => $video?->ulid,
@@ -65,6 +67,7 @@ class CopyrightController extends Controller
                 Log::warning('Copyright claim email failed', ['claim' => $claim->id, 'error' => $e->getMessage()]);
             }
         }
+        \App\Services\CopyrightMailer::claimant($claim, 'received');
         Log::warning('Copyright claim received', ['claim' => $claim->id, 'sound' => $claim->sound_id, 'video' => $claim->video_id]);
 
         return response()->json(['message' => 'Thank you. We will review this and act quickly.'], 201);

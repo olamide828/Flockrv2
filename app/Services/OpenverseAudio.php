@@ -15,6 +15,7 @@ class OpenverseAudio
 {
     private const BASE    = 'https://api.openverse.org/v1';
     public const ALLOWED  = ['cc0', 'pdm', 'by'];
+    public const PAGE     = 20;      // anonymous requests may ask for at most 20 results per page
 
     private function http()
     {
@@ -23,7 +24,7 @@ class OpenverseAudio
     }
 
     /** @return array{data: array<int,array>, has_more: bool} */
-    public function search(string $term, int $page = 1, int $size = 30): array
+    public function search(string $term, int $page = 1, int $size = self::PAGE): array
     {
         $term = $term !== '' ? $term : 'instrumental';          // an empty search still shows something useful
         return Cache::remember('openverse:search:' . md5("$term|$page|$size"), now()->addMinutes(10), function () use ($term, $page, $size) {
@@ -32,7 +33,8 @@ class OpenverseAudio
                 'page' => $page, 'page_size' => $size,
             ]);
             if (!$res->successful()) {
-                throw new \RuntimeException($res->status() === 429 ? 'The free music service is busy. Try again in a moment.' : 'Could not load free music right now.');
+                \Illuminate\Support\Facades\Log::warning('Openverse search HTTP error', ['status' => $res->status(), 'body' => \Illuminate\Support\Str::limit($res->body(), 300)]);
+                throw new \RuntimeException($res->status() === 429 ? 'The free music service is busy. Try again in a moment.' : 'Could not load free music right now (HTTP ' . $res->status() . ').');
             }
             $rows = collect((array) $res->json('results', []))
                 ->filter(fn ($t) => $this->licenseOk($t) && filled($t['url'] ?? null))

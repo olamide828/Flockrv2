@@ -15,7 +15,7 @@ class EpidemicSound
 {
     public function enabled(): bool
     {
-        return filled(config('epidemic.key'));
+        return filled(config('epidemic.key')) && !Cache::has('epidemic:rejected');
     }
 
     private function http(): PendingRequest
@@ -29,6 +29,7 @@ class EpidemicSound
 
     private function fail($res, string $what): never
     {
+        if (in_array($res->status(), [401, 403], true)) Cache::put('epidemic:rejected', true, now()->addMinutes(10));   // hide the tab until the key is fixed
         $msg = match (true) {
             in_array($res->status(), [401, 403], true) => 'Epidemic Sound rejected our API key.',
             $res->status() === 429                      => 'Epidemic Sound is busy. Try again in a moment.',

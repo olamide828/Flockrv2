@@ -88,7 +88,8 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
             const { data } = await axios.get('/api/sounds', { params: { tab, q: q.trim() || undefined, offset } })
             if (id !== reqId.current) return
             const rows = Array.isArray(data) ? data : (data?.data ?? [])
-            setItems(prev => (reset ? rows : [...prev, ...rows]))
+            setItems(prev => (reset ? rows : [...prev, ...rows.filter(r => !prev.some(o => o.id === r.id))]))
+            if (data?.error) setError(data.error)
             setHasMore(!!data?.has_more)
             if (data?.meta?.epidemic) setEpidemicOn(true)
         } catch {

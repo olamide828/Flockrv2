@@ -339,6 +339,8 @@ Route::post('/chirp/product-insight', function (\Illuminate\Http\Request $reques
 
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
 Route::post('/copyright-claim', [\App\Http\Controllers\CopyrightController::class, 'submit'])->middleware('throttle:6,60');
+Route::get('/sounds/from-video/{ulid}/sheet', [SoundController::class, 'sheetFromVideo']);
+Route::get('/sounds/{id}/sheet', [SoundController::class, 'sheet'])->whereNumber('id');
 Route::get('/sounds/{sound}/videos', [SoundController::class, 'videos']);   // public: "Load more" on the sound page
 Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
 Route::middleware('auth')->post('/feed/reset', function () {
