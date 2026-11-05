@@ -172,6 +172,7 @@ class AdminMusicController extends Controller
             'title' => 'sometimes|string|max:80', 'artist' => 'sometimes|string|max:80',
             'license' => 'sometimes|nullable|string|max:120', 'license_url' => 'sometimes|nullable|url|max:300',
             'attribution' => 'sometimes|nullable|string|max:250', 'is_public' => 'sometimes|boolean',
+            'genre' => 'sometimes|nullable|string|in:' . implode(',', Sound::GENRES),
         ]);
         $sound->update($d);
         return response()->json(['message' => 'Sound updated.']);

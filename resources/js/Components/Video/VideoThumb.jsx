@@ -16,7 +16,8 @@ function useSoundOwner() {
     return owner
 }
 
-export default function VideoThumb({ video, onNavigate }) {
+/** autoplay=false (default) shows a still thumbnail: lighter on data and the page. autoplay=true behaves like Explore. */
+export default function VideoThumb({ video, onNavigate, autoplay = false }) {
     const myId = useRef(Symbol('thumb')).current
     const owner = useSoundOwner()
     const muted = owner !== myId
@@ -29,7 +30,7 @@ export default function VideoThumb({ video, onNavigate }) {
     const wrapRef = useRef(null)
     const vidRef = useRef(null)
 
-    const src = video.video_stream_url ?? null
+    const src = autoplay ? (video.video_stream_url ?? null) : null
     useHlsVideo(vidRef, inView ? src : null)
 
     useEffect(() => {

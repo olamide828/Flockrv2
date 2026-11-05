@@ -59,6 +59,8 @@ class WatermarkVideoJob implements ShouldQueue
         $filterFile = $tmp . $uuid . '_filter.txt';
 
         try {
+            Cache::put($this->cacheKey, ['status' => 'processing', 'progress' => 0], now()->addMinutes(30));
+
             // 1. Resolve source video
             $this->resolveInputFile($tmpInput);
 
@@ -288,7 +290,9 @@ class WatermarkVideoJob implements ShouldQueue
             ? " -i \"" . $this->p($sound) . "\""
             : " -f lavfi -t {$out} -i anullsrc=r=44100:cl=stereo";
 
-        $cmd = $this->niceBin() . "\"{$ff}\" -y -hide_banner -nostats -loglevel error"
+        $errFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . Str::uuid() . '_ff.log';
+
+        $cmd = $this->niceBin() . "\"{$ff}\" -y -hide_banner -nostats -loglevel error -progress pipe:1"
              . " -i \"" . $this->p($input) . "\""
              . $loop . " -i \"" . $this->p($wmLogo) . "\""
              . $loop . " -i \"" . $this->p($outroLogo) . "\""
@@ -296,10 +300,10 @@ class WatermarkVideoJob implements ShouldQueue
              . $this->layerInputs($loop)
              . " -/filter_complex \"" . $this->p($filterFile) . "\""
              . " -map \"[outv]\" -map \"[outa]\""
-             . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset veryfast -crf 25 -threads 2"
+             . " -c:v libx264 -pix_fmt yuv420p -r 30 -preset veryfast -crf 25 -threads " . (int) config('media.ffmpeg_threads', 0)
              . " -c:a aac -ar 44100 -ac 2"
              . " -movflags +faststart"
-             . " \"" . $this->p($output) . "\" 2>&1";
+             . " \"" . $this->p($output) . "\" 2>\"" . $this->p($errFile) . "\"";
 
         Log::debug('WatermarkVideoJob command', ['cmd' => $cmd]);
 
@@ -307,23 +311,55 @@ class WatermarkVideoJob implements ShouldQueue
         $cwd = getcwd();
         if ($this->fontDir) @chdir($this->fontDir);
         try {
-            exec($cmd, $lines, $code);
+            $code = $this->runWithProgress($cmd, (float) ($dur + $out));
         } finally {
             if ($cwd) @chdir($cwd);
         }
 
         if ($code !== 0) {
-            $tail = implode("\n", array_slice($lines, -25));
+            $tail = is_file($errFile) ? implode("\n", array_slice(file($errFile, FILE_IGNORE_NEW_LINES) ?: [], -25)) : '';
+            @unlink($errFile);
             Log::error('WatermarkVideoJob ffmpeg failed', ['code' => $code, 'tail' => $tail]);
             throw new \RuntimeException("FFmpeg failed (code {$code}):\n{$tail}");
         }
+        @unlink($errFile);
+    }
+
+    /**
+     * Runs ffmpeg and publishes its progress (0-99) to the cache so the browser can show "Processing 42%".
+     * ffmpeg reports how much video it has produced (out_time_us); we divide by the expected length.
+     */
+    private function runWithProgress(string $cmd, float $expected): int
+    {
+        $proc = proc_open($cmd, [1 => ['pipe', 'w']], $pipes);
+        if (!is_resource($proc)) {
+            exec($cmd, $lines, $code);          // could not start with pipes: run it the plain way, just without progress
+            return $code;
+        }
+
+        $last = -1; $lastAt = 0.0;
+        while (($line = fgets($pipes[1])) !== false) {
+            if (!str_starts_with($line, 'out_time_us=') && !str_starts_with($line, 'out_time_ms=')) continue;
+            $us  = (float) substr($line, 12);               // both keys are microseconds
+            $pct = $expected > 0 ? (int) min(99, max(0, floor($us / 1_000_000 / $expected * 100))) : 0;
+            $now = microtime(true);
+            if ($pct !== $last && ($now - $lastAt >= 1.0 || $pct >= 99)) {
+                Cache::put($this->cacheKey, ['status' => 'processing', 'progress' => $pct], now()->addMinutes(30));
+                $last = $pct; $lastAt = $now;
+            }
+        }
+        fclose($pipes[1]);
+        return proc_close($proc);
     }
 
     /** Run at low priority so a download never starves web requests when they share a machine. */
     private function niceBin(): string
     {
+        $level = (int) config('media.ffmpeg_nice', 10);
+        if ($level < 1) return '';
+        $level = min($level, 19);
         foreach (['/usr/bin/nice', '/bin/nice'] as $n) {
-            if (is_executable($n)) return $n . ' -n 10 ';
+            if (is_executable($n)) return $n . ' -n ' . $level . ' ';
         }
         return '';
     }

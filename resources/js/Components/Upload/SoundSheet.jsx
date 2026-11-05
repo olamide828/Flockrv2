@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RiAddLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
-import { attachAudioSource, fmtTime } from '../../lib/media'
+import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
+import { GENRES, QUICK_SEARCH, attachAudioSource, fmtTime } from '../../lib/media'
 import { MAX_USE_SECONDS, WaveScrubber } from './AudioWave'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 import CreateSound from './CreateSound'
 import { S, Spinner } from './ui'
 
@@ -50,6 +51,7 @@ function Slider({ label, value, min = 0, max = 100, step = 1, onChange, format }
 export default function SoundSheet({ open, onClose, current, originalVolume, hasOwnAudio, videoDuration, isAdmin = false, onApply, onRemove }) {
     const [tab, setTab] = useState('library')
     const [q, setQ] = useState('')
+    const [genre, setGenre] = useState('')
     const [items, setItems] = useState([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -65,6 +67,8 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
     const [importing, setImporting] = useState(false)
     const [musicVol, setMusicVol] = useState(70)
     const [origVol, setOrigVol] = useState(100)
+    const [confirmDelete, setConfirmDelete] = useState(null)
+    const [mixOpen, setMixOpen] = useState(true)       // the range + volume controls can be folded away
 
     const audioRef = useRef(null)
     const reqId = useRef(0)
@@ -85,7 +89,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         setLoading(true)
         setError(null)
         try {
-            const { data } = await axios.get('/api/sounds', { params: { tab, q: q.trim() || undefined, offset } })
+            const { data } = await axios.get('/api/sounds', { params: { tab, q: q.trim() || undefined, genre: genre || undefined, offset } })
             if (id !== reqId.current) return
             const rows = Array.isArray(data) ? data : (data?.data ?? [])
             setItems(prev => (reset ? rows : [...prev, ...rows.filter(r => !prev.some(o => o.id === r.id))]))
@@ -97,7 +101,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         } finally {
             if (id === reqId.current) setLoading(false)
         }
-    }, [tab, q])
+    }, [tab, q, genre])
 
     useEffect(() => {
         if (!open) return undefined
@@ -137,7 +141,6 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
     }
 
     const remove = async (sound) => {
-        if (!window.confirm(`Delete “${sound.title}”? Videos already posted with it keep their audio.`)) return
         try {
             await axios.delete(`/api/sounds/${sound.id}`)
             setItems(prev => prev.filter(x => x.id !== sound.id))
@@ -206,6 +209,18 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search songs, artists, sounds" style={{ ...S.inp, paddingLeft: 38, borderRadius: 999 }} />
                 </div>
 
+                {/* Genre chips (our library) / quick searches (free catalogues) */}
+                {(tab === 'library' || tab === 'creators' || tab === 'free' || tab === 'epidemic') && (
+                    <div style={{ display: 'flex', gap: 6, padding: '0 18px 10px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                        {(tab === 'library' || tab === 'creators'
+                            ? [{ id: '', label: 'All' }, ...GENRES].map(g => ({ key: g.id, label: g.label, active: genre === g.id, onClick: () => setGenre(g.id) }))
+                            : QUICK_SEARCH.map(w => ({ key: w, label: w, active: q.trim().toLowerCase() === w, onClick: () => setQ(q.trim().toLowerCase() === w ? '' : w) }))
+                        ).map(c => (
+                            <button key={c.key} onClick={c.onClick} style={{ padding: '6px 12px', whiteSpace: 'nowrap', flexShrink: 0, borderRadius: 999, border: `1px solid ${c.active ? '#FF6B35' : 'rgba(255,255,255,0.1)'}`, cursor: 'pointer', background: c.active ? 'rgba(255,107,53,0.16)' : 'transparent', color: c.active ? '#FF6B35' : 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, textTransform: tab === 'free' || tab === 'epidemic' ? 'capitalize' : 'none' }}>{c.label}</button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: 8, padding: '0 18px 10px', overflowX: 'auto', scrollbarWidth: 'none' }}>
                     {TABS.filter(t => !t.optional || epidemicOn || tab === t.id).map(t => (
@@ -235,7 +250,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                                     </p>
                                 </div>
                                 {(s.mine || isAdmin) && (
-                                    <button onClick={e => { e.stopPropagation(); remove(s) }} aria-label="Delete sound" style={{ ...S.iconBtn, width: 32, height: 32, flexShrink: 0 }}><RiDeleteBinLine size={16} /></button>
+                                    <button onClick={e => { e.stopPropagation(); setConfirmDelete(s) }} aria-label="Delete sound" style={{ ...S.iconBtn, width: 32, height: 32, flexShrink: 0 }}><RiDeleteBinLine size={16} /></button>
                                 )}
                             </div>
                         )
@@ -261,9 +276,22 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 {!creating && (sel || current) && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '12px 18px calc(env(safe-area-inset-bottom) + 14px)', background: '#0d0d0d', display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {sel && <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>♪ {sel.title} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>· {sel.artist}</span></p>}
+                        {sel && (
+                            <button onClick={() => setMixOpen(o => !o)} aria-expanded={mixOpen} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, padding: '8px 12px', cursor: 'pointer', color: '#fff' }}>
+                                <span style={{ fontSize: 12, fontWeight: 700 }}>Adjust length &amp; volume</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                                    {!mixOpen && <span>{sel.duration > 0 ? `${fmtTime(start)}–${fmtTime(end || defaultEnd(sel, start))} · ` : ''}Music {musicVol}%</span>}
+                                    <RiArrowDownSLine size={18} style={{ transition: 'transform 0.25s', transform: mixOpen ? 'rotate(180deg)' : 'none' }} />
+                                </span>
+                            </button>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateRows: mixOpen || !sel ? '1fr' : '0fr', transition: 'grid-template-rows 0.25s ease' }}>
+                          <div style={{ overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {sel && sel.duration > 0 && <WaveScrubber src={sel.url} waveformUrl={sel.waveform_url} seed={sel.id} duration={sel.duration} start={start} end={end || defaultEnd(sel, start)} onChange={onRange} playhead={playingId === sel.id ? playhead : null} videoSec={videoDuration || 0} />}
                         {sel && <Slider label="Music volume" value={musicVol} onChange={setMusicVol} format={v => `${v}%`} />}
                         {hasOwnAudio && <Slider label="Your video's sound" value={origVol} onChange={setOrigVol} format={v => (v === 0 ? 'Off' : `${v}%`)} />}
+                          </div>
+                        </div>
                         <div style={{ display: 'flex', gap: 10, marginTop: 2 }}>
                             {current && <button onClick={() => { audioRef.current?.pause(); onRemove() }} style={{ ...S.outlineBtn, padding: '12px 18px', fontSize: 13 }}>Remove</button>}
                             <button onClick={sel ? apply : onClose} disabled={importing} style={{ ...S.primaryBtn, flex: 1, padding: '12px 0', fontSize: 14 }}>{importing ? <Spinner size={16} /> : sel ? 'Use this sound' : 'Done'}</button>
@@ -271,6 +299,9 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     </div>
                 )}
             </div>
+            {confirmDelete && (
+                <ConfirmModal title="Delete this sound?" message={`“${confirmDelete.title}” will be removed. Videos already posted with it keep their audio.`} confirmLabel="Delete" onConfirm={() => remove(confirmDelete)} onClose={() => setConfirmDelete(null)} />
+            )}
             <audio ref={audioRef} preload="none" onEnded={() => setPlayingId(null)} onTimeUpdate={e => { const t = e.currentTarget.currentTime; setPlayhead(t); if (sel && playingId === sel.id && end && t >= end) e.currentTarget.currentTime = start }} />
         </div>
     )

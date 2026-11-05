@@ -191,3 +191,12 @@ export function putToUrl(url, headers, file, onProgress) {
         xhr.send(file)
     })
 }
+
+/** Genre chips for the sound picker (ids match Sound::GENRES on the server). */
+export const GENRES = [
+    { id: 'afrobeats', label: 'Afrobeats' }, { id: 'amapiano', label: 'Amapiano' }, { id: 'afro-pop', label: 'Afro-pop' },
+    { id: 'highlife', label: 'Highlife' }, { id: 'gospel', label: 'Gospel' }, { id: 'hip-hop', label: 'Hip-hop' },
+    { id: 'rnb', label: 'R&B' }, { id: 'dancehall', label: 'Dancehall' }, { id: 'chill', label: 'Chill' },
+]
+/** One-tap searches for the free catalogues (they have no genre filter of their own). */
+export const QUICK_SEARCH = ['afrobeat', 'african', 'highlife', 'amapiano', 'afropop', 'percussion']

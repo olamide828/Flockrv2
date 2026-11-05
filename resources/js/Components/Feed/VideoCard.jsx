@@ -9,7 +9,7 @@ import {
   RiMoreLine, RiLoader4Line, RiCheckLine,
   RiWhatsappLine, RiFacebookCircleLine, RiTelegramLine,
   RiTwitterXLine, RiLink, RiRedditLine, RiInstagramLine,
-  RiDownload2Line, RiFlag2Line, RiSearchLine, RiChatSmile3Line, RiSparkling2Line,
+  RiDownload2Line, RiFlag2Line, RiShieldCheckLine, RiSearchLine, RiChatSmile3Line, RiSparkling2Line,
 } from 'react-icons/ri'
 import ReportVideoModal from '../../Pages/Video/ReportVideoModal'
 import CommentSheet from '../Video/CommentSheet'
@@ -71,7 +71,7 @@ function ExpandableDescription({ text, maxLines = 2 }) {
   )
 }
 
-function ShareSheet({ videoUrl, videoTitle, onClose, onDownload, dlState }) {
+function ShareSheet({ videoUrl, videoTitle, onClose, onDownload, dlState, dlProgress }) {
   const [copied, setCopied] = useState(false)
   const enc      = encodeURIComponent(videoUrl)
   const encTitle = encodeURIComponent(videoTitle || 'Check this out on Flockr')
@@ -83,7 +83,7 @@ function ShareSheet({ videoUrl, videoTitle, onClose, onDownload, dlState }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download'
+  const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: dlProgress != null ? `Processing ${dlProgress}%` : 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download'
   const dlColor = { idle: '#fff', preparing: 'rgba(255,255,255,0.4)', processing: 'rgba(255,255,255,0.4)', done: '#10B981', error: '#EF4444' }[dlState] ?? '#fff'
   const dlBg    = { idle: 'rgba(255,255,255,0.06)', preparing: 'rgba(255,255,255,0.04)', processing: 'rgba(255,255,255,0.04)', done: 'rgba(16,185,129,0.12)', error: 'rgba(239,68,68,0.12)' }[dlState] ?? 'rgba(255,255,255,0.06)'
   const dlBusy  = dlState === 'preparing' || dlState === 'processing'
@@ -155,6 +155,7 @@ function SideBtn({ onClick, children, label, btnRef }) {
 
 function useVideoDownload(video) {
   const [dlState, setDlState] = useState('idle')
+  const [dlProgress, setDlProgress] = useState(null)   // 0-99 while the server prepares the file
   const pollTimer = useRef(null)
   const stopPolling = () => { if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null } }
 
@@ -182,6 +183,7 @@ function useVideoDownload(video) {
   const download = useCallback(async () => {
     if (dlState !== 'idle' && dlState !== 'error') return
     setDlState('preparing')
+    setDlProgress(null)
     stopPolling()
     try {
       const { data } = await axios.post(`/api/videos/${video.ulid}/download/prepare`, {}, { withCredentials: true })
@@ -191,6 +193,7 @@ function useVideoDownload(video) {
       pollTimer.current = setInterval(async () => {
         try {
           const { data: poll } = await axios.get(`/api/videos/download/status?job_key=${encodeURIComponent(jobKey)}`, { withCredentials: true })
+          if (typeof poll.progress === 'number') setDlProgress(poll.progress)
           if (poll.status === 'done' && poll.url) { stopPolling(); await triggerBrowserDownload(poll.url, jobKey) }
           else if (poll.status === 'error') { stopPolling(); setDlState('error'); setTimeout(() => setDlState('idle'), 4000) }
         } catch { stopPolling(); setDlState('error'); setTimeout(() => setDlState('idle'), 4000) }
@@ -202,7 +205,7 @@ function useVideoDownload(video) {
     }
   }, [dlState, video.ulid, triggerBrowserDownload])
 
-  return { download, dlState }
+  return { download, dlState, dlProgress }
 }
 
 export default function VideoCard({ video, isActive }) {
@@ -261,7 +264,7 @@ export default function VideoCard({ video, isActive }) {
     return () => { document.body.style.overflow = '' }
   }, [showReportVideo])
 
-  const { download, dlState } = useVideoDownload(video);
+  const { download, dlState, dlProgress } = useVideoDownload(video);
 
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
@@ -413,10 +416,10 @@ export default function VideoCard({ video, isActive }) {
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
 
       {showShare && (
-        <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setShowShare(false)} onDownload={download} dlState={dlState} />
+        <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setShowShare(false)} onDownload={download} dlState={dlState} dlProgress={dlProgress} />
       )}
       {showMoreSheet && (
-        <MoreSheet onClose={() => setShowMoreSheet(false)} onReport={() => setShowReportVideo(true)} videoRef={videoRef} />
+        <MoreSheet onClose={() => setShowMoreSheet(false)} onReport={() => setShowReportVideo(true)} videoRef={videoRef} videoUlid={video.ulid} />
       )}
       {showReportVideo && <ReportVideoModal video={video} onClose={() => setShowReportVideo(false)} />}
 
@@ -625,7 +628,7 @@ export default function VideoCard({ video, isActive }) {
   )
 }
 
-function MoreSheet({ onClose, onReport, videoRef }) {
+function MoreSheet({ onClose, onReport, videoRef, videoUlid }) {
   const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
   const [currentSpeed, setCurrentSpeed] = useState(videoRef.current?.playbackRate ?? 1)
   const setSpeed = (s) => { if (videoRef.current) videoRef.current.playbackRate = s; setCurrentSpeed(s) }
@@ -657,6 +660,9 @@ function MoreSheet({ onClose, onReport, videoRef }) {
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '4px 0' }}>
           <button onClick={() => { onClose(); onReport(); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 600 }}>
             <RiFlag2Line size={18} /> Report video
+          </button>
+          <button onClick={() => { onClose(); router.visit(`/copyright?video=${videoUlid}`) }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600 }}>
+            <RiShieldCheckLine size={18} /> Copyright / content removal
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { RiArrowLeftLine, RiFileMusicLine, RiMicFill, RiStopFill } from 'react-icons/ri'
-import { fmtTime } from '../../lib/media'
+import { GENRES, fmtTime } from '../../lib/media'
 import AudioWave from './AudioWave'
 import { S, Spinner } from './ui'
 
@@ -29,6 +29,7 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
     const [isPublic, setIsPublic] = useState(false)
     const [rights, setRights] = useState(false)
     const [library, setLibrary] = useState(false)
+    const [genre, setGenre] = useState('')
     const [license, setLicense] = useState('')
     const [licenseUrl, setLicenseUrl] = useState('')
     const [attribution, setAttribution] = useState('')
@@ -132,6 +133,7 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
                 fd.append('title', f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim().slice(0, 80) || 'Untitled')
                 if (artist.trim()) fd.append('artist', artist.trim())
                 fd.append('library', '1')
+                if (genre) fd.append('genre', genre)
                 if (license) fd.append('license', license)
                 if (licenseUrl) fd.append('license_url', licenseUrl)
                 if (attribution) fd.append('attribution', attribution)
@@ -162,6 +164,7 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
             fd.append('rights', rights ? '1' : '0')
             if (isAdmin && library) {
                 fd.append('library', '1')
+                if (genre) fd.append('genre', genre)
                 if (license) fd.append('license', license)
                 if (licenseUrl) fd.append('license_url', licenseUrl)
                 if (attribution) fd.append('attribution', attribution)
@@ -243,6 +246,10 @@ export default function CreateSound({ isAdmin, onBack, onSaved }) {
                     {library && (
                         <>
                             <input value={artist} onChange={e => setArtist(e.target.value)} placeholder="Artist (e.g. the name shown on Pixabay)" style={S.inp} />
+                            <select value={genre} onChange={e => setGenre(e.target.value)} style={S.inp}>
+                                <option value="" style={{ background: '#1a1a1a' }}>Genre (optional)</option>
+                                {GENRES.map(g => <option key={g.id} value={g.id} style={{ background: '#1a1a1a' }}>{g.label}</option>)}
+                            </select>
                             <input value={license} onChange={e => setLicense(e.target.value)} placeholder="Licence (e.g. Pixabay Content License, CC0)" style={S.inp} />
                             <input value={licenseUrl} onChange={e => setLicenseUrl(e.target.value)} placeholder="Licence / source URL" style={S.inp} />
                             <input value={attribution} onChange={e => setAttribution(e.target.value)} placeholder="Credit line, if the licence requires one" style={S.inp} />

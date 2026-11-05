@@ -29,7 +29,7 @@ function qualityLabel(s) {
  *  - photos use the camera's full-resolution still where available
  *  - "HQ" hands over to the phone's own camera app (HDR, stabilisation, night mode)
  */
-export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onClose, showProductHint, onProductHint, enhance = false, onToggleEnhance }) {
+export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onRecordStart, onRecordStop, onClose, showProductHint, onProductHint, enhance = false, onToggleEnhance }) {
     const videoRef = useRef(null)
     const streamRef = useRef(null)
     const trackRef = useRef(null)
@@ -259,6 +259,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         chunksRef.current = []
         rec.ondataavailable = e => { if (e.data?.size) chunksRef.current.push(e.data) }
         rec.onstop = () => {
+            onRecordStop?.()
             clearInterval(timerRef.current)
             setRecording(false)
             const secs = Math.max(1, Math.round((Date.now() - startRef.current) / 1000))
@@ -282,6 +283,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         }
 
         rec.start(500)
+        onRecordStart?.()
         recRef.current = rec
         startRef.current = Date.now()
         setElapsed(0)

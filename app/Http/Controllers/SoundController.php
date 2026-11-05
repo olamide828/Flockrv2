@@ -56,6 +56,8 @@ class SoundController extends Controller
         }
 
         $query = Sound::active();
+        $genre = $request->query('genre');
+        if (in_array($genre, Sound::GENRES, true) && in_array($tab, ['library', 'creators'], true)) $query->where('genre', $genre);
         if ($tab === 'library') {
             $query->where('source', 'library');
         } elseif ($tab === 'creators') {
@@ -103,6 +105,7 @@ class SoundController extends Controller
             'is_public'   => 'nullable|boolean',
             'rights'      => 'nullable|boolean',
             'library'     => 'nullable|boolean',
+            'genre'       => 'nullable|string|in:' . implode(',', Sound::GENRES),
             'license'     => 'nullable|string|max:120',
             'license_url' => 'nullable|url|max:255',
             'attribution' => 'nullable|string|max:255',
@@ -162,6 +165,7 @@ class SoundController extends Controller
                 'artist'      => trim((string) $request->input('artist')) ?: ($user->username ? '@' . $user->username : 'Creator'),
                 'file_path'   => $dir . '/' . $name,
                 'duration'    => $seconds,
+                'genre'       => $library ? ($request->input('genre') ?: null) : null,
                 'license'     => $library ? $request->input('license') : null,
                 'license_url' => $library ? $request->input('license_url') : null,
                 'attribution' => $library ? $request->input('attribution') : null,

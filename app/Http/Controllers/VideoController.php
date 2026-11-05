@@ -321,6 +321,11 @@ $hashtags = $request->filled('hashtags')
             // The key must be one we signed for THIS user (stateless HMAC, so it works across servers/caches)
             $okKey = str_starts_with($key, 'videos/') && !str_contains($key, '..')
                 && hash_equals(self::uploadKeyToken($key, (int) Auth::id()), (string) $request->input('video_token'));
+            // Safe to retry: if this exact upload was already saved (the browser retried after a gateway error that hid
+            // our answer), hand back the same video instead of creating a duplicate.
+            if ($okKey && ($dup = Video::where('user_id', Auth::id())->where('video_url', $key)->where('created_at', '>=', now()->subMinutes(10))->first())) {
+                return response()->json(['message' => 'Video uploaded successfully.', 'video_id' => $dup->id, 'video_ulid' => $dup->ulid, 'status' => $dup->status], 201);
+            }
             if (!$okKey || !$disk->exists($key)) {
                 return response()->json(['message' => 'The video file did not arrive. Please try again.', 'errors' => ['video' => ['The video file did not arrive. Please try again.']]], 422);
             }

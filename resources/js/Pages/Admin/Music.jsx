@@ -1,6 +1,7 @@
 import { Head, Link } from '@inertiajs/react'
 import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 import { Spinner } from '../../Components/Upload/ui'
 
 const API = '/api/admin/music'
@@ -11,13 +12,37 @@ const btn = (c = 'rgba(255,255,255,0.08)', fg = '#fff') => ({ background: c, col
 const inp = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 9, color: '#fff', padding: '8px 11px', fontSize: 13, outline: 'none' }
 const mute = { color: 'rgba(255,255,255,0.5)', fontSize: 12 }
 
+/** Confirm / input dialog built on the app's own ConfirmModal. cfg: { title, message, confirmLabel, danger, fields:[{key,label,value,multiline}], onConfirm(values) } */
+function Dialog({ cfg, onClose }) {
+    const fields = cfg.fields || []
+    const [vals, setVals] = useState(() => Object.fromEntries(fields.map(f => [f.key, f.value ?? ''])))
+    return (
+        <ConfirmModal title={cfg.title} message={cfg.message || ''} confirmLabel={cfg.confirmLabel || 'Confirm'} danger={cfg.danger !== false} onConfirm={() => cfg.onConfirm(vals)} onClose={onClose}>
+            {fields.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {fields.map(f => (
+                        <div key={f.key}>
+                            <p style={{ ...mute, margin: '0 0 4px' }}>{f.label}</p>
+                            {f.multiline
+                                ? <textarea rows={3} value={vals[f.key]} onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))} style={{ ...inp, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
+                                : <input value={vals[f.key]} onChange={e => setVals(v => ({ ...v, [f.key]: e.target.value }))} style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </ConfirmModal>
+    )
+}
+
 /** Admin: copyright claims, sounds, repeat sellers, stuck videos and a system check. Every takedown can be undone. */
 export default function AdminMusic({ counts }) {
     const [tab, setTab] = useState('claims')
     const [msg, setMsg] = useState('')
+    const [dialog, setDialog] = useState(null)
+    const ask = (cfg) => setDialog(cfg)
     const say = (m) => { setMsg(m); setTimeout(() => setMsg(''), 5000) }
     const call = async (method, url, data) => {
-        try { const r = await axios({ method, url: API + url, data }); say(r.data?.message || 'Done'); return r.data }
+        try { const r = await axios({ method, url: url.startsWith('/api/') ? url : API + url, data }); say(r.data?.message || 'Done'); return r.data }
         catch (e) { say(e.response?.data?.message || 'Something went wrong'); return null }
     }
 
@@ -35,12 +60,13 @@ export default function AdminMusic({ counts }) {
                     ))}
                 </div>
                 {msg && <div style={{ ...card, borderColor: 'rgba(255,107,53,0.4)', color: '#FFB08F', fontSize: 13 }}>{msg}</div>}
-                {tab === 'claims' && <Claims call={call} />}
-                {tab === 'sounds' && <Sounds call={call} />}
-                {tab === 'strikes' && <Strikes call={call} say={say} />}
+                {tab === 'claims' && <Claims call={call} ask={ask} />}
+                {tab === 'sounds' && <Sounds call={call} ask={ask} />}
+                {tab === 'strikes' && <Strikes call={call} ask={ask} />}
                 {tab === 'videos' && <Processing call={call} />}
                 {tab === 'system' && <System call={call} />}
             </div>
+            {dialog && <Dialog cfg={dialog} onClose={() => setDialog(null)} />}
         </div>
     )
 }
@@ -55,7 +81,7 @@ function useList(url, params) {
     return [rows, load]
 }
 
-function Claims({ call }) {
+function Claims({ call, ask }) {
     const [status, setStatus] = useState('open')
     const [rows, reload] = useList('/claims', { status })
     const act = async (fn) => { await fn(); reload() }
@@ -79,12 +105,12 @@ function Claims({ call }) {
                     {c.status !== 'open' && <div style={{ ...mute, marginTop: 6 }}>Status: <b style={{ color: '#fff' }}>{c.status}</b>{c.action_taken ? ` (${c.action_taken})` : ''}{c.admin_note ? ` · ${c.admin_note}` : ''}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                         {c.status === 'open' && <>
-                            {c.sound_id && <button style={btn('#DC2626')} onClick={() => confirm('Switch off this sound and hide every video that uses it?') && act(() => call('post', `/claims/${c.id}/takedown`, { scope: 'sound' }))}>Take down sound + videos</button>}
-                            {c.video_id && <button style={btn('#B45309')} onClick={() => confirm('Hide this video?') && act(() => call('post', `/claims/${c.id}/takedown`, { scope: 'video' }))}>Hide this video only</button>}
-                            <button style={btn()} onClick={() => { const note = prompt('Why is this claim not valid? (optional)') ; if (note !== null) act(() => call('post', `/claims/${c.id}/reject`, { note })) }}>Reject claim</button>
+                            {c.sound_id && <button style={btn('#DC2626')} onClick={() => ask({ title: 'Take down this sound?', message: 'The sound is switched off and every video that uses it is hidden. The claimant and the sellers are emailed.', confirmLabel: 'Take down', onConfirm: () => act(() => call('post', `/claims/${c.id}/takedown`, { scope: 'sound' })) })}>Take down sound + videos</button>}
+                            {c.video_id && <button style={btn('#B45309')} onClick={() => ask({ title: 'Hide this video?', message: 'Only this video is hidden. The claimant and the seller are emailed.', confirmLabel: 'Hide video', onConfirm: () => act(() => call('post', `/claims/${c.id}/takedown`, { scope: 'video' })) })}>Hide this video only</button>}
+                            <button style={btn()} onClick={() => ask({ title: 'Reject this claim?', message: 'Nothing is removed. The claimant is emailed our decision.', confirmLabel: 'Reject claim', danger: false, fields: [{ key: 'note', label: 'Why is it not valid? (sent to the claimant)', multiline: true }], onConfirm: v => act(() => call('post', `/claims/${c.id}/reject`, { note: v.note })) })}>Reject claim</button>
                         </>}
-                        {c.status === 'actioned' && <button style={btn('#047857')} onClick={() => { const note = prompt('Reason for restoring (counter-notice, withdrawn claim…)'); if (note !== null) act(() => call('post', `/claims/${c.id}/restore`, { note })) }}>Restore</button>}
-                        {c.owner && <button style={btn()} onClick={() => { const reason = prompt('Suspend @' + c.owner.username + '? Reason shown to them:'); if (reason) axios.post(`/api/admin/users/${c.owner.id}/suspend`, { reason }).then(r => alert(r.data.message)).then(reload).catch(() => alert('Could not suspend.')) }}>Suspend seller</button>}
+                        {c.status === 'actioned' && <button style={btn('#047857')} onClick={() => ask({ title: 'Restore this content?', message: 'Hidden videos go live again and the sound is switched back on. The claimant is emailed.', confirmLabel: 'Restore', danger: false, fields: [{ key: 'note', label: 'Reason (counter-notice, withdrawn claim…)', multiline: true }], onConfirm: v => act(() => call('post', `/claims/${c.id}/restore`, { note: v.note })) })}>Restore</button>}
+                        {c.owner && <button style={btn()} onClick={() => ask({ title: `Suspend @${c.owner.username}?`, message: 'They will not be able to use their account until they appeal.', confirmLabel: 'Suspend', fields: [{ key: 'reason', label: 'Reason shown to them', value: 'Repeated copyright infringement' }], onConfirm: v => act(() => call('post', `/api/admin/users/${c.owner.id}/suspend`, { reason: v.reason })) })}>Suspend seller</button>}
                     </div>
                 </div>
             ))}
@@ -92,7 +118,7 @@ function Claims({ call }) {
     )
 }
 
-function Sounds({ call }) {
+function Sounds({ call, ask }) {
     const [f, setF] = useState({ search: '', source: '', state: '' })
     const [rows, setRows] = useState(null)
     const [open, setOpen] = useState(null)
@@ -104,10 +130,9 @@ function Sounds({ call }) {
     const act = async (fn) => { await fn(); load() }
     const show = async (s) => { if (open === s.id) return setOpen(null); setOpen(s.id); const { data } = await axios.get(`${API}/sounds/${s.id}/videos`); setVids(data.data) }
     const edit = (s) => {
-        const title = prompt('Title', s.title); if (title === null) return
-        const artist = prompt('Artist', s.artist); if (artist === null) return
-        const attribution = prompt('Credit line shown under videos (needed for CC BY)', s.attribution || ''); if (attribution === null) return
-        act(() => call('patch', `/sounds/${s.id}`, { title, artist, attribution }))
+        ask({ title: 'Edit sound', confirmLabel: 'Save', danger: false,
+            fields: [{ key: 'title', label: 'Title', value: s.title }, { key: 'artist', label: 'Artist', value: s.artist }, { key: 'genre', label: 'Genre (afrobeats, amapiano, afro-pop, highlife, gospel, hip-hop, rnb, dancehall, chill)', value: s.genre || '' }, { key: 'attribution', label: 'Credit line shown under videos (needed for CC BY)', value: s.attribution || '' }],
+            onConfirm: v => act(() => call('patch', `/sounds/${s.id}`, { ...v, genre: v.genre || null })) })
     }
     return (
         <>
@@ -134,8 +159,8 @@ function Sounds({ call }) {
                         <button style={btn()} onClick={() => show(s)}>{open === s.id ? 'Hide videos' : 'Videos using it'}</button>
                         <button style={btn()} onClick={() => edit(s)}>Edit</button>
                         <button style={btn()} onClick={() => act(() => call('post', `/sounds/${s.id}/toggle`))}>{s.is_active ? 'Switch off' : 'Switch on'}</button>
-                        <button style={btn('#DC2626')} onClick={() => confirm('Switch off and hide every video using this sound?') && act(() => call('post', `/sounds/${s.id}/takedown`))}>Take down + hide videos</button>
-                        <button style={btn('#7F1D1D')} onClick={() => confirm('Delete this sound and its file for good? Videos keep playing.') && act(() => call('delete', `/sounds/${s.id}`))}>Delete</button>
+                        <button style={btn('#DC2626')} onClick={() => ask({ title: 'Take down this sound?', message: 'It is switched off and every video using it is hidden. You can restore them one by one.', confirmLabel: 'Take down', onConfirm: () => act(() => call('post', `/sounds/${s.id}/takedown`)) })}>Take down + hide videos</button>
+                        <button style={btn('#7F1D1D')} onClick={() => ask({ title: 'Delete this sound?', message: 'The sound and its file are removed for good. Videos that used it keep playing.', confirmLabel: 'Delete', onConfirm: () => act(() => call('delete', `/sounds/${s.id}`)) })}>Delete</button>
                     </div>
                     {open === s.id && (
                         <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 8 }}>
@@ -155,13 +180,13 @@ function Sounds({ call }) {
     )
 }
 
-function Strikes({ say }) {
-    const [rows] = useList('/strikes')
-    const suspend = async (u) => {
-        const reason = prompt(`Suspend @${u.username}? This reason is shown to them:`, 'Repeated copyright infringement')
-        if (!reason) return
-        try { const r = await axios.post(`/api/admin/users/${u.id}/suspend`, { reason }); say(r.data.message) } catch { say('Could not suspend.') }
-    }
+function Strikes({ call, ask }) {
+    const [rows, reload] = useList('/strikes')
+    const suspend = (u) => ask({
+        title: `Suspend @${u.username}?`, message: 'They will not be able to use their account until they appeal.', confirmLabel: 'Suspend',
+        fields: [{ key: 'reason', label: 'Reason shown to them', value: 'Repeated copyright infringement' }],
+        onConfirm: v => call('post', `/api/admin/users/${u.id}/suspend`, { reason: v.reason }).then(reload),
+    })
     return rows === null ? <Spinner /> : rows.length === 0 ? <p style={mute}>No takedowns yet.</p> : (
         <>
             <p style={mute}>Sellers with videos removed after a copyright claim. Suggested policy: suspend at 3.</p>

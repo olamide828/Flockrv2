@@ -13,6 +13,7 @@ import SoundSheet from '../../Components/Upload/SoundSheet'
 import SoundMarquee from '../../Components/Video/SoundMarquee'
 import TextEditor from '../../Components/Upload/TextEditor'
 import { CHint, KEYFRAMES, S, SCard, Spinner } from '../../Components/Upload/ui'
+import ConfirmModal from '@/Components/Community/ConfirmModal'
 import { ENHANCE_CSS, PHOTO_SECONDS, fmtTime, photoToVideoFile, probeVideo, putToUrl } from '../../lib/media'
 import { ensureTextFonts, renderOverlayBlob } from '../../lib/textOverlays'
 
@@ -76,6 +77,7 @@ export default function Upload({ products: initialProducts = [] }) {
     const frameRef = useRef(null)
     const videoRef = useRef(null)
     const musicRef = useRef(null)
+    const [confirmDiscard, setConfirmDiscard] = useState(false)
     const frameSize = useRef({ w: 390, h: 844 })
     const urlRef = useRef(null)
 
@@ -105,6 +107,23 @@ export default function Upload({ products: initialProducts = [] }) {
         window.addEventListener('resize', update)
         return () => { ro?.disconnect(); window.removeEventListener('resize', update) }
     }, [stage])
+
+    // ── Music plays while you record, from the part of the sound you picked ─────────
+    const recordMusicStart = () => {
+        const a = musicRef.current
+        if (!a || !sound) return
+        a.src = sound.sound.url
+        a.volume = sound.musicVolume
+        try { a.currentTime = sound.start || 0 } catch { /* not seekable yet */ }
+        a.ontimeupdate = () => { if (sound.end && a.currentTime >= sound.end) a.pause() }
+        a.play().catch(() => {})
+    }
+    const recordMusicStop = () => {
+        const a = musicRef.current
+        if (!a) return
+        a.ontimeupdate = null
+        a.pause()
+    }
 
     // ── Music preview follows the video (play, pause, loop) ────────────────────
     useEffect(() => {
@@ -248,7 +267,7 @@ export default function Upload({ products: initialProducts = [] }) {
 
     // ── Navigation ────────────────────────────────────────────────────────────
     const editBack = () => {
-        if ((overlays.length > 0 || sound) && !window.confirm('Discard this video and your edits?')) return
+        if (overlays.length > 0 || sound) { setConfirmDiscard(true); return }
         discardVideo()
         setStage('camera')
     }
@@ -315,10 +334,25 @@ export default function Upload({ products: initialProducts = [] }) {
             // 2) Normal upload: the file goes with the form (or, if step 1 worked, just the small details)
             if (!direct) { fd.append('video', videoFile); setProgress(0) }
             else setUploadLabel('Posting…')
-            await axios.post('/api/videos/upload', fd, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: e => { if (!direct && e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
-            })
+            // Only the small "details" request is retried after a gateway hiccup (502/503/504 or a dropped connection),
+            // and only when the video is already in storage: the server recognises the same upload, so nothing is posted twice.
+            let attempt = 0
+            for (;;) {
+                try {
+                    await axios.post('/api/videos/upload', fd, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                        onUploadProgress: e => { if (!direct && e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
+                    })
+                    break
+                } catch (e) {
+                    const st = e.response?.status
+                    const transient = !e.response || st === 502 || st === 503 || st === 504
+                    if (!direct || !transient || attempt >= 3) throw e
+                    attempt += 1
+                    setUploadLabel(`Retrying (${attempt}/3)…`)
+                    await new Promise(r => setTimeout(r, 1500 * attempt))
+                }
+            }
             setDone(true)
             setTimeout(() => router.visit('/seller/dashboard'), 2200)
         } catch (err) {
@@ -328,7 +362,10 @@ export default function Upload({ products: initialProducts = [] }) {
                 return
             }
             const d = err.response?.data
-            setErrors(d?.errors ?? { _general: d?.message ?? err.message ?? 'Upload failed.' })
+            const st = err.response?.status
+            setErrors(d?.errors ?? { _general: st === 503 || st === 502 || st === 504
+                ? `Our servers are busy right now (error ${st}). Your video is safe, please tap Post again in a moment.`
+                : (d?.message ?? err.message ?? 'Upload failed.') })
             if (d?.errors?.video) setStage('camera')
         } finally {
             setUploading(false)
@@ -370,6 +407,10 @@ export default function Upload({ products: initialProducts = [] }) {
         <>
             <Head title="Create" />
 
+            {confirmDiscard && (
+                <ConfirmModal title="Discard this video?" message="Your video and edits will be lost." confirmLabel="Discard" onConfirm={() => { discardVideo(); setStage('camera') }} onClose={() => setConfirmDiscard(false)} />
+            )}
+
             {/* ════ CAMERA ═══════════════════════════════════════════════ */}
             {stage === 'camera' && sound && (
                 <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top) + 64px)', left: 0, right: 0, zIndex: 30, display: 'flex', justifyContent: 'center', padding: '0 70px', pointerEvents: 'none' }}>
@@ -383,6 +424,8 @@ export default function Upload({ products: initialProducts = [] }) {
                     onToggleEnhance={toggleEnhance}
                     onGallery={() => fileInputRef.current?.click()}
                     onNativeCapture={openNative}
+                    onRecordStart={recordMusicStart}
+                    onRecordStop={recordMusicStop}
                     onClose={closeUploader}
                     showProductHint={!hasProducts}
                     onProductHint={() => setProductSheet(true)}

@@ -29,6 +29,7 @@ import {
     RiWhatsappLine,
     RiRedditLine,
     RiFlag2Line,
+    RiShieldCheckLine,
     RiChatSmile3Line,
     RiSparkling2Line,
 } from 'react-icons/ri';
@@ -70,7 +71,7 @@ const postedDate = (d) => {
     return new Date(d).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-function MoreSheet({ onClose, onReport, videoRef }) {
+function MoreSheet({ onClose, onReport, videoRef, videoUlid }) {
     const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
     const [currentSpeed, setCurrentSpeed] = useState(videoRef.current?.playbackRate ?? 1)
 
@@ -108,6 +109,10 @@ function MoreSheet({ onClose, onReport, videoRef }) {
                         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', fontSize: 14, fontWeight: 600 }}>
                         <RiFlag2Line size={18} /> Report video
                     </button>
+                    <button onClick={() => { onClose(); router.visit(`/copyright?video=${videoUlid}`); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                        <RiShieldCheckLine size={18} /> Copyright / content removal
+                    </button>
                 </div>
             </div>
         </>
@@ -119,6 +124,7 @@ function MoreSheet({ onClose, onReport, videoRef }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function useVideoDownload(video) {
     const [dlState, setDlState] = useState('idle'); // idle | preparing | processing | done | error
+    const [dlProgress, setDlProgress] = useState(null); // 0-99 while the server prepares the file
     const pollTimer = useRef(null);
 
     const stopPolling = () => {
@@ -149,6 +155,7 @@ function useVideoDownload(video) {
     const download = useCallback(async () => {
         if (dlState !== 'idle' && dlState !== 'error') return;
         setDlState('preparing');
+        setDlProgress(null);
         stopPolling();
         try {
             const { data } = await axios.post(
@@ -168,6 +175,7 @@ function useVideoDownload(video) {
                         `/api/videos/download/status?job_key=${encodeURIComponent(jobKey)}`,
                         { withCredentials: true }
                     );
+                    if (typeof poll.progress === 'number') setDlProgress(poll.progress);
                     if (poll.status === 'done' && poll.url) {
                         stopPolling();
                         await triggerBrowserDownload(poll.url, jobKey);
@@ -195,7 +203,7 @@ function useVideoDownload(video) {
         }
     }, [dlState, video.ulid, triggerBrowserDownload]);
 
-    return { download, dlState };
+    return { download, dlState, dlProgress };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,7 +299,7 @@ const ProductRow = ({ product }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // ShareSheet
 // ─────────────────────────────────────────────────────────────────────────────
-const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
+const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState, dlProgress }) => {
     const [copied, setCopied] = useState(false);
     const encodedUrl   = encodeURIComponent(videoUrl);
     const encodedTitle = encodeURIComponent(videoTitle || 'Check this out on Flockr');
@@ -304,7 +312,7 @@ const ShareSheet = ({ videoUrl, videoTitle, onClose, onDownload, dlState }) => {
 
     const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
-    const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download';
+    const dlLabel = { idle: 'Download', preparing: 'Preparing…', processing: dlProgress != null ? `Processing ${dlProgress}%` : 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState] ?? 'Download';
     const dlColor = { idle: '#fff', preparing: 'rgba(255,255,255,0.4)', processing: 'rgba(255,255,255,0.4)', done: '#10B981', error: '#EF4444' }[dlState] ?? '#fff';
     const dlBg    = { idle: 'rgba(255,255,255,0.06)', preparing: 'rgba(255,255,255,0.04)', processing: 'rgba(255,255,255,0.04)', done: 'rgba(16,185,129,0.12)', error: 'rgba(239,68,68,0.12)' }[dlState] ?? 'rgba(255,255,255,0.06)';
     const dlBusy  = dlState === 'preparing' || dlState === 'processing';
@@ -400,7 +408,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
-    const { download, dlState } = useVideoDownload(video);
+    const { download, dlState, dlProgress } = useVideoDownload(video);
 
 
     const isOwner     = auth?.user?.id === video.user_id;
@@ -535,13 +543,14 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
         <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
 
             {mobileSheet === 'share' && (
-                <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} />
+                <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} dlProgress={dlProgress} />
             )}
             {moreSheetOpen && (
                 <MoreSheet
                     onClose={() => setMoreSheetOpen(false)}
                     onReport={() => setReportOpen(true)}
                     videoRef={videoRef}
+                    videoUlid={video.ulid}
                 />
             )}
             {reportOpen && (
@@ -728,7 +737,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                             <button onClick={download} disabled={dlState !== 'idle' && dlState !== 'error'}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: dlState === 'done' ? 'rgba(16,185,129,0.12)' : dlState === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, color: dlState === 'done' ? '#10B981' : dlState === 'error' ? '#EF4444' : '#fff', fontSize: 12, fontWeight: 600, cursor: (dlState === 'preparing' || dlState === 'processing') ? 'default' : 'pointer', opacity: (dlState === 'preparing' || dlState === 'processing') ? 0.5 : 1 }}>
                                 {(dlState === 'preparing' || dlState === 'processing') ? <RiLoader4Line size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <RiDownload2Line size={14} />}
-                                {{ idle: 'Download', preparing: 'Preparing…', processing: 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState]}
+                                {{ idle: 'Download', preparing: 'Preparing…', processing: dlProgress != null ? `Processing ${dlProgress}%` : 'Processing…', done: '✓ Saved!', error: 'Retry' }[dlState]}
                             </button>
                         </div>
                     </div>

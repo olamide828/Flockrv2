@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { RiCloseLine, RiFlagLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiShareForwardLine, RiVideoAddLine, RiForbid2Line } from 'react-icons/ri'
+import SoundShareSheet from '@/Components/Sound/SoundShareSheet'
 import VideoThumb from '@/Components/Video/VideoThumb'
 
 const hue = (id) => (Number(id || 0) * 47) % 360
@@ -26,7 +27,7 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
     const [page, setPage] = useState(1)
     const [loadingMore, setLoadingMore] = useState(false)
     const [playing, setPlaying] = useState(false)
-    const [copied, setCopied] = useState(false)
+    const [shareOpen, setShareOpen] = useState(false)
     const audioRef = useRef(null)
     const sentinel = useRef(null)
 
@@ -80,14 +81,6 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
         a.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
     }
 
-    const share = async () => {
-        const link = `${window.location.origin}/sound/${sound.id}`
-        try {
-            if (navigator.share) await navigator.share({ title: sound.title, url: link })
-            else { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) }
-        } catch { /* cancelled */ }
-    }
-
     const h = hue(sound?.id)
     const gone = state.status === 'removed' || state.status === 'error'
     const goneInfo = state.status === 'error' ? { title: 'Could not load this sound', text: 'Check your connection and try again.' } : GONE[state.reason] ?? GONE.removed
@@ -96,7 +89,7 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
         // React events bubble through portals: stop them so taps inside the sheet never reach the video behind it
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100 }} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} onWheel={e => e.stopPropagation()}>
             <div onClick={close} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', animation: 'sdFade 0.2s ease' }} />
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '94dvh', maxWidth: 720, margin: '0 auto', background: '#0b0b0d', borderRadius: '26px 26px 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', display: 'flex', flexDirection: 'column', overflow: 'hidden', color: '#fff', fontFamily: 'DM Sans, sans-serif', animation: closing ? 'sdDown 0.2s ease forwards' : 'sdUp 0.3s cubic-bezier(0.22,1,0.36,1)' }}>
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '94dvh', maxWidth: 860, margin: '0 auto', background: '#0b0b0d', borderRadius: '26px 26px 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', display: 'flex', flexDirection: 'column', overflow: 'hidden', color: '#fff', fontFamily: 'DM Sans, sans-serif', animation: closing ? 'sdDown 0.2s ease forwards' : 'sdUp 0.3s cubic-bezier(0.22,1,0.36,1)' }}>
                 <style>{`
                     @keyframes sdUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
                     @keyframes sdDown{to{transform:translateY(100%)}}
@@ -104,6 +97,8 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
                     @keyframes sdShimmer{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
                     @keyframes sdRing{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.35);opacity:0}}
                     @keyframes spin{to{transform:rotate(360deg)}}
+                    .sd-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+                    @media (min-width:700px){.sd-grid{grid-template-columns:repeat(4,1fr);gap:10px}}
                 `}</style>
 
                 {/* header bar */}
@@ -167,14 +162,13 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
                                         <a href={`/seller/upload?sound=${sound.id}`} style={{ flex: '0 1 240px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 20px', borderRadius: 999, background: '#FF6B35', color: '#fff', fontSize: 14, fontWeight: 800, textDecoration: 'none' }}>
                                             <RiVideoAddLine size={18} /> Use this sound
                                         </a>
-                                        <button onClick={share} aria-label="Share sound" style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.09)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <button onClick={() => setShareOpen(true)} aria-label="Share sound" style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.09)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <RiShareForwardLine size={19} />
                                         </button>
                                         <a href={`/copyright?sound=${sound.id}`} aria-label="Report sound" style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.09)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <RiFlagLine size={18} />
                                         </a>
                                     </div>
-                                    {copied && <p style={{ margin: '10px 0 0', color: '#6EE7B7', fontSize: 12 }}>Link copied</p>}
                                 </div>
                             </div>
 
@@ -186,12 +180,13 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
                                         <RiMusic2Fill size={28} color="rgba(255,255,255,0.18)" /><br />No videos use this sound yet. Be the first!
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                                    <div className="sd-grid">
                                         {videos.map(v => <VideoThumb key={v.id} video={v} onNavigate={close} />)}
                                     </div>
                                 )}
                                 {more && <div ref={sentinel} style={{ display: 'flex', justifyContent: 'center', padding: '18px 0' }}>{loadingMore && <div style={{ width: 22, height: 22, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}</div>}
                             </div>
+                            {shareOpen && <SoundShareSheet sound={sound} onClose={() => setShareOpen(false)} />}
                             <audio ref={audioRef} src={sound.url} preload="none" onEnded={() => setPlaying(false)} />
                         </>
                     )}
