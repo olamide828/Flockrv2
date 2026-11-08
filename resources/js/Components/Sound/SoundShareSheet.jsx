@@ -5,7 +5,7 @@ import { RiCheckLine, RiCloseLine, RiFacebookCircleLine, RiInstagramLine, RiLink
 /** Share sheet for a sound. Same look as the video share sheet: app icons row + copy-link bar. */
 export default function SoundShareSheet({ sound, onClose }) {
     const [copied, setCopied] = useState(false)
-    const url = `${window.location.origin}/sound/${sound.id}`
+    const url = `${window.location.origin}${sound.path || `/sound/${sound.id}`}`
     const text = `${sound.title} · ${sound.artist} on Flockr`
     const enc = encodeURIComponent(url)
     const encText = encodeURIComponent(text)

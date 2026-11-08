@@ -340,6 +340,7 @@ Route::post('/chirp/product-insight', function (\Illuminate\Http\Request $reques
 Route::get('/videos/{video}/comments', [CommentController::class, 'index']);
 Route::post('/copyright-claim', [\App\Http\Controllers\CopyrightController::class, 'submit'])->middleware('throttle:6,60');
 Route::get('/sounds/from-video/{ulid}/sheet', [SoundController::class, 'sheetFromVideo']);
+Route::get('/sounds/u/{ulid}/sheet', [SoundController::class, 'sheetByUlid']);
 Route::get('/sounds/{id}/sheet', [SoundController::class, 'sheet'])->whereNumber('id');
 Route::get('/sounds/{sound}/videos', [SoundController::class, 'videos']);   // public: "Load more" on the sound page
 Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('user');
@@ -391,6 +392,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sounds/epidemic/{trackId}/preview', [SoundController::class, 'epidemicPreview']);
     Route::post('/sounds/epidemic/{trackId}/import', [SoundController::class, 'epidemicImport']);
     Route::post('/sounds/free/{id}/import', [SoundController::class, 'freeImport']);
+    Route::post('/sounds/{sound}/save', [SoundController::class, 'toggleSave']);
     Route::get('/sounds/{sound}', [SoundController::class, 'show']);
 
 
@@ -689,6 +691,7 @@ Route::get('/users/me/saved-videos-list', function () {
     return Auth::user()->savedVideos()->with('user:id,name,username,avatar')->latest('video_saves.created_at')->get();
 });
 
+Route::get('/users/me/saved-sounds', [SoundController::class, 'saved']);
 Route::get('/users/me/wishlist-products', function () {
     return Auth::user()->savedProducts()
         ->with('seller:id,name,username,avatar,is_verified')
@@ -880,6 +883,12 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
             Route::post('/claims/{claim}/restore', [\App\Http\Controllers\AdminMusicController::class, 'restoreClaim']);
             Route::get('/strikes', [\App\Http\Controllers\AdminMusicController::class, 'strikes']);
             Route::get('/sounds', [\App\Http\Controllers\AdminMusicController::class, 'sounds']);
+            Route::get('/settings', [\App\Http\Controllers\AdminMusicController::class, 'settings']);
+            Route::post('/settings', [\App\Http\Controllers\AdminMusicController::class, 'saveSettings']);
+            Route::get('/removed-videos', [\App\Http\Controllers\AdminMusicController::class, 'removedVideos']);
+            Route::get('/failed-jobs', [\App\Http\Controllers\AdminMusicController::class, 'failedJobs']);
+            Route::post('/failed-jobs/{uuid}/retry', [\App\Http\Controllers\AdminMusicController::class, 'retryFailed']);
+            Route::delete('/failed-jobs/{uuid}', [\App\Http\Controllers\AdminMusicController::class, 'forgetFailed']);
             Route::patch('/sounds/{sound}', [\App\Http\Controllers\AdminMusicController::class, 'updateSound']);
             Route::post('/sounds/{sound}/toggle', [\App\Http\Controllers\AdminMusicController::class, 'toggleSound']);
             Route::post('/sounds/{sound}/takedown', [\App\Http\Controllers\AdminMusicController::class, 'takedownSoundAction']);

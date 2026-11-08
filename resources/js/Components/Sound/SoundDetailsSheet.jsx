@@ -1,9 +1,10 @@
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { RiCloseLine, RiFlagLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiShareForwardLine, RiVideoAddLine, RiForbid2Line } from 'react-icons/ri'
+import { RiBookmarkFill, RiBookmarkLine, RiCloseLine, RiFlagLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiShareForwardLine, RiVideoAddLine, RiForbid2Line } from 'react-icons/ri'
 import SoundShareSheet from '@/Components/Sound/SoundShareSheet'
 import VideoThumb from '@/Components/Video/VideoThumb'
+import { useToast } from '@/Components/Toast'
 
 const hue = (id) => (Number(id || 0) * 47) % 360
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -19,7 +20,8 @@ const GONE = {
  * Pass `soundId`, or `fromVideo` (a video ulid, for a creator's original sound). A deleted or taken-down sound is
  * shown as a friendly "removed" state, with the reason, instead of a 404 page.
  */
-export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
+export default function SoundDetailsSheet({ soundId, soundUlid, fromVideo, onClose }) {
+    const { showToast, ToastComponent } = useToast()
     const [closing, setClosing] = useState(false)
     const [state, setState] = useState({ loading: true })
     const [videos, setVideos] = useState([])
@@ -43,7 +45,7 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
 
     useEffect(() => {
         let alive = true
-        const url = fromVideo ? `/api/sounds/from-video/${fromVideo}/sheet` : `/api/sounds/${soundId}/sheet`
+        const url = fromVideo ? `/api/sounds/from-video/${fromVideo}/sheet` : soundUlid ? `/api/sounds/u/${soundUlid}/sheet` : `/api/sounds/${soundId}/sheet`
         axios.get(url)
             .then(({ data }) => {
                 if (!alive) return
@@ -52,9 +54,23 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
             })
             .catch(() => alive && setState({ status: 'error' }))
         return () => { alive = false }
-    }, [soundId, fromVideo])
+    }, [soundId, soundUlid, fromVideo])
 
     const sound = state.sound
+    const toggleSave = async () => {
+        if (!sound) return
+        const was = !!sound.is_saved
+        setState(st => ({ ...st, sound: { ...st.sound, is_saved: !was } }))
+        try {
+            const { data } = await axios.post(`/api/sounds/${sound.id}/save`)
+            setState(st => ({ ...st, sound: { ...st.sound, is_saved: data.saved } }))
+            showToast(data.saved ? 'Sound saved' : 'Removed from saved', data.saved ? 'success' : 'info')
+        } catch (e) {
+            setState(st => ({ ...st, sound: { ...st.sound, is_saved: was } }))
+            if (e?.response?.status === 401) { window.location.href = '/login'; return }
+            showToast('Could not update saved sounds', 'error')
+        }
+    }
     const loadMore = useCallback(async () => {
         if (!sound || loadingMore || !more) return
         setLoadingMore(true)
@@ -162,6 +178,9 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
                                         <a href={`/seller/upload?sound=${sound.id}`} style={{ flex: '0 1 240px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 20px', borderRadius: 999, background: '#FF6B35', color: '#fff', fontSize: 14, fontWeight: 800, textDecoration: 'none' }}>
                                             <RiVideoAddLine size={18} /> Use this sound
                                         </a>
+                                        <button onClick={toggleSave} aria-label={sound.is_saved ? 'Remove from saved' : 'Save sound'} style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.09)', border: 'none', color: sound.is_saved ? '#FF6B35' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                            {sound.is_saved ? <RiBookmarkFill size={19} /> : <RiBookmarkLine size={19} />}
+                                        </button>
                                         <button onClick={() => setShareOpen(true)} aria-label="Share sound" style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,0.09)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <RiShareForwardLine size={19} />
                                         </button>
@@ -192,6 +211,7 @@ export default function SoundDetailsSheet({ soundId, fromVideo, onClose }) {
                     )}
                 </div>
             </div>
+            {ToastComponent}
         </div>,
         document.body,
     )

@@ -80,9 +80,13 @@ class Video extends Model
         return $this->belongsTo(Sound::class);
     }
 
+    /**
+     * withTrashed + withDefault: a deleted creator never makes `$video->user` null, so links/names can't turn into
+     * "@undefined". Deleted accounts are anonymised on deletion (username deleted_{id}, name "Deleted User").
+     */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed()->withDefault(['name' => 'Deleted user']);
     }
 
     public function getRouteKeyName(): string
@@ -132,7 +136,9 @@ class Video extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', 'active')->whereNotNull('published_at');
+        // Public videos only: published, AND the creator is still around (not banned, not deleted)
+        return $query->where('status', 'active')->whereNotNull('published_at')
+            ->whereNotIn('videos.user_id', fn($q) => $q->select('id')->from('users')->where(fn($w) => $w->where('is_active', false)->orWhereNotNull('deleted_at')));
     }
 
     public function scopeForFeed($query)
@@ -205,6 +211,8 @@ class Video extends Model
 
         return [
             'id'          => $s->id,
+            'ulid'        => $s->ulid,
+            'path'        => $s->path(),
             'title'       => $s->title,
             'artist'      => $s->artist,
             'attribution' => $s->attribution,

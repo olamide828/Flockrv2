@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Auth;
 
 class CommentController extends Controller
 {
+    use \App\Http\Controllers\Concerns\HidesBlockedUsers;
+
     // ── Shared serialiser ─────────────────────────────────────────────────────
     private function serialise(Comment $comment, array $likedIds = []): array
     {
@@ -63,8 +65,10 @@ class CommentController extends Controller
 
         $comments = $video->comments()
             ->whereNull('parent_id')
+            ->whereHas('user', fn($u) => $u->where('is_active', true))      // deleted / banned authors vanish
             ->with([
                 'user:id,name,username,avatar',
+                'replies' => fn($r) => $r->whereHas('user', fn($u) => $u->where('is_active', true)),
                 'replies.user:id,name,username,avatar',
             ])
             ->when($blockedIds->isNotEmpty(), fn($q) => $q->whereNotIn('user_id', $blockedIds))
@@ -128,6 +132,11 @@ class CommentController extends Controller
             'reply_to_username' => 'nullable|string|max:50',
         ]);
 
+        // Nobody can comment across a block, or on a banned/deleted creator's video
+        if ($this->isBlockedWith($video->user_id) || $this->accountUnavailable($video->user)) {
+            return response()->json(['message' => 'You cannot comment on this video.'], 403);
+        }
+
         // Validate parent is a root comment on this video
         if (!empty($validated['parent_id'])) {
             $parent = Comment::where('id', $validated['parent_id'])
@@ -137,6 +146,9 @@ class CommentController extends Controller
 
             if (!$parent) {
                 return response()->json(['message' => 'Invalid parent comment.'], 422);
+            }
+            if ($this->isBlockedWith($parent->user_id)) {
+                return response()->json(['message' => 'You cannot reply to this comment.'], 403);
             }
         }
 

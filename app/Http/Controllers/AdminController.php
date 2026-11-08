@@ -191,7 +191,11 @@ public function suspendUser(Request $request, User $user): JsonResponse
         'is_active'     => false,
     ]);
 
-    $user->delete(); 
+    // same as self-service deletion: their content leaves the platform immediately
+    \App\Models\Video::where('user_id', $user->id)->whereNull('deleted_at')->update(['deleted_at' => now()]);
+    \App\Models\Product::where('seller_id', $user->id)->whereNull('deleted_at')->update(['deleted_at' => now()]);
+
+    $user->delete();
 
     return response()->json(['message' => "User @{$user->username} deleted."]);
 }

@@ -21,6 +21,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SuspensionController;
 use App\Http\Controllers\SoundController;
+use App\Http\Controllers\CopyrightController;
 
 // ── Public pages ──────────────────────────────────────────────────────────────
 Route::get('/', [VideoController::class, 'index'])->name('home');
@@ -36,10 +37,11 @@ Route::get('/events/{event}', [EventController::class, 'showPage']);
 
 Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
 Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
-Route::get('/copyright', [\App\Http\Controllers\CopyrightController::class, 'page']);
+Route::get('/copyright', [CopyrightController::class, 'page']);
 
-Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);   
-Route::get('/sound/{sound}', [SoundController::class, 'page'])->name('sound.show');
+Route::get('/@{username}/sound/{ulid}', [SoundController::class, 'page'])->name('sound.show');
+Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);
+Route::get('/sound/{sound}', [SoundController::class, 'legacy']);
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
@@ -145,8 +147,8 @@ Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name
 Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
 Route::get('/events', [AdminController::class, 'eventsPage'])->name('admin.events');
 Route::get('/support-tickets', [AdminController::class, 'supportTickets'])->name('admin.support-tickets');
-Route::get('/music', [\App\Http\Controllers\AdminMusicController::class, 'page'])->name('admin.music');
-    });
+Route::get('/music', [\App\Http\Controllers\AdminMusicController::class, 'page'])->name('admin.music');    
+});
 });
 
 // composer dump-autoload

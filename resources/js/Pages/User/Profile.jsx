@@ -39,6 +39,7 @@ import {
     RiHeartLine,
     RiEyeLine,
     RiBookmarkLine,
+    RiMusic2Line,
     RiThumbUpLine,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
@@ -470,6 +471,9 @@ const [privateTabVideos, setPrivateTabVideos] = useState({})
 const [privateTabLoading, setPrivateTabLoading] = useState(false)
 const [wishlistProducts, setWishlistProducts] = useState(null)
 const [wishlistLoading, setWishlistLoading] = useState(false)
+const [savedSub, setSavedSub] = useState('products')
+const [savedSounds, setSavedSounds] = useState(null)
+const [savedSoundsLoading, setSavedSoundsLoading] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -557,10 +561,28 @@ const requestBlockToggle = () => {
     finally { setWishlistLoading(false) }
 }
 
+const loadSavedSounds = async () => {
+    if (savedSounds) return
+    setSavedSoundsLoading(true)
+    try {
+        const { data } = await axios.get('/api/users/me/saved-sounds')
+        setSavedSounds(data)
+    } catch { setSavedSounds([]) }
+    finally { setSavedSoundsLoading(false) }
+}
+
+const loadSaved = (sub) => {
+    if (sub === 'products') loadWishlist()
+    if (sub === 'videos') loadPrivateTab('savedVideos')
+    if (sub === 'sounds') loadSavedSounds()
+}
+
+const handleSavedSub = (sub) => { setSavedSub(sub); loadSaved(sub) }
+
 const handleTabClick = (key) => {
     setActiveTab(key)
     if (key === 'community' && !communityLoaded) loadCommunityPosts(true)
-    if (key === 'wishlist') loadWishlist()
+    if (key === 'saved') loadSaved(savedSub)
     if (PRIVATE_TAB_ENDPOINTS[key]) loadPrivateTab(key)
 }
 
@@ -665,10 +687,9 @@ const loadPrivateTab = async (key) => {
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
         { key: 'community', label: 'Posts', Icon: RiNewspaperLine, count: null },
         ...(isOwnProfile ? [
-    { key: 'wishlist', label: 'Wishlist', Icon: RiHeartLine, count: null },
     { key: 'liked', label: 'Liked', Icon: RiThumbUpLine, count: null },
     { key: 'viewed', label: 'Viewed', Icon: RiEyeLine, count: null },
-    { key: 'savedVideos', label: 'Saved', Icon: RiBookmarkLine, count: null },
+    { key: 'saved', label: 'Saved', Icon: RiBookmarkLine, count: null },
 ] : []),
     ];
 
@@ -1434,22 +1455,87 @@ return (
                 </div>
             )}
 
-            {activeTab === 'wishlist' && (
-             wishlistLoading && !wishlistProducts ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-                  <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
-               </div>
-             ) : (wishlistProducts?.length > 0 ? (
-                   <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                   {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
-             </div>
-              ) : (
-            <EmptyState Icon={RiHeartLine} title="Your wishlist is empty" sub="Products you save will show up here." />
-             ))
+            {activeTab === 'saved' && (
+                <div>
+                    {/* semi-tabs */}
+                    <div style={{ display: 'flex', gap: 8, padding: '12px 16px 4px' }}>
+                        {[
+                            { key: 'products', label: 'Products', Icon: RiStoreLine },
+                            { key: 'videos', label: 'Videos', Icon: RiVideoLine },
+                            { key: 'sounds', label: 'Sounds', Icon: RiMusic2Line },
+                        ].map(({ key, label, Icon }) => {
+                            const on = savedSub === key
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => handleSavedSub(key)}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, cursor: 'pointer',
+                                        fontSize: 13, fontWeight: on ? 700 : 500, whiteSpace: 'nowrap',
+                                        background: on ? 'rgba(255,107,53,0.14)' : 'rgba(255,255,255,0.05)',
+                                        border: `1px solid ${on ? 'rgba(255,107,53,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                                        color: on ? '#FF6B35' : 'rgba(255,255,255,0.6)',
+                                    }}
+                                >
+                                    <Icon size={15} /> {label}
+                                </button>
+                            )
+                        })}
+                    </div>
+
+                    {savedSub === 'products' && (
+                        wishlistLoading && !wishlistProducts ? <Spinner /> : wishlistProducts?.length > 0 ? (
+                            <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                                {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
+                            </div>
+                        ) : (
+                            <EmptyState Icon={RiStoreLine} title="No saved products" sub="Products you save will show up here." />
+                        )
+                    )}
+
+                    {savedSub === 'videos' && (
+                        privateTabLoading && !privateTabVideos.savedVideos ? <Spinner /> : privateTabVideos.savedVideos?.length > 0 ? (
+                            <div className="vgrid" style={{ marginTop: 10 }}>
+                                {privateTabVideos.savedVideos.map(video => (
+                                    <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="vthumb" style={{ position: 'relative', aspectRatio: '9/16', display: 'block', background: '#1a1a1a', overflow: 'hidden' }}>
+                                        {video.thumbnail_url_full
+                                            ? <img src={video.thumbnail_url_full} alt={video.title} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                            : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>}
+                                    </Link>
+                                ))}
+                            </div>
+                        ) : (
+                            <EmptyState Icon={RiVideoLine} title="No saved videos" sub="Videos you save will show up here." />
+                        )
+                    )}
+
+                    {savedSub === 'sounds' && (
+                        savedSoundsLoading && !savedSounds ? <Spinner /> : savedSounds?.length > 0 ? (
+                            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {savedSounds.map(snd => (
+                                    <Link key={snd.id} href={snd.path || `/sound/${snd.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', textDecoration: 'none' }}>
+                                        <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `linear-gradient(135deg, hsl(${(snd.id * 47) % 360} 70% 45%), hsl(${(snd.id * 47 + 55) % 360} 65% 25%))` }}>
+                                            {snd.cover_url ? <img src={snd.cover_url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <RiMusic2Line size={22} color="rgba(255,255,255,0.7)" />}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snd.title}</p>
+                                            <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {snd.artist}{snd.uses_count ? ` · ${snd.uses_count.toLocaleString()} videos` : ''}
+                                            </p>
+                                        </div>
+                                        <RiBookmarkLine size={18} color="#FF6B35" />
+                                    </Link>
+                                ))}
+                            </div>
+                        ) : (
+                            <EmptyState Icon={RiMusic2Line} title="No saved sounds" sub="Tap the bookmark on any sound to keep it here." />
+                        )
+                    )}
+                </div>
             )}
 
             {/* Private Tabs Renderer */}
-            {['liked', 'viewed', 'savedVideos'].includes(activeTab) && (
+            {['liked', 'viewed'].includes(activeTab) && (
                 privateTabLoading && !privateTabVideos[activeTab] ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
                         <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
@@ -1466,7 +1552,7 @@ return (
                         ))}
                     </div>
                 ) : (
-                    <EmptyState Icon={activeTab === 'liked' ? RiHeartLine : activeTab === 'viewed' ? RiEyeLine : RiBookmarkLine} title={`No ${activeTab === 'savedVideos' ? 'saved' : activeTab} videos yet`} sub="Videos will show up here." />
+                    <EmptyState Icon={activeTab === 'liked' ? RiHeartLine : RiEyeLine} title={`No ${activeTab} videos yet`} sub="Videos will show up here." />
                 ))
             )}
         </div>
@@ -1530,6 +1616,14 @@ function EmptyState({ Icon, title, sub, cta }) {
             )}
         </div>
     );
+}
+
+function Spinner() {
+    return (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+        </div>
+    )
 }
 
 function fmtCount(n) {

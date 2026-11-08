@@ -3,9 +3,10 @@ import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
 import ConfirmModal from '@/Components/Community/ConfirmModal'
 import { Spinner } from '../../Components/Upload/ui'
+import CreateSound from '../../Components/Upload/CreateSound'
 
 const API = '/api/admin/music'
-const TABS = [['claims', 'Copyright claims'], ['sounds', 'Sounds'], ['strikes', 'Repeat sellers'], ['videos', 'Processing'], ['system', 'System check']]
+const TABS = [['claims', 'Copyright claims'], ['sounds', 'Sounds'], ['strikes', 'Repeat sellers'], ['videos', 'Processing'], ['removed', 'Removed videos'], ['jobs', 'Failed jobs'], ['settings', 'Settings'], ['system', 'System check']]
 
 const card = { background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 14, marginBottom: 10 }
 const btn = (c = 'rgba(255,255,255,0.08)', fg = '#fff') => ({ background: c, color: fg, border: 'none', borderRadius: 9, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' })
@@ -64,6 +65,9 @@ export default function AdminMusic({ counts }) {
                 {tab === 'sounds' && <Sounds call={call} ask={ask} />}
                 {tab === 'strikes' && <Strikes call={call} ask={ask} />}
                 {tab === 'videos' && <Processing call={call} />}
+                {tab === 'removed' && <Removed call={call} ask={ask} />}
+                {tab === 'jobs' && <FailedJobs call={call} ask={ask} />}
+                {tab === 'settings' && <Settings call={call} />}
                 {tab === 'system' && <System call={call} />}
             </div>
             {dialog && <Dialog cfg={dialog} onClose={() => setDialog(null)} />}
@@ -119,7 +123,8 @@ function Claims({ call, ask }) {
 }
 
 function Sounds({ call, ask }) {
-    const [f, setF] = useState({ search: '', source: '', state: '' })
+    const [f, setF] = useState({ search: '', source: '', state: '', sort: '' })
+    const [adding, setAdding] = useState(false)
     const [rows, setRows] = useState(null)
     const [open, setOpen] = useState(null)
     const [vids, setVids] = useState([])
@@ -141,16 +146,25 @@ function Sounds({ call, ask }) {
                 <select style={inp} value={f.source} onChange={e => setF({ ...f, source: e.target.value })}>
                     <option value="">All sources</option>{['library', 'original', 'custom', 'epidemic', 'openverse'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
+                <select style={inp} value={f.sort} onChange={e => setF({ ...f, sort: e.target.value })}>
+                    <option value="">Newest first</option><option value="uses">Most used</option>
+                </select>
+                <button style={btn('#FF6B35')} onClick={() => setAdding(true)}>+ Add library tracks</button>
                 <select style={inp} value={f.state} onChange={e => setF({ ...f, state: e.target.value })}>
                     <option value="">Any state</option><option value="active">On</option><option value="disabled">Off</option>
                 </select>
             </div>
+            {adding && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: '#0a0a0a', overflowY: 'auto' }}>
+                    <CreateSound isAdmin onBack={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />
+                </div>
+            )}
             {rows === null ? <Spinner /> : rows.length === 0 ? <p style={mute}>No sounds.</p> : rows.map(s => (
                 <div key={s.id} style={{ ...card, opacity: s.is_active ? 1 : 0.6 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <div style={{ minWidth: 0 }}>
                             <b>{s.title}</b> <span style={mute}>· {s.artist}</span>
-                            <div style={mute}>{s.source} · {s.videos_count} video(s) · {s.license || 'no licence recorded'}{s.is_active ? '' : ' · OFF'}</div>
+                            <div style={mute}>{s.source} · {(s.uses_count ?? 0).toLocaleString()} use(s) · {s.videos_count} video(s) · {s.license || 'no licence recorded'}{s.is_active ? '' : ' · OFF'}</div>
                             {s.attribution && <div style={{ ...mute, fontSize: 11 }}>{s.attribution}</div>}
                         </div>
                         {s.url && <audio controls preload="none" src={s.url} style={{ height: 32, maxWidth: 220 }} />}
@@ -217,6 +231,59 @@ function Processing({ call }) {
                 <div key={v.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 13 }}>@{v.user?.username} · {v.title || v.ulid}<br /><span style={mute}>{v.status} · updated {new Date(v.updated_at).toLocaleString()}</span></span>
                     <button style={btn()} onClick={() => act(() => call('post', `/videos/${v.id}/reprocess`))}>Reprocess</button>
+                </div>
+            ))}
+        </>
+    )
+}
+
+function Settings({ call }) {
+    const [st, setSt] = useState(null)
+    const load = useCallback(async () => { try { const { data } = await axios.get(API + '/settings'); setSt(data) } catch { setSt({}) } }, [])
+    useEffect(() => { load() }, [load])
+    const flip = async (key) => { const d = await call('post', '/settings', { key, value: !st[key] }); if (d) setSt(d) }
+    const rows = [
+        ['music.free_enabled', 'Free music tab (Openverse)', 'Hide it from the uploader if the source is down or you want only licensed tracks.'],
+        ['music.epidemic_enabled', 'Epidemic Sound tab', st && st.epidemic_configured === false ? 'Not available: API key missing or rejected.' : 'Turn off to hide Epidemic from the uploader.'],
+        ['music.creator_sounds_enabled', 'Creator sounds', 'Lets sellers record/upload their own sounds and shows the Creators tab. Off = library only.'],
+    ]
+    if (!st) return <Spinner />
+    return rows.map(([k, label, hint]) => (
+        <div key={k} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div><b style={{ fontSize: 14 }}>{label}</b><div style={mute}>{hint}</div></div>
+            <button onClick={() => flip(k)} style={btn(st[k] ? '#047857' : 'rgba(255,255,255,0.1)')}>{st[k] ? 'On' : 'Off'}</button>
+        </div>
+    ))
+}
+
+function Removed({ call, ask }) {
+    const [rows, reload] = useList('/removed-videos')
+    return (
+        <>
+            <p style={mute}>Videos that were hidden (taken down, or hidden from a sound). Restoring puts them back in the feed.</p>
+            {rows === null ? <Spinner /> : rows.length === 0 ? <p style={mute}>Nothing is hidden.</p> : rows.map(v => (
+                <div key={v.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 13 }}>@{v.user?.username} · {v.title || v.ulid}<br /><span style={mute}>hidden {v.deleted_at ? new Date(v.deleted_at).toLocaleString() : ''}</span></span>
+                    <button style={btn('#047857')} onClick={() => ask({ title: 'Restore this video?', message: 'It goes live again.', confirmLabel: 'Restore', onConfirm: async () => { await call('post', `/videos/${v.id}/restore`); reload() } })}>Restore</button>
+                </div>
+            ))}
+        </>
+    )
+}
+
+function FailedJobs({ call, ask }) {
+    const [rows, reload] = useList('/failed-jobs')
+    return (
+        <>
+            <p style={mute}>Queue jobs that crashed (video processing, downloads, emails). Retry pushes the job back; Forget deletes the record.</p>
+            {rows === null ? <Spinner /> : rows.length === 0 ? <p style={mute}>No failed jobs.</p> : rows.map(j => (
+                <div key={j.uuid} style={card}>
+                    <b style={{ fontSize: 13 }}>{j.job}</b> <span style={mute}>· {j.queue} · {j.failed_at}</span>
+                    <div style={{ ...mute, margin: '6px 0 10px', wordBreak: 'break-word' }}>{j.error}</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button style={btn('#047857')} onClick={async () => { await call('post', `/failed-jobs/${j.uuid}/retry`); reload() }}>Retry</button>
+                        <button style={btn('#DC2626')} onClick={() => ask({ title: 'Forget this failed job?', message: 'The record is deleted and cannot be retried.', confirmLabel: 'Forget', danger: true, onConfirm: async () => { await call('delete', `/failed-jobs/${j.uuid}`); reload() } })}>Forget</button>
+                    </div>
                 </div>
             ))}
         </>

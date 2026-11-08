@@ -47,7 +47,7 @@ import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 import TextOverlays from '@/Components/Video/TextOverlays';
 import SoundMarquee from '@/Components/Video/SoundMarquee';
 import { ENHANCE_CSS } from '@/lib/media';
-const soundHref = (v) => (v.sound_credit ? `/sound/${v.sound_credit.id}` : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null);
+const soundHref = (v) => (v.sound_credit ? (v.sound_credit.path || `/sound/${v.sound_credit.id}`) : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Sound extends Model
 {
     protected $fillable = [
-        'source', 'external_id', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
+        'ulid', 'source', 'external_id', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
         'duration', 'license', 'license_url', 'attribution', 'uses_count', 'is_active', 'is_public', 'genre',
     ];
 
@@ -22,9 +22,28 @@ class Sound extends Model
         'uses_count' => 'integer',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (Sound $s) {
+            if (empty($s->ulid)) $s->ulid = (string) \Illuminate\Support\Str::ulid();
+        });
+    }
+
+    /** Pretty path: /@username/sound/ulid. The username is cosmetic; the ulid is what identifies the sound. */
+    public function path(): string
+    {
+        $name = $this->user?->username ?: 'flockr';
+        return '/@' . $name . '/sound/' . $this->ulid;
+    }
+
+    public function savers()
+    {
+        return $this->belongsToMany(User::class, 'sound_saves')->withTimestamps();
+    }
+
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     public function video(): BelongsTo
@@ -54,6 +73,9 @@ class Sound extends Model
     {
         return [
             'id'         => $this->id,
+            'ulid'       => $this->ulid,
+            'path'       => $this->path(),
+            'is_saved'   => $viewerId !== null && \Illuminate\Support\Facades\DB::table('sound_saves')->where('user_id', $viewerId)->where('sound_id', $this->id)->exists(),
             'title'      => $this->title,
             'artist'     => $this->artist,
             'duration'   => $this->duration,

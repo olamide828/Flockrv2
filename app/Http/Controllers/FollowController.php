@@ -11,6 +11,8 @@ use Inertia\Response;
 
 class FollowController extends Controller
 {
+    use \App\Http\Controllers\Concerns\HidesBlockedUsers;
+
     const FOLLOWING_CAP = 50;
     const FOLLOWERS_CAP = 100;
 
@@ -27,6 +29,7 @@ class FollowController extends Controller
     private function render(string $username, string $activeTab): Response
     {
         $user    = User::where('username', $username)->firstOrFail();
+        abort_if($this->isBlockedWith($user->id) || !$user->is_active, 404);   // blocked either way / banned: lists are not visible
         $isOwner = Auth::id() === $user->id;
 
         $followers = $this->getList($user->followers(), $isOwner ? null : self::FOLLOWERS_CAP);
@@ -58,6 +61,7 @@ class FollowController extends Controller
         ]);
 
         $user = User::where('username', $username)->firstOrFail();
+        abort_if($this->isBlockedWith($user->id) || !$user->is_active, 404);
 
         $relationQuery = $validated['tab'] === 'followers' ? $user->followers() : $user->following();
 
@@ -65,6 +69,7 @@ class FollowController extends Controller
 
         $results = $relationQuery
             ->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.bio', 'users.is_verified')
+            ->when($this->blockedUserIds(), fn ($qq, $ids) => $qq->whereNotIn('users.id', $ids))
             ->where(function ($qb) use ($q) {
                 $qb->where('users.name', 'ilike', "%{$q}%")
                    ->orWhere('users.username', 'ilike', "%{$q}%");
@@ -81,7 +86,8 @@ class FollowController extends Controller
 
     private function getList($relationQuery, ?int $cap)
     {
-        $query = $relationQuery->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.bio', 'users.is_verified');
+        $query = $relationQuery->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.bio', 'users.is_verified')
+            ->when($this->blockedUserIds(), fn ($qq, $ids) => $qq->whereNotIn('users.id', $ids));
 
         if ($cap) {
             $query->limit($cap);

@@ -18,14 +18,35 @@ class UserController extends Controller
     {
         $user = User::withTrashed()->where('username', $username)->firstOrFail();
 
-    if ($user->trashed() || !$user->is_active) {
-        return Inertia::render('Errors/UserGone');
-    }
+    // deleted / banned accounts still get a profile page, in a locked-down state (no content, no follow lists)
+    $accountState = $user->trashed() ? 'deleted' : (!$user->is_active ? 'banned' : 'active');
         $authUser = Auth::user();
 
         $iBlockedThem  = $authUser && UserBlock::where('blocker_id', $authUser->id)->where('blocked_id', $user->id)->exists();
         $theyBlockedMe = $authUser && UserBlock::where('blocker_id', $user->id)->where('blocked_id', $authUser->id)->exists();
         $anyBlock      = $iBlockedThem || $theyBlockedMe;
+
+        if ($accountState !== 'active') {
+            return Inertia::render('User/Profile', [
+                'accountState'  => $accountState,
+                'profileUser'   => [
+                    'id'              => $user->id,
+                    'name'            => $accountState === 'deleted' ? 'Deleted account' : $user->name,
+                    'username'        => $user->username,
+                    'avatar_url'      => $accountState === 'deleted' ? null : $user->avatar_url,
+                    'followers_count' => $user->followers_count ?? 0,
+                    'following_count' => $user->following_count ?? 0,
+                    'created_at'      => $user->created_at,
+                    'is_verified'     => false,
+                ],
+                'videos'        => [],
+                'products'      => [],
+                'isFollowing'   => false,
+                'isOwnProfile'  => false,
+                'iBlockedThem'  => $iBlockedThem,
+                'theyBlockedMe' => $theyBlockedMe,
+            ]);
+        }
 
         $videos = $anyBlock ? collect() : $user->videos()
             ->where('status', 'active')
@@ -80,6 +101,7 @@ if ($authUserId && $products->isNotEmpty()) {
             'isOwnProfile'  => $isOwnProfile,
             'iBlockedThem'  => $iBlockedThem,
             'theyBlockedMe' => $theyBlockedMe,
+            'accountState'  => 'active',
         ]);
     }
 
@@ -158,6 +180,8 @@ if ($authUserId && $products->isNotEmpty()) {
 
         if ($existing) {
             $existing->delete();
+            \Illuminate\Support\Facades\Cache::forget("blocked:{$me->id}");
+            \Illuminate\Support\Facades\Cache::forget("blocked:{$user->id}");
             return response()->json(['blocked' => false, 'message' => 'User unblocked.']);
         }
 
@@ -225,6 +249,8 @@ if ($authUserId && $products->isNotEmpty()) {
             ]);
         });
 
+        \Illuminate\Support\Facades\Cache::forget("blocked:{$me->id}");
+        \Illuminate\Support\Facades\Cache::forget("blocked:{$user->id}");
         return response()->json(['blocked' => true, 'message' => 'User blocked.']);
     }
 

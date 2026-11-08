@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppSetting;
 use App\Models\Sound;
 use App\Models\Video;
 use App\Services\EpidemicSound;
@@ -32,8 +33,12 @@ class SoundController extends Controller
         $offset = max(0, (int) $request->query('offset', 0));
         $me     = Auth::id();
         $es     = app(EpidemicSound::class);
-        $meta   = ['epidemic' => $es->enabled()];
+        $freeOn = AppSetting::bool('music.free_enabled');
+        $epiOn  = AppSetting::bool('music.epidemic_enabled') && $es->enabled();
+        $crOn   = AppSetting::bool('music.creator_sounds_enabled');
+        $meta   = ['epidemic' => $epiOn, 'free' => $freeOn, 'creators' => $crOn];
 
+        if ($tab === 'free' && !$freeOn) return response()->json(['data' => [], 'has_more' => false, 'meta' => $meta]);
         if ($tab === 'free') {
             try {
                 $r = app(OpenverseAudio::class)->search($q, intdiv($offset, OpenverseAudio::PAGE) + 1, OpenverseAudio::PAGE);
@@ -45,12 +50,12 @@ class SoundController extends Controller
         }
 
         if ($tab === 'epidemic') {
-            if (!$es->enabled()) return response()->json(['data' => [], 'has_more' => false, 'meta' => $meta]);
+            if (!$epiOn) return response()->json(['data' => [], 'has_more' => false, 'meta' => $meta]);
             try {
                 $r = $es->search($q, $offset, self::PAGE);
             } catch (\Throwable $e) {
                 Log::warning('Epidemic search failed', ['error' => $e->getMessage()]);
-                return response()->json(['data' => [], 'has_more' => false, 'error' => $e->getMessage(), 'meta' => ['epidemic' => false]]);
+                return response()->json(['data' => [], 'has_more' => false, 'error' => $e->getMessage(), 'meta' => ['epidemic' => false] + $meta]);
             }
             return response()->json($r + ['meta' => $meta]);
         }
@@ -61,6 +66,7 @@ class SoundController extends Controller
         if ($tab === 'library') {
             $query->where('source', 'library');
         } elseif ($tab === 'creators') {
+            if (!$crOn) $query->whereRaw('1 = 0');
             $query->where(fn ($w) => $w->where('source', 'original')->orWhere(fn ($c) => $c->where('source', 'custom')->where('is_public', true)));
         } else {
             $query->where('user_id', $me)->where('source', 'custom');
@@ -97,6 +103,9 @@ class SoundController extends Controller
             return response()->json(['message' => 'Only sellers can create sounds.'], 403);
         }
         $isAdmin = $user->role === 'admin';
+        if (!$isAdmin && !AppSetting::bool('music.creator_sounds_enabled')) {
+            return response()->json(['message' => 'Creating sounds is switched off right now.'], 403);
+        }
 
         $request->validate([
             'audio'       => 'required|file|max:204800|mimetypes:audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/m4a,audio/aac,audio/x-aac,audio/wav,audio/x-wav,audio/ogg,audio/webm,video/webm,video/mp4,application/ogg',
@@ -298,9 +307,20 @@ class SoundController extends Controller
 
     // ── Sound page: everything that uses one sound ─────────────────────────────
 
+    /** Ids of users the viewer has blocked or who blocked the viewer (either direction hides both sides). */
+    private function blockedIds(): array
+    {
+        $me = Auth::id();
+        if (!$me) return [];
+        return \App\Models\UserBlock::where('blocker_id', $me)->pluck('blocked_id')
+            ->merge(\App\Models\UserBlock::where('blocked_id', $me)->pluck('blocker_id'))
+            ->unique()->values()->all();
+    }
+
     private function canView(Sound $s): bool
     {
         if (!$s->is_active) return false;
+        if ($s->user_id && in_array($s->user_id, $this->blockedIds(), true)) return false;
         if ($s->source !== 'custom' || $s->is_public) return true;
         $u = Auth::user();
         return $u && ($u->id === $s->user_id || $u->role === 'admin');
@@ -309,22 +329,59 @@ class SoundController extends Controller
     /** Videos that use this sound (music videos) plus the video the sound was taken from. */
     private function videosQuery(Sound $sound)
     {
+        $blocked = $this->blockedIds();
         return Video::active()
+            ->whereHas('user')                                   // creator deleted -> their videos are not listed
+            ->when($blocked, fn ($q) => $q->whereNotIn('user_id', $blocked))
             ->where(fn ($q) => $q->where('sound_id', $sound->id)->when($sound->video_id, fn ($w) => $w->orWhere('id', $sound->video_id)))
             ->with(['user:id,name,username,avatar,is_verified,location', 'sound'])
             ->latest('published_at');
     }
 
-    /** GET /sound/{sound}  (Inertia page). Never 404s: the sheet shows "removed" states gracefully. */
-    public function page(string $sound)
+    /** GET /@{username}/sound/{ulid}  (Inertia page). Never 404s: the sheet shows "removed" states gracefully. */
+    public function page(string $username, string $ulid)
     {
-        return Inertia::render('Sound/Show', ['soundId' => (int) $sound, 'fromVideo' => null]);
+        return Inertia::render('Sound/Show', ['soundUlid' => $ulid, 'soundId' => null, 'fromVideo' => null]);
+    }
+
+    /** GET /sound/{id}  legacy numeric links: redirect to the pretty URL (or keep the sheet if the sound is gone). */
+    public function legacy(string $sound)
+    {
+        $s = ctype_digit($sound) ? Sound::with('user:id,username')->find((int) $sound) : null;
+        if ($s) return redirect($s->path(), 301);
+        return Inertia::render('Sound/Show', ['soundUlid' => null, 'soundId' => (int) $sound, 'fromVideo' => null]);
     }
 
     /** GET /sound/from-video/{ulid} */
     public function fromVideo(string $ulid)
     {
-        return Inertia::render('Sound/Show', ['soundId' => null, 'fromVideo' => $ulid]);
+        return Inertia::render('Sound/Show', ['soundUlid' => null, 'soundId' => null, 'fromVideo' => $ulid]);
+    }
+
+    /** GET /api/sounds/u/{ulid}/sheet  (public) */
+    public function sheetByUlid(string $ulid): JsonResponse
+    {
+        return $this->sheetResponse(Sound::with('user:id,username')->where('ulid', $ulid)->first());
+    }
+
+    /** POST /api/sounds/{sound}/save  toggles. */
+    public function toggleSave(Sound $sound): JsonResponse
+    {
+        abort_unless($this->canView($sound), 404);
+        $res = $sound->savers()->toggle(Auth::id());
+        return response()->json(['saved' => count($res['attached']) > 0]);
+    }
+
+    /** GET /api/users/me/saved-sounds */
+    public function saved(): JsonResponse
+    {
+        $rows = Sound::active()->with('user:id,username')
+            ->join('sound_saves', 'sound_saves.sound_id', '=', 'sounds.id')
+            ->where('sound_saves.user_id', Auth::id())
+            ->orderByDesc('sound_saves.created_at')
+            ->select('sounds.*')->limit(100)->get();
+
+        return response()->json($rows->filter(fn ($s) => $this->canView($s))->map(fn ($s) => $s->toApi(Auth::id()))->values());
     }
 
     /** GET /api/sounds/{id}/sheet  (public) */

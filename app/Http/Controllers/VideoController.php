@@ -21,6 +21,8 @@ use Inertia\Response;
 
 class VideoController extends Controller
 {
+    use \App\Http\Controllers\Concerns\HidesBlockedUsers;
+
     public function __construct(
         private readonly FeedService $feedService,
         private readonly StorageService $storageService,
@@ -142,24 +144,30 @@ class VideoController extends Controller
  public function show(string $username, Video $video): Response
 {
     // ── Deleted or inactive: render the frozen-loop gone page ─────────────
-    if ($video->trashed() || !in_array($video->status, ['active', 'processing', 'pending'])) {
+    // Blocked either way, or the creator is banned/deleted: show the "gone" page, never their media
+    $blockedCreator = $this->isBlockedWith($video->user_id) || $this->accountUnavailable($video->user);
+    if ($blockedCreator || $video->trashed() || !in_array($video->status, ['active', 'processing', 'pending'])) {
 
         // toArray() triggers $appends so video_stream_url and thumbnail_url_full
         // are computed by the accessors — this is why you were getting empty data
         $arr = $video->toArray();
 
-        $deletedVideo = [
-            'video_stream_url'   => $arr['video_stream_url']   ?? null,
-            'thumbnail_url_full' => $arr['thumbnail_url_full'] ?? null,
-            'title'              => $arr['title']              ?? null,
-        ];
+        $deletedVideo = $blockedCreator
+            ? ['video_stream_url' => null, 'thumbnail_url_full' => null, 'title' => null]
+            : [
+                'video_stream_url'   => $arr['video_stream_url']   ?? null,
+                'thumbnail_url_full' => $arr['thumbnail_url_full'] ?? null,
+                'title'              => $arr['title']              ?? null,
+            ];
 
         $hashtags = is_array($video->hashtags)
             ? $video->hashtags
             : json_decode($video->hashtags ?? '[]', true);
 
+        $blockedIds   = $this->blockedUserIds();
         $alternatives = Video::active()
             ->where('id', '!=', $video->id)
+            ->when($blockedIds, fn($q) => $q->whereNotIn('user_id', $blockedIds))
             ->when(!empty($hashtags), fn($q) => $q->where(function ($inner) use ($hashtags) {
                 foreach ($hashtags as $tag) {
                     $inner->orWhereRaw("hashtags::text ilike ?", ["%{$tag}%"]);
@@ -526,7 +534,8 @@ $hashtags = $request->filled('hashtags')
         if ($type === 'seller') {
             $sellerId    = (int) $request->input('seller_id');
             $excludeUlid = $request->input('exclude_ulid');
-            if (!$sellerId) return response()->json(['data' => [], 'has_more' => false]);
+            if (!$sellerId || $this->isBlockedWith($sellerId)) return response()->json(['data' => [], 'has_more' => false]);
+            $blockedIds = $this->blockedUserIds();
  
             $query = Video::active()
     ->with([
@@ -550,6 +559,7 @@ $hashtags = $request->filled('hashtags')
                 }
                 $random = Video::active()
                     ->where('user_id', '!=', $sellerId)
+                    ->when($blockedIds, fn($q) => $q->whereNotIn('user_id', $blockedIds))
                     ->whereNotIn('id', array_filter($excludeIds))
                     ->with(['user:id,name,username,avatar,is_verified,location', 
                     'products' => fn($q) => $q->with('seller:id,name,username,avatar,is_verified'),
@@ -575,6 +585,8 @@ $hashtags = $request->filled('hashtags')
         'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
     ])
     ->withCount(['allComments']);
+            $query->whereHas('user')
+                  ->when($this->blockedUserIds(), fn ($qq, $ids) => $qq->whereNotIn('user_id', $ids));
             if ($q) {
                 $query->where(fn ($qb) =>
                     $qb->where('title', 'ilike', "%{$q}%")

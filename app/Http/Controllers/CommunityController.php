@@ -21,6 +21,8 @@ use Inertia\Response;
 
 class CommunityController extends Controller
 {
+    use \App\Http\Controllers\Concerns\HidesBlockedUsers;
+
     public function __construct(private CommunityFeedService $feedService)
     {
     }
@@ -99,7 +101,7 @@ class CommunityController extends Controller
         $page = (int) $request->get('page', 1);
 
         $blockedIds = $viewerId ? $this->blockedIdsFor($viewerId) : [];
-        if (in_array($user->id, $blockedIds)) {
+        if (in_array($user->id, $blockedIds) || !$user->is_active) {
             return response()->json(['data' => [], 'current_page' => 1, 'last_page' => 1]);
         }
 
@@ -148,6 +150,7 @@ class CommunityController extends Controller
     public function showPost(Post $post): JsonResponse
     {
         $userId = Auth::id();
+        abort_if($this->accountUnavailable($post->user) || $this->isBlockedWith($post->user_id), 404);   // deleted/banned author or blocked either way
         $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         $liked = $userId && DB::table('post_likes')
@@ -172,6 +175,7 @@ class CommunityController extends Controller
     public function showPostPage(Post $post): Response
     {
         $userId = Auth::id();
+        abort_if($this->accountUnavailable($post->user) || $this->isBlockedWith($post->user_id), 404);
         $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         $liked = $userId && DB::table('post_likes')
@@ -286,6 +290,8 @@ class CommunityController extends Controller
             'parent_id'         => 'nullable|integer|exists:post_comments,id',
             'reply_to_username' => 'nullable|string|max:60',
         ]);
+
+        abort_if($this->isBlockedWith($post->user_id), 403, 'You cannot comment on this post.');
 
         $comment = PostComment::create([
             'post_id'           => $post->id,
@@ -465,6 +471,7 @@ class CommunityController extends Controller
                 'replyTo.user:id,name,username',
             ])
             ->when($myMembership, fn($q) => $q->where('created_at', '>=', $myMembership->created_at))
+            ->when($this->blockedUserIds(), fn($q, $ids) => $q->whereNotIn('user_id', $ids))
             ->when($request->before_id, fn($q) => $q->where('id', '<', $request->before_id))
             ->latest()
             ->limit(40)
@@ -901,6 +908,8 @@ class CommunityController extends Controller
         $members = DB::table('room_user')
             ->join('users', 'users.id', '=', 'room_user.user_id')
             ->where('room_user.room_id', $room->id)
+            ->whereNull('users.deleted_at')
+            ->when($this->blockedUserIds(), fn($q, $ids) => $q->whereNotIn('users.id', $ids))
             ->select('users.id', 'users.name', 'users.username', 'users.avatar', 'users.is_verified', 'room_user.role')
             ->orderByRaw("CASE WHEN room_user.role = 'moderator' THEN 0 ELSE 1 END")
             ->get()
@@ -1008,9 +1017,12 @@ class CommunityController extends Controller
      */
     private function serialisedComments(Post $post, ?int $userId): \Illuminate\Support\Collection
     {
+        $blocked  = $this->blockedUserIds();
         $comments = PostComment::where('post_id', $post->id)
             ->whereNull('parent_id')
-            ->with(['user:id,name,username,avatar', 'replies.user:id,name,username,avatar'])
+            ->whereHas('user')                                                    // author deleted -> no ghost comment
+            ->when($blocked, fn ($q) => $q->whereNotIn('user_id', $blocked))
+            ->with(['user:id,name,username,avatar', 'replies' => fn ($r) => $r->whereHas('user')->when($blocked, fn ($q) => $q->whereNotIn('user_id', $blocked)), 'replies.user:id,name,username,avatar'])
             ->orderByDesc('is_pinned')
             ->latest()
             ->get();

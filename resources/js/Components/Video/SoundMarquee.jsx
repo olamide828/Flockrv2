@@ -12,7 +12,7 @@ const hue = (id) => (Number(id || 0) * 47) % 360
  * "♪ Song title · Artist" strip with a spinning disc, like TikTok. The text scrolls only when it is too long
  * to fit. `sound` is video.sound_credit (null = the creator's own audio, shown as "Original sound").
  * Licence credit lines (e.g. CC-BY) are included so required attribution is always visible.
- * `href` (/sound/ID or /sound/from-video/ULID) makes it tappable: it opens the sound sheet right here, so a removed
+ * `href` (/@user/sound/ULID, /sound/ID or /sound/from-video/ULID) makes it tappable: it opens the sound sheet right here, so a removed
  * sound shows a friendly message instead of a 404 page.
  */
 export default function SoundMarquee({ sound, username, href, style }) {
@@ -20,7 +20,8 @@ export default function SoundMarquee({ sound, username, href, style }) {
     const txt = useRef(null)
     const [scroll, setScroll] = useState(false)
     const [open, setOpen] = useState(false)
-    const target = href ? (href.match(/\/sound\/from-video\/([^/?#]+)/) ? { fromVideo: href.match(/\/sound\/from-video\/([^/?#]+)/)[1] } : href.match(/\/sound\/(\d+)/) ? { soundId: Number(href.match(/\/sound\/(\d+)/)[1]) } : null) : null
+    const m = href && (href.match(/\/sound\/from-video\/([^/?#]+)/) || href.match(/\/@[^/]+\/sound\/([0-9A-Za-z]{26})/) || href.match(/\/sound\/(\d+)/))
+    const target = !m ? null : href.includes('/from-video/') ? { fromVideo: m[1] } : /^\d+$/.test(m[1]) ? { soundId: Number(m[1]) } : { soundUlid: m[1] }
 
     const label = sound
         ? [sound.title, sound.artist, sound.attribution].filter(Boolean).join(' · ')

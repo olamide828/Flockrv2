@@ -52,6 +52,7 @@ class CommunityFeedService
 
         $base = Post::whereNull('room_id')
             ->with(['user:id,name,username,avatar,is_verified,role', 'media'])
+            ->whereNotIn('user_id', fn($q) => $q->select('id')->from('users')->where(fn($w) => $w->where('is_active', false)->orWhereNotNull('deleted_at')))          // banned / deleted authors never show
             ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds))
             ->when(!empty($dismissedIds), fn($q) => $q->whereNotIn('id', $dismissedIds));
 
@@ -209,6 +210,7 @@ class CommunityFeedService
 
         return Post::whereNull('room_id')
             ->where('created_at', '>=', now()->subHours(48))
+            ->whereNotIn('user_id', fn($q) => $q->select('id')->from('users')->where(fn($w) => $w->where('is_active', false)->orWhereNotNull('deleted_at')))
             ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds))
             ->with(['user:id,name,username,avatar,is_verified,role', 'media'])
             ->get()

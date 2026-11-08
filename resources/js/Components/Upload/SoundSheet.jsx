@@ -1,9 +1,10 @@
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RiAddLine, RiArrowDownSLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
+import { RiAddLine, RiArrowDownSLine, RiBookmarkFill, RiBookmarkLine, RiCloseLine, RiDeleteBinLine, RiMusic2Fill, RiPauseFill, RiPlayFill, RiSearchLine, RiShieldCheckLine, RiUserVoiceLine } from 'react-icons/ri'
 import { GENRES, QUICK_SEARCH, attachAudioSource, fmtTime } from '../../lib/media'
 import { MAX_USE_SECONDS, WaveScrubber } from './AudioWave'
 import ConfirmModal from '@/Components/Community/ConfirmModal'
+import { useToast } from '@/Components/Toast'
 import CreateSound from './CreateSound'
 import { S, Spinner } from './ui'
 
@@ -64,10 +65,12 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
     const [start, setStart] = useState(0)
     const [end, setEnd] = useState(0)
     const [epidemicOn, setEpidemicOn] = useState(false)
+    const [off, setOff] = useState({})   // tabs the admin switched off
     const [importing, setImporting] = useState(false)
     const [musicVol, setMusicVol] = useState(70)
     const [origVol, setOrigVol] = useState(100)
     const [confirmDelete, setConfirmDelete] = useState(null)
+    const { showToast, ToastComponent } = useToast()
     const [mixOpen, setMixOpen] = useState(true)       // the range + volume controls can be folded away
 
     const audioRef = useRef(null)
@@ -95,7 +98,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
             setItems(prev => (reset ? rows : [...prev, ...rows.filter(r => !prev.some(o => o.id === r.id))]))
             if (data?.error) setError(data.error)
             setHasMore(!!data?.has_more)
-            if (data?.meta?.epidemic) setEpidemicOn(true)
+            if (data?.meta) { setEpidemicOn(!!data.meta.epidemic); setOff({ free: data.meta.free === false, creators: data.meta.creators === false }) }
         } catch {
             if (id === reqId.current) setError('Could not load sounds. Check your connection and try again.')
         } finally {
@@ -138,6 +141,19 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
         setStart(0)
         setEnd(defaultEnd(sound, 0))
         if (playingId !== sound.id) togglePreview(sound, 0)
+    }
+
+    const toggleSave = async (sound) => {
+        const was = !!sound.is_saved
+        setItems(prev => prev.map(x => (x.id === sound.id ? { ...x, is_saved: !was } : x)))
+        try {
+            const { data } = await axios.post(`/api/sounds/${sound.id}/save`)
+            setItems(prev => prev.map(x => (x.id === sound.id ? { ...x, is_saved: data.saved } : x)))
+            showToast(data.saved ? 'Sound saved' : 'Removed from saved', data.saved ? 'success' : 'info')
+        } catch {
+            setItems(prev => prev.map(x => (x.id === sound.id ? { ...x, is_saved: was } : x)))
+            showToast('Could not update saved sounds', 'error')
+        }
     }
 
     const remove = async (sound) => {
@@ -223,7 +239,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
 
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: 8, padding: '0 18px 10px', overflowX: 'auto', scrollbarWidth: 'none' }}>
-                    {TABS.filter(t => !t.optional || epidemicOn || tab === t.id).map(t => (
+                    {TABS.filter(t => !off[t.id] && (!t.optional || epidemicOn || tab === t.id)).map(t => (
                         <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id} style={{ padding: '8px 14px', whiteSpace: 'nowrap', flexShrink: 0, borderRadius: 999, border: 'none', cursor: 'pointer', background: tab === t.id ? '#fff' : 'rgba(255,255,255,0.07)', color: tab === t.id ? '#000' : 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 700 }}>
                             {t.label}
                         </button>
@@ -249,6 +265,11 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                                         {s.artist}{s.duration ? ` · ${fmtTime(s.duration)}` : ''}{s.uses_count ? ` · ${s.uses_count.toLocaleString()} videos` : ''}
                                     </p>
                                 </div>
+                                {typeof s.id === 'number' && (
+                                    <button onClick={e => { e.stopPropagation(); toggleSave(s) }} aria-label={s.is_saved ? 'Remove from saved' : 'Save sound'} style={{ ...S.iconBtn, width: 32, height: 32, flexShrink: 0 }}>
+                                        {s.is_saved ? <RiBookmarkFill size={17} color="#FF6B35" /> : <RiBookmarkLine size={17} />}
+                                    </button>
+                                )}
                                 {(s.mine || isAdmin) && (
                                     <button onClick={e => { e.stopPropagation(); setConfirmDelete(s) }} aria-label="Delete sound" style={{ ...S.iconBtn, width: 32, height: 32, flexShrink: 0 }}><RiDeleteBinLine size={16} /></button>
                                 )}
@@ -299,6 +320,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                     </div>
                 )}
             </div>
+            {ToastComponent}
             {confirmDelete && (
                 <ConfirmModal title="Delete this sound?" message={`“${confirmDelete.title}” will be removed. Videos already posted with it keep their audio.`} confirmLabel="Delete" onConfirm={() => remove(confirmDelete)} onClose={() => setConfirmDelete(null)} />
             )}

@@ -107,6 +107,8 @@ class ProductController extends Controller
             ]),
             'category:id,name',
             'videos' => fn($q) => $q->where('status', 'active')
+                ->whereHas('user')
+                ->when(!empty($blocked), fn($v) => $v->whereNotIn('user_id', $blocked))
                 ->with('user:id,name,username')
                 ->limit(6),
         ]);

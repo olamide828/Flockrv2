@@ -93,9 +93,14 @@ class Product extends Model
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopeActive($query)
-    {
-        return $query->where('status', 'active');
-    }
+{
+    return $query->where('products.status', 'active')
+        ->whereNotIn('products.seller_id', function ($q) {
+            $q->select('id')->from('users')->where(function ($w) {
+                $w->where('is_active', false)->orWhereNotNull('deleted_at');
+            });
+        });
+}
 
     public function scopeInStock($query)
     {

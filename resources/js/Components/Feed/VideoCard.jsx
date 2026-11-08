@@ -24,7 +24,9 @@ import { useHlsVideo } from '@/lib/useHlsVideo'
 import TextOverlays from '@/Components/Video/TextOverlays'
 import SoundMarquee from '@/Components/Video/SoundMarquee'
 import { ENHANCE_CSS } from '@/lib/media'
-const soundHref = (v) => (v.sound_credit ? `/sound/${v.sound_credit.id}` : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null)
+import { useVideoWatchdog } from '@/lib/useVideoWatchdog'
+import Avatar from '@/Components/Media/Avatar'
+const soundHref = (v) => (v.sound_credit ? (v.sound_credit.path || `/sound/${v.sound_credit.id}`) : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null)
 
 const fmt = (n) => {
   const num = Number(n ?? 0)
@@ -271,7 +273,8 @@ export default function VideoCard({ video, isActive }) {
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
   const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
 
-  useHlsVideo(videoRef, isActive ? videoSrc : null)
+  const wd = useVideoWatchdog(videoRef, isActive)
+  useHlsVideo(videoRef, isActive && !wd.reloading ? videoSrc : null)
 
   useEffect(() => {
     const el = videoRef.current
@@ -481,6 +484,13 @@ export default function VideoCard({ video, isActive }) {
         </div>
       )}
 
+      {wd.failed && isActive && (
+        <div onClick={e => { e.stopPropagation(); wd.retry() }} style={{ position: 'absolute', inset: 0, zIndex: 7, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, background: 'rgba(0,0,0,0.55)', cursor: 'pointer' }}>
+          <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>Weak connection</span>
+          <span style={{ padding: '9px 22px', borderRadius: 999, background: '#FF6B35', color: '#fff', fontSize: 13, fontWeight: 700 }}>Tap to retry</span>
+        </div>
+      )}
+
       {showPP && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 6, cursor: 'pointer', pointerEvents: 'none' }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -504,10 +514,7 @@ export default function VideoCard({ video, isActive }) {
         <div style={{ position: 'relative', marginBottom: 0 }}>
           <Link href={`/@${video.user?.username}`} onClick={e => e.stopPropagation()}>
             <div style={{ width: 46, height: 46, borderRadius: '50%', overflow: 'hidden', border: '2.5px solid #fff', background: '#222' }}>
-              {video.user?.avatar_url
-                ? <img src={video.user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg,#ff5c00,#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 18 }}>{(video.user?.name ?? 'U')[0]}</div>
-              }
+              <Avatar src={video.user?.avatar_url} name={video.user?.name} size={46} style={{ border: 'none' }} />
             </div>
           </Link>
         </div>
@@ -598,7 +605,7 @@ export default function VideoCard({ video, isActive }) {
             {video.products.map(p => (
               <Link key={p.id} href={`/@${p.seller?.username}/products/${p.slug ?? p.id}`} style={{ display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.07)' }}>
                 <div style={{ width: 56, height: 56, borderRadius: 12, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', flexShrink: 0 }}>
-                  {p.primary_image && <img src={p.primary_image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  {p.primary_image && <img src={p.primary_image} alt={p.name} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ color: '#fff', fontWeight: 600, fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
@@ -673,8 +680,8 @@ function MoreSheet({ onClose, onReport, videoRef, videoUlid }) {
 function BottomSheet({ onClose, title, height, maxHeight, children }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 19, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }} />
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height, maxHeight, background: 'rgba(14,14,14,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.09)', zIndex: 20, display: 'flex', flexDirection: 'column', animation: 'vc-slideup 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 39, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height, maxHeight, background: 'rgba(14,14,14,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.09)', zIndex: 40, display: 'flex', flexDirection: 'column', animation: 'vc-slideup 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px', flexShrink: 0 }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} />
         </div>

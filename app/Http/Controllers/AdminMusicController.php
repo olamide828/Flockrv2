@@ -152,7 +152,8 @@ class AdminMusicController extends Controller
     /** GET /api/admin/music/sounds?search=&source=&state=active|disabled */
     public function sounds(Request $request): JsonResponse
     {
-        $q = Sound::query()->withCount('videos')->latest();
+        $q = Sound::query()->withCount('videos');
+        $request->query('sort') === 'uses' ? $q->orderByDesc('uses_count')->orderByDesc('id') : $q->latest();
         if ($request->filled('source')) $q->where('source', $request->source);
         if ($request->query('state') === 'active')   $q->where('is_active', true);
         if ($request->query('state') === 'disabled') $q->where('is_active', false);
@@ -225,6 +226,62 @@ class AdminMusicController extends Controller
     }
 
     /** POST /api/admin/music/videos/{video}/reprocess — run the optimise/HLS step again for one video */
+    // ── Feature switches ─────────────────────────────────────────────────────
+    private const SWITCHES = ['music.free_enabled', 'music.epidemic_enabled', 'music.creator_sounds_enabled'];
+
+    public function settings(): JsonResponse
+    {
+        $out = [];
+        foreach (self::SWITCHES as $k) $out[$k] = \App\Models\AppSetting::bool($k);
+        $out['epidemic_configured'] = app(\App\Services\EpidemicSound::class)->enabled();
+        return response()->json($out);
+    }
+
+    public function saveSettings(Request $request): JsonResponse
+    {
+        $data = $request->validate(['key' => 'required|in:' . implode(',', self::SWITCHES), 'value' => 'required|boolean']);
+        \App\Models\AppSetting::set($data['key'], (bool) $data['value']);
+        return $this->settings();
+    }
+
+    // ── Removed / hidden videos ──────────────────────────────────────────────
+    public function removedVideos(): JsonResponse
+    {
+        $page = Video::onlyTrashed()->with('user:id,name,username')->latest('deleted_at')->paginate(20);
+        $page->getCollection()->transform(fn ($v) => [
+            'id' => $v->id, 'ulid' => $v->ulid, 'title' => $v->title, 'thumbnail_url_full' => $v->thumbnail_url_full,
+            'user' => $v->user ? ['name' => $v->user->name, 'username' => $v->user->username] : null,
+            'deleted_at' => optional($v->deleted_at)->toIso8601String(),
+        ]);
+        return response()->json($page);
+    }
+
+    // ── Failed queue jobs ────────────────────────────────────────────────────
+    public function failedJobs(): JsonResponse
+    {
+        $rows = \Illuminate\Support\Facades\DB::table('failed_jobs')->orderByDesc('id')->limit(50)->get()->map(function ($r) {
+            $payload = json_decode($r->payload, true);
+            return [
+                'id' => $r->id, 'uuid' => $r->uuid, 'queue' => $r->queue, 'failed_at' => $r->failed_at,
+                'job' => class_basename($payload['displayName'] ?? 'Job'),
+                'error' => \Illuminate\Support\Str::limit(strtok($r->exception, "\n"), 300),
+            ];
+        });
+        return response()->json(['data' => $rows]);
+    }
+
+    public function retryFailed(string $uuid): JsonResponse
+    {
+        \Illuminate\Support\Facades\Artisan::call('queue:retry', ['id' => [$uuid]]);
+        return response()->json(['message' => 'Job pushed back onto the queue.']);
+    }
+
+    public function forgetFailed(string $uuid): JsonResponse
+    {
+        \Illuminate\Support\Facades\DB::table('failed_jobs')->where('uuid', $uuid)->delete();
+        return response()->json(['message' => 'Failed job removed.']);
+    }
+
     public function reprocess(Video $video): JsonResponse
     {
         ProcessVideoJob::dispatch($video);

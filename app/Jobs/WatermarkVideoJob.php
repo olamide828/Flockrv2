@@ -144,7 +144,8 @@ class WatermarkVideoJob implements ShouldQueue
 
         // Tunables
         $maxOpacity = 0.92;   // peak watermark opacity
-        $dim        = 0.42;   // outro darkness (0 = none, 1 = black)
+        $keep       = (float) config('media.outro_keep', 0.12);   // share of the frozen frame still visible under the outro (0.10 = 90% dark)
+        $tagline    = (string) config('media.outro_tagline', 'Shop What You Watch');
 
         // ── Watermark metrics ─────────────────────────────────────────────────
         // Each corner is a vertical stack: logo, then "flockr", then @username
@@ -201,7 +202,8 @@ class WatermarkVideoJob implements ShouldQueue
         $ol   = max(72, (int) round(min($vw, $vh) * 0.16));
         $bsz  = max(26, (int) round($vw * 0.07));
         $usz  = max(18, (int) round($vw * 0.04));
-        $tsz  = max(12, (int) round($vw * 0.026));
+        $tsz  = max(14, (int) round($vw * 0.034));
+        $br   = max(12, (int) round($vw * 0.035));   // frosted-glass blur radius
         $H    = $ol + 18 + $bsz + 10 + $usz + 16 + $tsz;
         $y0   = (int) (($vh - $H) / 2);
         $yBr  = $y0 + $ol + 18;
@@ -254,14 +256,20 @@ class WatermarkVideoJob implements ShouldQueue
              . '[v4]';
 
         // ── Outro: hold last frame, ease it dark, bring in the branding ───────
-        $L[] = "[v4]tpad=stop_mode=clone:stop_duration={$out},"
-             . "eq=brightness='-{$fmt($dim)}*{$rise(0)}':saturation='1-0.3*{$rise(0)}':eval=frame[v5]";
+        // Frosted-glass outro: the held last frame is blurred, darkened to ~{$keep} of its brightness and
+        // given a faint top sheen, then faded in over the sharp frame. The branding sits on top of it.
+        $L[] = "[v4]tpad=stop_mode=clone:stop_duration={$out},split=2[va][vb]";
+        $L[] = "[vb]boxblur=luma_radius={$br}:luma_power=2:chroma_radius=" . max(6, intdiv($br, 2)) . ":chroma_power=2,"
+             . "lutyuv=y='val*{$fmt($keep)}':u='128+(val-128)*0.6':v='128+(val-128)*0.6',"
+             . "drawbox=x=0:y=0:w=iw:h=ih*0.5:color=white@0.015:t=fill,drawbox=x=0:y=0:w=iw:h=ih*0.35:color=white@0.015:t=fill,drawbox=x=0:y=0:w=iw:h=ih*0.2:color=white@0.015:t=fill,"
+             . "format=yuva420p,fade=t=in:st={$D}:d=0.55:alpha=1[vg]";
+        $L[] = "[va][vg]overlay=shortest=1:format=auto,format=yuv420p[v5]";
         $L[] = "[2:v]format=rgba,scale={$ol}:{$ol},{$geq($rampT)}[olg]";
         $L[] = "[v5][olg]overlay=x={$ox}:y='{$yAt($y0, 0)}':enable='gte(t,{$D})':shortest=1[v6]";
         $L[] = '[v6]'
              . $text('flockr', $bsz, '(w-text_w)/2', $yAt($yBr, 0.15), 'white',    1.0,  $rise(0.15)) . ','
              . $text($user,    $usz, '(w-text_w)/2', $yAt($yUs, 0.30), '0xFF6B35', 1.0,  $rise(0.30)) . ','
-             . $text('Discover. Shop. Connect.', $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
+             . $text($tagline, $tsz, '(w-text_w)/2', $yAt($yTg, 0.45), 'white', 0.65, $rise(0.45))
              . '[outv]';
 
         // ── Audio: original track, then the outro sound (or silence) ──────────
