@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-    RiCameraLensLine, RiCameraSwitchLine, RiCloseLine, RiFlashlightFill, RiFlashlightLine,
+    RiCameraSwitchLine, RiMusic2Fill, RiCloseLine, RiFlashlightFill, RiFlashlightLine,
     RiGridLine, RiImageAddLine, RiImageLine, RiMagicLine, RiShoppingBag3Line, RiTimer2Line,
 } from 'react-icons/ri'
 import { ENHANCE_CSS, MAX_SECONDS, PHOTO_SECONDS, blobToFile, fmtTime, photoToVideoFile, pickMime } from '../../lib/media'
@@ -27,9 +27,8 @@ function qualityLabel(s) {
  *  - pinch to zoom + 1x/2x/3x shortcuts when the camera supports zoom
  *  - 3s / 10s countdown, 3x3 grid, tap to start/stop or hold to record
  *  - photos use the camera's full-resolution still where available
- *  - "HQ" hands over to the phone's own camera app (HDR, stabilisation, night mode)
  */
-export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onRecordStart, onRecordStop, onClose, showProductHint, onProductHint, enhance = false, onToggleEnhance }) {
+export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, onRecordStart, onRecordStop, onClose, showProductHint, onProductHint, enhance = false, onToggleEnhance, onSound, hasSound = false }) {
     const videoRef = useRef(null)
     const streamRef = useRef(null)
     const trackRef = useRef(null)
@@ -84,6 +83,10 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                 return
             }
             stopStream()
+            if (videoRef.current) videoRef.current.srcObject = null
+            // Phones need a beat to release the old camera before the other one opens (this is why flip silently did nothing)
+            await new Promise(r => setTimeout(r, 250))
+            if (cancelled) return
 
             // `zoom: true` asks for the camera-zoom permission (without it the browser hides zoom entirely).
             // No aspectRatio constraint: forcing 9:16 made some phones hand back a cropped, zoomed-in picture.
@@ -100,7 +103,10 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             // Step-by-step fallback so the camera always opens: without the zoom request, then without audio
             let stream = null
             let lastErr = null
-            for (const [v, a] of [[video, audio], [videoNoZoom, audio], [videoNoZoom, false]]) {
+            // `exact` really switches cameras; `ideal` lets many phones keep the current one. Fall back to ideal for single-camera devices.
+            const videoExact = { ...video, facingMode: { exact: facing } }
+            const videoExactNoZoom = { ...videoNoZoom, facingMode: { exact: facing } }
+            for (const [v, a] of [[videoExact, audio], [videoExactNoZoom, audio], [video, audio], [videoNoZoom, audio], [videoNoZoom, false]]) {
                 try { stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: a }); break } catch (e) { lastErr = e }
             }
             if (!stream) {
@@ -136,7 +142,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             }
             setFit(s.width && s.height && s.width / s.height > 0.75 ? 'contain' : 'cover')
             // Phones report facingMode; a desktop webcam doesn't, and behaves like a selfie camera
-            setSelfie((s.facingMode ?? 'user') === 'user')
+            setSelfie(s.facingMode ? s.facingMode === 'user' : (facing === 'user' || !/Android|iPhone|iPad/i.test(navigator.userAgent)))
             setQuality(qualityLabel(s))
 
             if (videoRef.current) {
@@ -466,6 +472,11 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                         <span style={S.toolLabel}>{caps.torch ? 'Torch' : 'Light'}</span>
                     </button>
                 )}
+                {onSound && (
+                    <button onClick={onSound} aria-label="Add sound" style={{ ...S.toolBtn, color: hasSound ? '#FF6B35' : '#fff' }}>
+                        <RiMusic2Fill size={24} /><span style={S.toolLabel}>Sound</span>
+                    </button>
+                )}
                 {onToggleEnhance && (
                     <button onClick={onToggleEnhance} aria-label="Enhance" aria-pressed={enhance} style={{ ...S.toolBtn, color: enhance ? '#FF6B35' : '#fff' }}>
                         <RiMagicLine size={24} /><span style={S.toolLabel}>Enhance</span>
@@ -534,10 +545,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
                         </span>
                     </button>
 
-                    <button onClick={() => onNativeCapture?.(mode)} disabled={recording} aria-label="Use your phone's camera app for the best quality" style={{ ...S.glassBtn, width: 48, height: 48, borderRadius: 14, flexDirection: 'column', gap: 1, opacity: toolOpacity }}>
-                        <RiCameraLensLine size={19} />
-                        <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: '0.04em' }}>HQ</span>
-                    </button>
+                    <div style={{ width: 48, height: 48 }} />   {/* keeps the shutter centred */}
                 </div>
 
                 {/* Mode tabs */}

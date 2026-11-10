@@ -423,7 +423,8 @@ export default function Upload({ products: initialProducts = [] }) {
                     enhance={enhance}
                     onToggleEnhance={toggleEnhance}
                     onGallery={() => fileInputRef.current?.click()}
-                    onNativeCapture={openNative}
+                    onSound={() => setSoundSheet(true)}
+                    hasSound={!!sound}
                     onRecordStart={recordMusicStart}
                     onRecordStop={recordMusicStop}
                     onClose={closeUploader}

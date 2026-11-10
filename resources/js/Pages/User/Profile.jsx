@@ -18,6 +18,8 @@ import {
     RiPlayFill,
     RiPlayLine,
     RiProhibitedLine,
+    RiUserForbidLine,
+    RiDeleteBin6Line,
     RiSettings4Line,
     RiShareForwardLine,
     RiStoreLine,
@@ -39,6 +41,7 @@ import {
     RiHeartLine,
     RiEyeLine,
     RiBookmarkLine,
+    RiBookmarkFill,
     RiMusic2Line,
     RiThumbUpLine,
 } from 'react-icons/ri';
@@ -297,6 +300,28 @@ function ProfileMenu({ iBlocked, onBlock, onReport, onClose }) {
 }
 
 // ── Blocked profile banner ────────────────────────────────────────────────────
+function AccountStateBanner({ state, username }) {
+    const banned = state === 'banned'
+    const Icon = banned ? RiUserForbidLine : RiDeleteBin6Line
+    const tint = banned ? '239,68,68' : '255,255,255'
+    return (
+        <div style={{ margin: '24px 16px', padding: '28px 20px', background: `rgba(${tint},${banned ? 0.07 : 0.04})`, border: `1px solid rgba(${tint},${banned ? 0.2 : 0.08})`, borderRadius: 18, textAlign: 'center', maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `rgba(${tint},0.08)` }}>
+                <Icon size={26} color={banned ? '#EF4444' : 'rgba(255,255,255,0.45)'} />
+            </div>
+            <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, margin: '0 0 6px' }}>{banned ? 'Account banned' : 'This account has been deleted'}</p>
+            <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 18px', lineHeight: 1.55 }}>
+                {banned
+                    ? `@${username} was banned for breaking Flockr's community guidelines. Their videos, products and posts are no longer available.`
+                    : 'The person who owned it removed their account. Their videos, products and posts are no longer available.'}
+            </p>
+            <Link href="/" style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                Back to your feed
+            </Link>
+        </div>
+    )
+}
+
 function BlockedBanner({ iBlockedThem, theyBlockedMe, username, onUnblock }) {
     if (theyBlockedMe && !iBlockedThem) {
         return (
@@ -448,6 +473,7 @@ export default function UserProfile({
     isOwnProfile,
     iBlockedThem: initIBlocked = false,
     theyBlockedMe = false,
+    accountState = 'active',   // 'active' | 'banned' | 'deleted'
 }) {
     const { auth, flash } = usePage().props;
 
@@ -487,7 +513,8 @@ const [savedSoundsLoading, setSavedSoundsLoading] = useState(false)
     const [toast, setToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
 
-    const anyBlock = iBlockedThem || theyBlockedMe;
+    const gone     = accountState !== 'active';           // banned or deleted: same lock-down as a block
+    const anyBlock = iBlockedThem || theyBlockedMe || gone;
 
     const showToast = (msg) => {
         setToastMessage(msg);
@@ -556,7 +583,8 @@ const requestBlockToggle = () => {
     setWishlistLoading(true)
     try {
         const { data } = await axios.get('/api/users/me/wishlist-products')
-        setWishlistProducts(data)
+        const list = Array.isArray(data) ? data : (data?.data ?? [])
+        setWishlistProducts(list.map(p => ({ ...p, is_saved: true })))   // they are all saved, so the heart/bookmark shows filled
     } catch { setWishlistProducts([]) }
     finally { setWishlistLoading(false) }
 }
@@ -707,7 +735,7 @@ const loadPrivateTab = async (key) => {
 
 return (
     <>
-        <Head title={`${profileUser.name} (@${profileUser.username})`} />
+        <Head title={accountState === 'deleted' ? 'Deleted account' : `${profileUser.name} (@${profileUser.username})`} />
 
         {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
@@ -864,7 +892,7 @@ return (
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
     <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
-        @{profileUser.username}
+        {accountState === 'deleted' ? 'Account deleted' : `@${profileUser.username}`}
     </p>
 
     {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
@@ -937,7 +965,7 @@ return (
 </button>
                                         
                                         {/* 3-dot menu with block + report */}
-                                        {auth?.user && (
+                                        {auth?.user && !gone && (
                                             <div style={{ position: 'relative' }}>
                                                 <button onClick={() => setShowMenu((m) => !m)} style={iconBtn}>
                                                     <RiMoreLine size={16} color="#fff" />
@@ -1135,7 +1163,7 @@ return (
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
     <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
-        @{profileUser.username}
+        {accountState === 'deleted' ? 'Account deleted' : `@${profileUser.username}`}
     </p>
 
     {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
@@ -1243,7 +1271,7 @@ return (
                 </div>
 
                 {/* ═══ BLOCKED STATE BANNER ══════════════════════════════════ */}
-                <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />
+                {gone ? <AccountStateBanner state={accountState} username={profileUser.username} /> : <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />}
 
                 {!anyBlock && showSuggestedPanel && (
     <SuggestedAccountsPanel afterUserId={profileUser.id} />
@@ -1501,6 +1529,7 @@ return (
                                         {video.thumbnail_url_full
                                             ? <img src={video.thumbnail_url_full} alt={video.title} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                             : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>}
+                                        <PlayCount n={video.views_count} />
                                     </Link>
                                 ))}
                             </div>
@@ -1523,7 +1552,19 @@ return (
                                                 {snd.artist}{snd.uses_count ? ` · ${snd.uses_count.toLocaleString()} videos` : ''}
                                             </p>
                                         </div>
-                                        <RiBookmarkLine size={18} color="#FF6B35" />
+                                        <button
+                                            aria-label="Remove from saved"
+                                            onClick={async (e) => {
+                                                e.preventDefault(); e.stopPropagation()
+                                                const prev = savedSounds
+                                                setSavedSounds(list => list.filter(x => x.id !== snd.id))
+                                                try { await axios.post(`/api/sounds/${snd.id}/save`); showToast('Removed from saved') }
+                                                catch { setSavedSounds(prev); showToast('Could not update saved sounds') }
+                                            }}
+                                            style={{ background: 'none', border: 'none', padding: 6, cursor: 'pointer', display: 'flex' }}
+                                        >
+                                            <RiBookmarkFill size={20} color="#FF6B35" />
+                                        </button>
                                     </Link>
                                 ))}
                             </div>
@@ -1545,9 +1586,10 @@ return (
                         {privateTabVideos[activeTab].map(video => (
                             <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="vthumb" style={{ position: 'relative', aspectRatio: '9/16', display: 'block', background: '#1a1a1a', overflow: 'hidden' }}>
                                 {video.thumbnail_url_full
-                                    ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    ? <img src={video.thumbnail_url_full} alt={video.title} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>
                                 }
+                                <PlayCount n={video.views_count} />
                             </Link>
                         ))}
                     </div>
@@ -1616,6 +1658,15 @@ function EmptyState({ Icon, title, sub, cta }) {
             )}
         </div>
     );
+}
+
+function PlayCount({ n }) {
+    return (
+        <div style={{ position: 'absolute', bottom: 7, left: 7, display: 'flex', alignItems: 'center', gap: 2, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>
+            <RiPlayLine size={14} color="rgba(255,255,255,0.9)" />
+            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 700 }}>{fmtCount(n ?? 0)}</span>
+        </div>
+    )
 }
 
 function Spinner() {

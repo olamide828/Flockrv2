@@ -39,12 +39,14 @@ import Toast from '@/Components/Toast'
 import VerifiedBadge from '@/Components/VerifiedBadge';
 import VideoSeekBar from '@/Components/VideoSeekBar'
 import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay';
+import { wantsSound, setWantsSound, useWantsSound } from '@/lib/soundPref';
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation';
 import { useVideoSeek } from '@/lib/useVideoSeek';
 import { ensurePlaying } from '@/lib/ensurePlaying';
 import { useHlsVideo } from '@/lib/useHlsVideo';
 import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 import TextOverlays from '@/Components/Video/TextOverlays';
+import Avatar from '@/Components/Media/Avatar';
 import SoundMarquee from '@/Components/Video/SoundMarquee';
 import { ENHANCE_CSS } from '@/lib/media';
 const soundHref = (v) => (v.sound_credit ? (v.sound_credit.path || `/sound/${v.sound_credit.id}`) : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null);
@@ -413,9 +415,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const isOwner     = auth?.user?.id === video.user_id;
     const hasProducts = video.is_for_sale && video.products?.length > 0;
-    const avatarSrc   = video.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(video.user?.name || 'U')}&background=222&color=fff`;
     const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url;
-    const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : '';
+    const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username ?? 'flockr'}/video/${video.ulid}` : '';
     
     useHlsVideo(videoRef, isActive ? videoSrc : null);
 
@@ -428,7 +429,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             unmuteUnsubRef.current = null
             userPausedRef.current = false
 
-            if (hasUserInteracted()) {
+            if (wantsSound()) {
                 el.muted = false
                 setMuted(false)
                 el.play().then(() => setPlaying(true)).catch(() => {
@@ -440,7 +441,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 setMuted(true)
                 el.play().then(() => setPlaying(true)).catch(() => {})
                 unmuteUnsubRef.current = onFirstInteraction(() => {
-                    if (videoRef.current === el) { el.muted = false; setMuted(false) }
+                    if (videoRef.current === el) { el.muted = false; setMuted(false); setWantsSound(true) }
                 })
             }
 
@@ -504,7 +505,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             tapTimerRef.current = setTimeout(() => {
                 tapTimerRef.current = null;
                 const el = videoRef.current;
-                if (el?.muted) { el.muted = false; setMuted(false); }
+                if (el?.muted) { el.muted = false; setMuted(false); setWantsSound(true); }
                 if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}); }
                 else { userPausedRef.current = true; el?.pause(); }
                 setShowPP(true);
@@ -529,8 +530,21 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
         const toggleMute = useCallback(() => {
         markInteracted();
-        setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m; });
-    }, []);
+        const el = videoRef.current;
+        const nowMuted = !(el ? el.muted : muted);
+        if (el) el.muted = nowMuted;
+        setMuted(nowMuted);
+        setWantsSound(!nowMuted);          // every other video follows this choice
+    }, [muted]);
+
+    const soundOn = useWantsSound();
+    useEffect(() => {
+        const el = videoRef.current;
+        if (!el || !isActive) return;
+        if (el.muted === !soundOn) return;
+        el.muted = !soundOn;
+        setMuted(!soundOn);
+    }, [soundOn, isActive]);
 
     const showToast = (msg, type = 'success') => {
         setToast({ msg, type })
@@ -581,7 +595,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         if (swipeStartRef.current == null) return;
                         const dx = e.changedTouches[0].clientX - swipeStartRef.current;
                         swipeStartRef.current = null;
-                        if (dx > 90) router.visit(`/@${video.user?.username}`);
+                        if (dx > 90) (video.user?.username && router.visit(`/@${video.user.username}`));
                     }}
                     onLoadedMetadata={e => { setDuration(e.target.duration); setVideoSize({ w: e.target.videoWidth, h: e.target.videoHeight }) }}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', filter: video.enhance ? ENHANCE_CSS : 'none' }}
@@ -628,7 +642,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 {/* Right actions */}
                 <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 30 }}>
                     <div style={{ position: 'relative', marginBottom: 0 }}>
-                        <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #fff', display: 'block' }} /></button>
+                        <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))}><Avatar src={video.user?.avatar_url} name={video.user?.name} size={44} /></button>
                     </div>
                     <SideBtn btnRef={likeBtnRef} onClick={(e) => { if (!liked) triggerLikeAnim(e.clientX, e.clientY); handleLike() }} label={fmt(likesCount)}>{liked ? <RiHeartFill size={34} color="#EF4444" /> : <RiHeartLine size={34} color="#fff" />}</SideBtn>
                     <SideBtn onClick={() => { if (!auth?.user) return router.visit('/login'); if (window.innerWidth < 768) openSheet('comments'); else setTab('comments'); }} label={fmt(commentsCount)}>
@@ -668,7 +682,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                             {followed ? 'Following' : 'Follow'}
                         </button>
                     )}
-                    <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
+                    <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
                         <VerifiedBadge type={video.user?.verification_type} size={18} />
                     </button>
@@ -694,14 +708,14 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             {/* DESKTOP RIGHT PANEL */}
             <div style={{ display: 'none', flexDirection: 'column', width: 340, flexShrink: 0, background: 'rgba(16,16,16,0.98)', borderLeft: '1px solid rgba(255,255,255,0.08)', height: '100%', overflowY: 'auto' }} className="video-show-panel">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-                    <button onClick={() => router.visit(`/@${video.user?.username}`)}><img src={avatarSrc} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.1)' }} /></button>
+                    <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))}><Avatar src={video.user?.avatar_url} name={video.user?.name} size={44} /></button>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <button onClick={() => router.visit(`/@${video.user?.username}`)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
+                            <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: 14, padding: 0 }} className='truncate' title={video.user?.name ?? video.user?.username}>{video.user?.name ?? video.user?.username}</button>
                             <VerifiedBadge type={video.user?.verification_type} size={18} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>@{video.user?.username}</p>
+                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>{video.user?.username ? `@${video.user.username}` : 'Deleted user'}</p>
                             {video.created_at && (
                                 <>
                                     <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>·</span>

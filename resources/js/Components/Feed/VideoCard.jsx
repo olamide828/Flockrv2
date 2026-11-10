@@ -18,6 +18,7 @@ import VerifiedBadge from '@/Components/VerifiedBadge'
 import VideoSeekBar from '@/Components/VideoSeekBar'
 import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet'
 import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
+import { wantsSound, setWantsSound, useWantsSound } from '@/lib/soundPref'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { useHlsVideo } from '@/lib/useHlsVideo'
@@ -271,7 +272,7 @@ export default function VideoCard({ video, isActive }) {
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
   const videoSrc    = video.video_stream_url ?? video.hls_url ?? video.video_url
-  const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username}/video/${video.ulid}` : ''
+  const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username ?? 'flockr'}/video/${video.ulid}` : ''
 
   const wd = useVideoWatchdog(videoRef, isActive)
   useHlsVideo(videoRef, isActive && !wd.reloading ? videoSrc : null)
@@ -285,7 +286,7 @@ export default function VideoCard({ video, isActive }) {
       unmuteUnsubRef.current = null
       userPausedRef.current = false
 
-      if (hasUserInteracted()) {
+      if (wantsSound()) {
         el.muted = false
         setMuted(false)
         el.play().then(() => setPlaying(true)).catch(() => {
@@ -299,7 +300,7 @@ export default function VideoCard({ video, isActive }) {
         setMuted(true)
         el.play().then(() => setPlaying(true)).catch(() => {})
         unmuteUnsubRef.current = onFirstInteraction(() => {
-          if (videoRef.current === el) { el.muted = false; setMuted(false) }
+          if (videoRef.current === el) { el.muted = false; setMuted(false); setWantsSound(true) }
         })
       }
 
@@ -388,7 +389,7 @@ export default function VideoCard({ video, isActive }) {
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = null
         const el = videoRef.current
-        if (el?.muted) { el.muted = false; setMuted(false) }
+        if (el?.muted) { el.muted = false; setMuted(false); setWantsSound(true) }
         if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}) }
         else { userPausedRef.current = true; el?.pause() }
         setShowPP(true)
@@ -412,8 +413,22 @@ export default function VideoCard({ video, isActive }) {
 
     const toggleMute = useCallback(() => {
     markInteracted()
-    setMuted(m => { if (videoRef.current) videoRef.current.muted = !m; return !m })
-  }, [])
+    const el = videoRef.current
+    const nowMuted = !(el ? el.muted : muted)      // what the button is about to make it
+    if (el) el.muted = nowMuted
+    setMuted(nowMuted)
+    setWantsSound(!nowMuted)                         // every other video follows this choice
+  }, [muted])
+
+  // Another card (or the page) changed the shared preference while this one is playing: follow it
+  const soundOn = useWantsSound()
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || !isActive) return
+    if (el.muted === !soundOn) return
+    el.muted = !soundOn
+    setMuted(!soundOn)
+  }, [soundOn, isActive])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
@@ -453,7 +468,7 @@ export default function VideoCard({ video, isActive }) {
           if (swipeStartRef.current == null) return
           const dx = e.changedTouches[0].clientX - swipeStartRef.current
           swipeStartRef.current = null
-          if (dx > 90) router.visit(`/@${video.user?.username}`)
+          if (dx > 90) (video.user?.username && router.visit(`/@${video.user.username}`))
         }}
         style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
       />
@@ -512,7 +527,7 @@ export default function VideoCard({ video, isActive }) {
 
       <div style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px, 2dvh, 14px)', zIndex: 30 }} onClick={e => e.stopPropagation()}>
         <div style={{ position: 'relative', marginBottom: 0 }}>
-          <Link href={`/@${video.user?.username}`} onClick={e => e.stopPropagation()}>
+          <Link href={video.user?.username ? `/@${video.user.username}` : '#'} onClick={e => e.stopPropagation()}>
             <div style={{ width: 46, height: 46, borderRadius: '50%', overflow: 'hidden', border: '2.5px solid #fff', background: '#222' }}>
               <Avatar src={video.user?.avatar_url} name={video.user?.name} size={46} style={{ border: 'none' }} />
             </div>
@@ -563,8 +578,8 @@ export default function VideoCard({ video, isActive }) {
             {followed ? 'Following' : 'Follow'}
           </button>
         )}
-        <Link href={`/@${video.user?.username}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', marginBottom: 5 }}>
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{video.user?.name}</span>
+        <Link href={video.user?.username ? `/@${video.user.username}` : '#'} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', marginBottom: 5 }}>
+          <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{video.user?.name ?? 'Deleted user'}</span>
           <VerifiedBadge type={video.user?.verification_type} size={13} />
         </Link>
         {video.title && <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: '0 0 4px', lineHeight: 1.35, textShadow: '0 1px 4px rgba(0,0,0,0.8)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{video.title}</p>}
