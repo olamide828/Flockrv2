@@ -99,10 +99,12 @@ class AdminController extends Controller
     ]);
 }
 
-    public function showUser(User $user): Response
-    {
-        $user->load(['videos' => fn($q) => $q->latest()->limit(12), 'products' => fn($q) => $q->latest()->limit(12)]);
-        $user->loadCount(['videos', 'products']);
+    public function showUser($userId): Response
+{
+    $user = User::withTrashed()->findOrFail($userId);   
+    $user->load(['videos' => fn($q) => $q->latest()->limit(12), 'products' => fn($q) => $q->latest()->limit(12)]);
+    $user->setAttribute('videos_count', $user->videos()->count());
+    $user->setAttribute('products_count', $user->products()->count());
 
         $orders = Order::where(fn($q) => $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id))
             ->with(['buyer:id,name,username', 'seller:id,name,username'])

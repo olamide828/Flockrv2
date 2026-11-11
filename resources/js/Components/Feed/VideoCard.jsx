@@ -20,6 +20,9 @@ import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet'
 import { hasUserInteracted, onFirstInteraction, markInteracted } from '@/lib/videoAutoplay'
 import { wantsSound, setWantsSound, useWantsSound } from '@/lib/soundPref'
 import { useLikeAnimation, LikeAnimationOverlay } from '@/Components/LikeAnimation'
+
+// A phone double-tap is often 300-350ms apart; a shorter window made the 1st tap pause before the 2nd arrived.
+const DOUBLE_TAP_MS = 380
 import { ensurePlaying } from '@/lib/ensurePlaying'
 import { useHlsVideo } from '@/lib/useHlsVideo'
 import TextOverlays from '@/Components/Video/TextOverlays'
@@ -378,7 +381,7 @@ export default function VideoCard({ video, isActive }) {
     const now = Date.now()
     const dt = now - lastTap.current
 
-    if (dt > 0 && dt < 300) {
+    if (dt > 0 && dt < DOUBLE_TAP_MS) {
       clearTimeout(tapTimerRef.current)
       tapTimerRef.current = null
       lastTap.current = 0
@@ -393,7 +396,7 @@ export default function VideoCard({ video, isActive }) {
         if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}) }
         else { userPausedRef.current = true; el?.pause() }
         setShowPP(true)
-      }, 300)
+      }, DOUBLE_TAP_MS)
     }
   }, [liked, showComments, showProducts, showShare, triggerLikeAnim, handleLike])
 
