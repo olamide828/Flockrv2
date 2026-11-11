@@ -6,7 +6,7 @@ import { Spinner } from '../../Components/Upload/ui'
 import CreateSound from '../../Components/Upload/CreateSound'
 
 const API = '/api/admin/music'
-const TABS = [['claims', 'Copyright claims'], ['sounds', 'Sounds'], ['strikes', 'Repeat sellers'], ['videos', 'Processing'], ['removed', 'Removed videos'], ['jobs', 'Failed jobs'], ['settings', 'Settings'], ['system', 'System check']]
+const TABS = [['claims', 'Copyright claims'], ['submissions', 'Submissions'], ['sounds', 'Sounds'], ['strikes', 'Repeat sellers'], ['videos', 'Processing'], ['removed', 'Removed videos'], ['jobs', 'Failed jobs'], ['settings', 'Settings'], ['system', 'System check']]
 
 const card = { background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 14, marginBottom: 10 }
 const btn = (c = 'rgba(255,255,255,0.08)', fg = '#fff') => ({ background: c, color: fg, border: 'none', borderRadius: 9, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' })
@@ -62,6 +62,7 @@ export default function AdminMusic({ counts }) {
                 </div>
                 {msg && <div style={{ ...card, borderColor: 'rgba(255,107,53,0.4)', color: '#FFB08F', fontSize: 13 }}>{msg}</div>}
                 {tab === 'claims' && <Claims call={call} ask={ask} />}
+                {tab === 'submissions' && <Submissions call={call} ask={ask} />}
                 {tab === 'sounds' && <Sounds call={call} ask={ask} />}
                 {tab === 'strikes' && <Strikes call={call} ask={ask} />}
                 {tab === 'videos' && <Processing call={call} />}
@@ -254,6 +255,44 @@ function Settings({ call }) {
             <button onClick={() => flip(k)} style={btn(st[k] ? '#047857' : 'rgba(255,255,255,0.1)')}>{st[k] ? 'On' : 'Off'}</button>
         </div>
     ))
+}
+
+function Submissions({ call, ask }) {
+    const [status, setStatus] = useState('pending')
+    const [rows, setRows] = useState(null)
+    const [pending, setPending] = useState(0)
+    const load = useCallback(async () => {
+        setRows(null)
+        const d = await call('get', `/submissions?status=${status}`)
+        setRows(d?.data || []); setPending(d?.pending || 0)
+    }, [status]) // eslint-disable-line
+    useEffect(() => { load() }, [load])
+    return (
+        <>
+            <p style={mute}>Tracks artists submitted. Open the proof link, listen, then approve or reject. Approving puts the track live in the library with the artist credited.</p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {['pending', 'approved', 'rejected'].map(x => (
+                    <button key={x} onClick={() => setStatus(x)} style={btn(status === x ? '#FF6B35' : 'rgba(255,255,255,0.07)')}>{x[0].toUpperCase() + x.slice(1)}{x === 'pending' && pending > 0 ? ` (${pending})` : ''}</button>
+                ))}
+            </div>
+            {rows === null ? <Spinner /> : rows.length === 0 ? <p style={mute}>Nothing here.</p> : rows.map(s => (
+                <div key={s.id} style={card}>
+                    <b style={{ fontSize: 14 }}>{s.title}</b> <span style={mute}>by {s.artist}{s.username ? ` (@${s.username})` : ''}{s.genre ? ` · ${s.genre}` : ''}</span>
+                    <div style={{ ...mute, margin: '6px 0' }}>
+                        Legal name: {s.legal_name} · {s.contact_email}<br />
+                        Proof: {s.artist_link ? <a href={s.artist_link} target="_blank" rel="noopener noreferrer" style={{ color: '#FF6B35', wordBreak: 'break-all' }}>{s.artist_link}</a> : 'none'}<br />
+                        Rights accepted {s.rights_accepted_at ? new Date(s.rights_accepted_at).toLocaleString() : '—'} (terms {s.terms_version})
+                        {s.note && <><br />Rejected: {s.note}</>}
+                    </div>
+                    {s.url && <audio src={s.url} controls preload="none" style={{ width: '100%', margin: '4px 0 10px' }} />}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        {s.status !== 'approved' && <button style={btn('#047857')} onClick={() => ask({ title: 'Approve this track?', message: 'It goes live in the library and the artist is emailed.', confirmLabel: 'Approve', danger: false, onConfirm: async () => { await call('post', `/submissions/${s.id}/approve`); load() } })}>Approve</button>}
+                        {s.status !== 'rejected' && <button style={btn('#DC2626')} onClick={() => ask({ title: 'Reject this track?', message: 'The artist gets this reason by email.', confirmLabel: 'Reject', danger: true, fields: [{ key: 'reason', label: 'Reason (required)', multiline: true }], onConfirm: async (v) => { if (!v.reason?.trim()) return; await call('post', `/submissions/${s.id}/reject`, { reason: v.reason }); load() } })}>Reject</button>}
+                    </div>
+                </div>
+            ))}
+        </>
+    )
 }
 
 function Removed({ call, ask }) {

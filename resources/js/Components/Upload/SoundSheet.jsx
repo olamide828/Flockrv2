@@ -219,6 +219,7 @@ export default function SoundSheet({ open, onClose, current, originalVolume, has
                 </div>
 
                 {creating ? <CreateSound isAdmin={isAdmin} onBack={() => setCreating(false)} onSaved={saved} /> : (<>
+                <a href="/artists/submit" style={{ display: 'block', margin: '0 18px 8px', fontSize: 12, fontWeight: 700, color: '#FF6B35', textDecoration: 'none' }}>Are you an artist? Submit your music →</a>
                 {/* Search */}
                 <div style={{ padding: '0 18px 10px', position: 'relative' }}>
                     <RiSearchLine size={15} color="rgba(255,255,255,0.35)" style={{ position: 'absolute', left: 31, top: 14 }} />

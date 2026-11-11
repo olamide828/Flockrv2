@@ -388,6 +388,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/videos/upload', [VideoController::class, 'store']);
     Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
     Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
+    Route::get('/artist/submissions', [\App\Http\Controllers\ArtistSubmissionController::class, 'mine']);
+    Route::post('/artist/submissions', [\App\Http\Controllers\ArtistSubmissionController::class, 'store']);
+    Route::delete('/artist/submissions/{sound}', [\App\Http\Controllers\ArtistSubmissionController::class, 'withdraw']);
     Route::delete('/sounds/{sound}', [SoundController::class, 'destroy']);
     Route::get('/sounds/epidemic/{trackId}/preview', [SoundController::class, 'epidemicPreview']);
     Route::post('/sounds/epidemic/{trackId}/import', [SoundController::class, 'epidemicImport']);
@@ -882,6 +885,9 @@ Route::get('/users/{user}/suggested-follows', function (\App\Models\User $user) 
             Route::post('/claims/{claim}/reject', [\App\Http\Controllers\AdminMusicController::class, 'reject']);
             Route::post('/claims/{claim}/restore', [\App\Http\Controllers\AdminMusicController::class, 'restoreClaim']);
             Route::get('/strikes', [\App\Http\Controllers\AdminMusicController::class, 'strikes']);
+            Route::get('/submissions', [\App\Http\Controllers\AdminMusicController::class, 'submissions']);
+            Route::post('/submissions/{sound}/approve', [\App\Http\Controllers\AdminMusicController::class, 'approveSubmission']);
+            Route::post('/submissions/{sound}/reject', [\App\Http\Controllers\AdminMusicController::class, 'rejectSubmission']);
             Route::get('/sounds', [\App\Http\Controllers\AdminMusicController::class, 'sounds']);
             Route::get('/settings', [\App\Http\Controllers\AdminMusicController::class, 'settings']);
             Route::post('/settings', [\App\Http\Controllers\AdminMusicController::class, 'saveSettings']);

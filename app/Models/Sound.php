@@ -10,6 +10,8 @@ class Sound extends Model
     protected $fillable = [
         'ulid', 'source', 'external_id', 'user_id', 'video_id', 'title', 'artist', 'file_path', 'cover_path',
         'duration', 'license', 'license_url', 'attribution', 'uses_count', 'is_active', 'is_public', 'genre',
+        'is_artist_submission', 'submission_status', 'submission_note', 'submitted_at', 'reviewed_at', 'rights_accepted_at',
+        'terms_version', 'artist_link', 'legal_name', 'contact_email',
     ];
 
     /** Genres an admin can tag library tracks with (also the filter chips in the picker). */
@@ -20,6 +22,10 @@ class Sound extends Model
         'is_public' => 'boolean',
         'duration'  => 'integer',
         'uses_count' => 'integer',
+        'is_artist_submission' => 'boolean',
+        'submitted_at' => 'datetime',
+        'reviewed_at' => 'datetime',
+        'rights_accepted_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -87,6 +93,7 @@ class Sound extends Model
             'is_public'  => $this->is_public,
             'attribution' => $this->attribution,
             'genre'       => $this->genre,
+            'artist_path' => $this->is_artist_submission && $this->user?->username ? '/@' . $this->user->username : null,
             'external_id' => $this->external_id,
             'waveform_url' => null,
         ];

@@ -166,6 +166,41 @@ class AdminMusicController extends Controller
         return response()->json($page);
     }
 
+    /** GET /api/admin/music/submissions?status=pending|approved|rejected */
+    public function submissions(Request $request): JsonResponse
+    {
+        $status = in_array($request->query('status'), ['pending', 'approved', 'rejected'], true) ? $request->query('status') : 'pending';
+        $rows = Sound::where('is_artist_submission', true)->where('submission_status', $status)->with('user:id,username,name,email')
+            ->orderBy($status === 'pending' ? 'submitted_at' : 'reviewed_at', $status === 'pending' ? 'asc' : 'desc')->limit(100)->get()
+            ->map(fn ($s) => $s->toApi(null) + [
+                'status' => $s->submission_status, 'note' => $s->submission_note, 'artist_link' => $s->artist_link,
+                'legal_name' => $s->legal_name, 'contact_email' => $s->contact_email, 'submitted_at' => $s->submitted_at?->toIso8601String(),
+                'rights_accepted_at' => $s->rights_accepted_at?->toIso8601String(), 'terms_version' => $s->terms_version,
+                'username' => $s->user?->username,
+            ]);
+        $pending = Sound::where('is_artist_submission', true)->where('submission_status', 'pending')->count();
+        return response()->json(['data' => $rows->values(), 'pending' => $pending]);
+    }
+
+    /** POST /api/admin/music/submissions/{sound}/approve */
+    public function approveSubmission(Sound $sound): JsonResponse
+    {
+        abort_unless($sound->is_artist_submission, 404);
+        $sound->update(['submission_status' => 'approved', 'is_active' => true, 'submission_note' => null, 'reviewed_at' => now()]);
+        \App\Services\CopyrightMailer::submission($sound->contact_email, $sound->legal_name ?: $sound->artist, $sound->title, 'approved', null, url($sound->path()));
+        return response()->json(['message' => 'Approved. The track is live in the library.']);
+    }
+
+    /** POST /api/admin/music/submissions/{sound}/reject  { reason } */
+    public function rejectSubmission(Request $request, Sound $sound): JsonResponse
+    {
+        abort_unless($sound->is_artist_submission, 404);
+        $d = $request->validate(['reason' => 'required|string|max:500']);
+        $sound->update(['submission_status' => 'rejected', 'is_active' => false, 'submission_note' => $d['reason'], 'reviewed_at' => now()]);
+        \App\Services\CopyrightMailer::submission($sound->contact_email, $sound->legal_name ?: $sound->artist, $sound->title, 'rejected', $d['reason']);
+        return response()->json(['message' => 'Rejected and the artist was emailed.']);
+    }
+
     /** PATCH /api/admin/music/sounds/{sound} */
     public function updateSound(Request $request, Sound $sound): JsonResponse
     {

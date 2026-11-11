@@ -40,6 +40,18 @@ class CopyrightMailer
         self::send($email, 'Your Flockr account has been suspended', "Hello {$name},\n\nYour account was suspended because of repeated copyright takedowns. You can appeal from the suspension screen when you sign in.\n\nFlockr");
     }
 
+
+    /** Artist submission emails. $stage: received | approved | rejected */
+    public static function submission(?string $email, string $name, string $title, string $stage, ?string $note = null, ?string $url = null): void
+    {
+        [$subject, $body] = match ($stage) {
+            'received' => ["We received \"{$title}\"", "Hello {$name},\n\nThanks for submitting \"{$title}\" to Flockr. Our team will listen to it and check your details. We will email you when we have decided. Until then the track stays private."],
+            'approved' => ["\"{$title}\" is live on Flockr", "Hello {$name},\n\nGood news: \"{$title}\" was approved and is now in the Flockr sound library. Creators can use it in their videos, and your name links back to your profile." . ($url ? "\n\nYour sound page: {$url}" : '') . "\n\nYou can ask us to remove it at any time by replying to this email."],
+            'rejected' => ["About your submission \"{$title}\"", "Hello {$name},\n\nWe could not approve \"{$title}\" this time." . ($note ? "\n\nReason: {$note}" : '') . "\n\nYou are welcome to submit again once this is sorted out (for example, a link that shows you are the artist). Reply to this email if you have questions."],
+        };
+        self::send($email, $subject, $body . "\n\nFlockr");
+    }
+
     private static function send(?string $to, string $subject, string $body): void
     {
         if (!$to) return;

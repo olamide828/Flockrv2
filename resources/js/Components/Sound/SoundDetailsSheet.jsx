@@ -168,7 +168,7 @@ export default function SoundDetailsSheet({ soundId, soundUlid, fromVideo, onClo
                                     </div>
 
                                     <h1 style={{ margin: '18px 0 0', fontSize: 21, fontWeight: 800, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{sound.title}</h1>
-                                    <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>{sound.source === 'original' ? `Original sound · ${sound.artist}` : sound.artist}</p>
+                                    <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>{sound.source === 'original' ? `Original sound · ${sound.artist}` : sound.artist_path ? <a href={sound.artist_path} style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}>{sound.artist}</a> : sound.artist}</p>
                                     <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.42)', fontSize: 12 }}>
                                         {(state.total ?? 0).toLocaleString()} video{state.total === 1 ? '' : 's'}{sound.duration ? ` · ${fmtTime(sound.duration)}` : ''}
                                     </p>

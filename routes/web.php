@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ArtistSubmissionController;
 use App\Http\Controllers\BuyerOnboardingController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CommunityController;
@@ -38,6 +39,7 @@ Route::get('/events/{event}', [EventController::class, 'showPage']);
 Route::get('/terms', [AuthController::class, 'terms'])->name('terms');
 Route::get('/privacy', [AuthController::class, 'privacy'])->name('privacy');
 Route::get('/copyright', [CopyrightController::class, 'page']);
+Route::get('/artists/submit', [ArtistSubmissionController::class, 'page'])->name('artist.submit');
 
 Route::get('/@{username}/sound/{ulid}', [SoundController::class, 'page'])->name('sound.show');
 Route::get('/sound/from-video/{ulid}', [SoundController::class, 'fromVideo']);
