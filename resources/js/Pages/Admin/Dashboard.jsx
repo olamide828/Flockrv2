@@ -20,7 +20,8 @@ export default function Dashboard() {
         <>
           <StatGrid>
             <Stat label="Sales (GMV)" value={nairaCompact(s.gmv)} sub={chg(s.gmv_change)} spark={<Sparkline data={data.series.map((d) => d.gmv)} color={SERIES[0]} />} />
-            <Stat label="Flockr fees earned" value={nairaCompact(s.fees)} sub={chg(s.fees_change)} spark={<Sparkline data={data.series.map((d) => d.fees)} color={SERIES[2]} />} />
+            <Stat label="Flockr fees earned" value={nairaCompact(s.fees)} sub={`${nairaCompact(s.commission)} commission + ${nairaCompact(s.delivery_fee)} delivery fee`} spark={<Sparkline data={data.series.map((d) => d.fees)} color={SERIES[2]} />} />
+            <Stat label="Courier fees paid by buyers" value={nairaCompact(s.courier_fees)} sub="Goes to the courier, not Flockr income" />
             <Stat label="Orders" value={num(s.orders)} sub={chg(s.orders_change)} spark={<Sparkline data={data.series.map((d) => d.orders)} color={SERIES[1]} />} />
             <Stat label="New users" value={num(s.new_users)} sub={chg(s.users_change)} spark={<Sparkline data={data.signups.map((d) => d.users)} color={SERIES[6]} />} />
             <Stat label="Held in escrow" value={nairaCompact(s.escrow)} sub="Owed to sellers, not yet released" tone="warn" />

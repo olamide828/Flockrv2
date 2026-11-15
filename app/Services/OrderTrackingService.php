@@ -92,8 +92,8 @@ class OrderTrackingService
     public function present(Order $order): array
     {
         $order->loadMissing([
-            'items.product:id,name,images,slug,seller_id',
-            'seller:id,name,username,avatar,pickup_city,pickup_state,verification_type',
+            'items.product' => fn ($q) => $q->withTrashed()->select('id', 'name', 'images', 'slug', 'seller_id', 'deleted_at'),
+            'seller:id,name,username,avatar,pickup_city,pickup_state',
             'buyer:id,name,email',
             'dispute.messages.user:id,name,username,avatar',
         ]);
@@ -105,7 +105,7 @@ class OrderTrackingService
             'courier_fee'     => $ship,
             'shipping_fee'    => $ship,
             'discount_amount' => (float) ($order->discount_amount ?? 0),
-            'seller'          => $order->seller ? array_merge($order->seller->toArray(), ['avatar_url' => $order->seller->avatar_url]) : null,
+            'seller'          => $order->seller ? array_merge($order->seller->toArray(), ['avatar_url' => $order->seller->avatar_url, 'verification_type' => $order->seller->verification_type ?? null]) : null,
             'timeline'        => $this->timeline($order),
         ]);
     }

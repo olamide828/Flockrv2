@@ -7,6 +7,8 @@ export default `
 /* shell */
 .a-side{position:fixed;inset:0 auto 0 0;width:236px;background:#0e1015;border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:40;overflow-y:auto}
 .a-brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px;font-weight:800;font-size:17px;letter-spacing:-.01em}
+.a-brand img{height:30px;width:auto;max-width:130px;object-fit:contain;display:block}
+.a-brand .a-tag{margin:0;padding:3px 7px;border-radius:6px;background:rgba(255,107,53,.15);color:#FF6B35}
 .a-brand i{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#FF6B35,#ff9a5c);display:block}
 .a-brand small{display:block;font-size:10px;font-weight:600;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
 .a-navg{padding:6px 10px 4px}.a-navg>span{display:block;padding:10px 10px 6px;font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.32)}

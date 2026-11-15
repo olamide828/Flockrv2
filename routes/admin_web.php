@@ -21,6 +21,7 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         'system' => 'System', 'audit' => 'Audit',
     ];
     foreach ($pages as $uri => $component) {
-        Route::inertia('/' . $uri, 'Admin/' . $component);
+        // Named admin.<slug> (e.g. admin.dashboard) — AuthController redirects admins to route('admin.dashboard').
+        Route::inertia('/' . $uri, 'Admin/' . $component)->name('admin.' . str_replace(['/{id}', '/'], ['.show', '.'], $uri));
     }
 });

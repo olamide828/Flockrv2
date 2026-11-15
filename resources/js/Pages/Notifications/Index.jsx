@@ -43,6 +43,7 @@ function notifIcon(type) {
         product_restocked: <RiRefreshLine size={s} color="#10B981" />,
         product_sold_out: <RiAlarmWarningLine size={s} color="#EF4444" />,
         coupon_earned: <RiGiftLine size={s} color="#F59E0B" />,
+        pro_granted: <RiGiftLine size={s} color="#FF6B35" />,
         rating_reminder: <RiStarLine size={s} color="#F59E0B" />,
         order_status: <RiTruckLine size={s} color="#8B5CF6" />,
         event_announcement: <RiTrophyLine size={s} color="#FF6B35" />,

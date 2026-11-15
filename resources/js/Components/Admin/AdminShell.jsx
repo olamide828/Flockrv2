@@ -72,6 +72,21 @@ function GlobalSearch() {
   )
 }
 
+
+// Your logo lives at public/flockr_logo_orange.<ext>. We try the common extensions, then fall back to the text mark.
+const LOGO_EXTS = ['png', 'svg', 'webp', 'jpg']
+function BrandLogo() {
+  const [i, setI] = useState(0)
+  const failed = i >= LOGO_EXTS.length
+  return (
+    <div className="a-brand">
+      {failed
+        ? <><i /><span>Flockr<small>Admin</small></span></>
+        : <><img src={`/flockr_logo_orange.${LOGO_EXTS[i]}`} alt="Flockr" onError={() => setI(i + 1)} /><small className="a-tag">Admin</small></>}
+    </div>
+  )
+}
+
 export default function AdminShell({ children }) {
   const [open, setOpen] = useState(false)
   const [badges, setBadges] = useState({})
@@ -94,7 +109,7 @@ export default function AdminShell({ children }) {
         <style>{css}</style>
         {open && <div className="a-scrim" onClick={() => setOpen(false)} />}
         <aside className={`a-side ${open ? 'open' : ''}`}>
-          <div className="a-brand"><i /><span>Flockr<small>Admin</small></span></div>
+          <BrandLogo />
           {NAV.map(([group, items]) => (
             <div key={group} className="a-navg"><span>{group}</span>{items.map(([s, l, I, b]) => <Item key={s} slug={s} label={l} Icon={I} badge={b} />)}</div>
           ))}

@@ -19,7 +19,7 @@ class UserDashboardController extends Controller
         // `items.product` brings the product (its `primary_image` accessor builds the full URL).
         $orders = $user->orders()
             ->with([
-                'items.product:id,name,slug,images,price,stock_quantity,seller_id',
+                'items.product' => fn ($q) => $q->withTrashed()->select('id', 'name', 'slug', 'images', 'price', 'stock_quantity', 'seller_id', 'deleted_at'),
                 'seller:id,name,username,avatar',
             ])
             ->latest()

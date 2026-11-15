@@ -438,7 +438,7 @@ return Inertia::render('Seller/Dashboard', compact(
         $earning  = DB::raw('COALESCE(seller_earning, subtotal - platform_fee)');
 
         $orders = Order::forSeller($sellerId)
-            ->with(['buyer:id,name,username,avatar', 'items.product'])
+            ->with(['buyer:id,name,username,avatar', 'items.product' => fn ($q) => $q->withTrashed()])
             ->withCount('items')
             ->latest()
             ->paginate(50)

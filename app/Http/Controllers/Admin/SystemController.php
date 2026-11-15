@@ -33,8 +33,9 @@ class SystemController extends Controller
         $checks = [
             $this->check('Database', fn () => [DB::select('select 1') !== null, config('database.default')]),
             $this->check('Cache', function () {
-                Cache::put('admin_health_probe', 1, 10);
-                return [Cache::get('admin_health_probe') === 1, config('cache.default')];
+                // Redis hands numbers back as strings, so probe with a string (an int probe made a healthy Redis look broken).
+                Cache::put('admin_health_probe', 'ok', 10);
+                return [Cache::get('admin_health_probe') === 'ok', config('cache.default')];
             }),
             $this->check('File storage', function () {
                 $d = config('filesystems.default');
@@ -71,7 +72,7 @@ class SystemController extends Controller
         }
 
         $scheduled = [];
-        foreach (['orders:release-escrow', 'orders:expire-pending', 'events:award-champions', 'events:activate-scheduled', 'videos:heal', 'badges:check', 'subscriptions:remind', 'flockr:process-payouts'] as $cmd) {
+        foreach (['orders:release-escrow', 'orders:expire-pending', 'events:award-champions', 'events:activate-scheduled', 'videos:heal', 'badges:check', 'subscriptions:remind', 'flockr:send-rating-reminders'] as $cmd) {
             $scheduled[] = ['command' => $cmd, 'registered' => array_key_exists($cmd, Artisan::all())];
         }
 

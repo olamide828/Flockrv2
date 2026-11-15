@@ -60,7 +60,7 @@ class OrderAdminController extends Controller
                 'gmv_30d'        => (float) Order::revenue()->where('created_at', '>=', now()->subDays(30))->sum('total'),
                 'in_escrow'      => (float) Order::inEscrow()->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')),
                 'refund_failed'  => Order::where('refund_status', 'failed')->count(),
-                'flockr_fees_30d'=> (float) Order::revenue()->where('created_at', '>=', now()->subDays(30))->sum(DB::raw('COALESCE(flockr_fee, platform_fee)')),
+                'flockr_fees_30d'=> (float) Order::revenue()->where('created_at', '>=', now()->subDays(30))->sum(DB::raw('(COALESCE(platform_fee,0) + COALESCE(flockr_fee,0))')),
             ],
         ]);
     }
@@ -106,7 +106,10 @@ class OrderAdminController extends Controller
                 'discount'      => (float) ($order->discount_amount ?? 0),
                 'payment_total' => $payTotal,
                 'order_total'   => (float) $order->total,
-                'flockr_fee'    => (float) ($order->flockr_fee ?? $order->platform_fee ?? 0),
+                'flockr_fee'    => (float) ($order->platform_fee ?? 0) + (float) ($order->flockr_fee ?? 0),
+                'commission'    => (float) ($order->platform_fee ?? 0),
+                'delivery_fee'  => (float) ($order->flockr_fee ?? 0),
+                'courier_fee'   => (float) ($order->courier_fee > 0 ? $order->courier_fee : ($order->shipping_fee ?? 0)),
                 'seller_earning'=> $order->sellerAmount(),
             ],
             'escrow'   => [

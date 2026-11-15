@@ -11,6 +11,14 @@ use Illuminate\Support\Facades\DB;
 
 class EventController extends Controller
 {
+    /** One source of truth for the label: the stored status wins, so an ended event can never read "upcoming". */
+    private function stateOf(Event $e): string
+    {
+        if ($e->status === 'ended' || ($e->ends_at && \Carbon\Carbon::parse($e->ends_at)->isPast())) return 'ended';
+        if ($e->status === 'active') return 'live';
+        return $e->status === 'scheduled' ? 'upcoming' : (string) $e->status;
+    }
+
     /**
      * GET /api/events — currently active + upcoming, for the discovery page.
      */
@@ -50,6 +58,8 @@ class EventController extends Controller
         $participation = Auth::check()
             ? EventParticipant::where('event_id', $event->id)->where('seller_id', Auth::id())->first()
             : null;
+
+        $event->state = $this->stateOf($event);
 
         return response()->json([
             'event'         => $event->loadCount('participants'),
@@ -178,7 +188,7 @@ public function showPage(Event $event): \Inertia\Response
 // ── Admin CRUD ──────────────────────────────────────────────────────────
 public function adminIndex(): JsonResponse
 {
-    return response()->json(Event::withCount('participants')->latest()->get());
+    return response()->json(Event::withCount('participants')->latest()->get()->each(fn ($e) => $e->state = $this->stateOf($e)));
 }
 
 public function adminStore(Request $request): JsonResponse
@@ -248,7 +258,9 @@ public function adminUploadBanner(Request $request): JsonResponse
 
 public function adminEnd(Event $event): JsonResponse
 {
-    $event->update(['ends_at' => now()]);
+    // Ending early: pull ends_at to now, and if it never started also pull starts_at back so the dates stay sensible
+    // (otherwise "starts in the future, ended already" made pages call it "upcoming").
+    $event->update(['ends_at' => now(), 'starts_at' => ($event->starts_at && \Carbon\Carbon::parse($event->starts_at)->isFuture()) ? now() : $event->starts_at]);
     app(\App\Services\EventService::class)->finalize($event->fresh());   // results + champion, same as the auto-end
     return response()->json($event->fresh());
 }

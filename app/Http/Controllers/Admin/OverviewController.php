@@ -19,7 +19,8 @@ use Illuminate\Support\Facades\Schema;
  */
 class OverviewController extends Controller
 {
-    private const FEE   = 'COALESCE(flockr_fee, platform_fee, 0)';
+    /** Flockr earns the sales commission (platform_fee) PLUS its small delivery fee (flockr_fee). */
+    private const FEE   = '(COALESCE(platform_fee, 0) + COALESCE(flockr_fee, 0))';
     private const GOODS = 'COALESCE(subtotal, 0)';
 
     /** Fill a date→value map so charts get one point per day. */
@@ -73,6 +74,10 @@ class OverviewController extends Controller
         $usrNow  = User::where('created_at', '>=', $from)->count();
         $usrPrev = User::whereBetween('created_at', [$prevFrom, $from])->count();
 
+        $commission  = (float) $rev()->where('created_at', '>=', $from)->sum(DB::raw('COALESCE(platform_fee, 0)'));
+        $deliveryFee = (float) $rev()->where('created_at', '>=', $from)->sum(DB::raw('COALESCE(flockr_fee, 0)'));
+        $courierFees = (float) $rev()->where('created_at', '>=', $from)->sum(DB::raw('COALESCE(NULLIF(courier_fee, 0), shipping_fee, 0)'));
+
         $escrow = (float) Order::inEscrow()->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee, 0)'));
 
         $stats = [
@@ -81,6 +86,9 @@ class OverviewController extends Controller
             'orders'       => $ordNow,   'orders_change' => $this->pct($ordNow, $ordPrev),
             'new_users'    => $usrNow,   'users_change'  => $this->pct($usrNow, $usrPrev),
             'escrow'       => $escrow,
+            'commission'   => $commission,    // 5% (Pro 3%) taken from sellers
+            'delivery_fee' => $deliveryFee,   // Flockr's own delivery fee
+            'courier_fees' => $courierFees,   // paid by buyers, passed to the courier (not Flockr income)
             'total_users'  => User::count(),
             'sellers'      => User::where('role', 'seller')->count(),
             'live_videos'  => Video::where('status', 'active')->count(),

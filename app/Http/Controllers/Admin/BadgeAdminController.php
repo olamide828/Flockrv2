@@ -16,7 +16,7 @@ class BadgeAdminController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $q = Badge::query()->withCount('users');
+        $q = Badge::query()->addSelect(['users_count' => UserBadge::query()->selectRaw('count(*)')->whereColumn('user_badges.badge_id', 'badges.id')])->addSelect('badges.*');
         if ($s = trim((string) $request->input('search'))) $q->where(fn ($w) => $w->where('label', 'ilike', "%$s%")->orWhere('key', 'ilike', "%$s%"));
         return response()->json(['rows' => $q->orderByDesc('id')->paginate(30)]);
     }
@@ -24,7 +24,7 @@ class BadgeAdminController extends Controller
     public function holders($badgeId): JsonResponse
     {
         $badge = Badge::findOrFail($badgeId);
-        $rows = $badge->users()->select('users.id', 'users.name', 'users.username', 'users.avatar')->orderByDesc('user_badges.awarded_at')->limit(100)->get();
+        $rows = User::query()->join('user_badges', 'user_badges.user_id', '=', 'users.id')->where('user_badges.badge_id', $badge->id)->select('users.id', 'users.name', 'users.username', 'users.avatar')->orderByDesc('user_badges.awarded_at')->limit(100)->get();
         return response()->json(['badge' => $badge, 'holders' => $rows]);
     }
 

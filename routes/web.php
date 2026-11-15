@@ -128,9 +128,12 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     Route::middleware('role:seller')->prefix('seller')->name('seller.')->group(function () {
         Route::get('/dashboard', [SellerController::class, 'dashboard'])->name('dashboard');
         Route::get('/analytics', [SellerController::class, 'analytics'])->name('analytics');
+        Route::get('/videos', [SellerController::class, 'videos'])->name('videos');
         Route::get('/products', [SellerController::class, 'products'])->name('products');
         Route::get('/products/create', [ProductController::class, 'create'])->name('products.create');
         Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
+        Route::get('/orders', [SellerController::class, 'orders'])->name('orders');
+        Route::get('/payouts', [SellerController::class, 'payouts'])->name('payouts');
         Route::get('/settings', [SellerController::class, 'settings'])->name('settings');
         Route::inertia('/events/{event}/results', 'Seller/EventResults')->name('event-results');
     });

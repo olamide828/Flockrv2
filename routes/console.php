@@ -11,18 +11,12 @@ Artisan::command('inspire', function () {
 
 // ── Scheduled Tasks ───────────────────────────────────────────────────────────
 
-Schedule::command('flockr:refresh-ai-descriptions')
-    ->dailyAt('03:00')
-    ->withoutOverlapping();
+// Heartbeat — the admin System page reads this to show whether the scheduler is alive.
+Schedule::call(fn () => \Illuminate\Support\Facades\Cache::put('scheduler:heartbeat', now()->toIso8601String(), 3600))
+    ->everyMinute()->name('scheduler-heartbeat');
 
-Schedule::command('flockr:compute-trending')
-    ->hourly()
-    ->withoutOverlapping();
-
-Schedule::command('flockr:process-payouts')
-    ->dailyAt('02:00')
-    ->withoutOverlapping()
-    ->emailOutputOnFailure(config('mail.from.address'));
+// REMOVED: flockr:refresh-ai-descriptions, flockr:compute-trending and flockr:process-payouts were scheduled but the
+// commands do not exist in the app, so every run failed with "Command is not defined" (payouts are approved by hand in Admin → Payouts).
 
 Schedule::command('flockr:send-rating-reminders')
     ->hourly()

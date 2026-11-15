@@ -13,9 +13,10 @@ class AwardEventChampions extends Command
 
     public function handle(EventService $service): void
     {
-        $ended = Event::where('status', 'active')->where('ends_at', '<=', now())->get();
+        $ended = Event::whereIn('status', ['active', 'scheduled'])->where('ends_at', '<=', now())->get();   // 'scheduled' too: an event nobody activated in time still has to close
         foreach ($ended as $event) {
-            $service->finalize($event);
+            try { $service->finalize($event); }
+            catch (\Throwable $e) { report($e); $this->error("Event #{$event->id} failed: {$e->getMessage()}"); continue; }
             $this->info("Finalised event #{$event->id} {$event->title}");
         }
         $this->info('Done. ' . $ended->count() . ' event(s) processed.');

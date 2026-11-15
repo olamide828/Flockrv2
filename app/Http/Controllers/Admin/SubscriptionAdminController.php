@@ -73,6 +73,8 @@ class SubscriptionAdminController extends Controller
             'status' => 'active', 'starts_at' => $start, 'expires_at' => $end,
         ]);
         Audit::log('subscription.grant', $sub, ['user_id' => $user->id, 'days' => $days, 'note' => $data['note'] ?? null]);
+        try { $user->notify(new \App\Notifications\ProGrantedNotification($data['plan'], $end, (bool) $current, $data['note'] ?? null)); }
+        catch (\Throwable $e) { report($e); }   // a mail hiccup must never undo the grant
         return response()->json(['message' => "Pro granted to @{$user->username} until {$end->toFormattedDateString()}."]);
     }
 
@@ -84,6 +86,8 @@ class SubscriptionAdminController extends Controller
         $base = $sub->expires_at->isFuture() ? $sub->expires_at : now();
         $sub->update(['status' => 'active', 'expires_at' => $base->copy()->addDays($data['days'])]);
         Audit::log('subscription.extend', $sub, ['days' => $data['days']]);
+        try { $sub->user?->notify(new \App\Notifications\ProGrantedNotification($sub->plan, $sub->fresh()->expires_at, true)); }
+        catch (\Throwable $e) { report($e); }
         return response()->json(['message' => "Extended by {$data['days']} days."]);
     }
 

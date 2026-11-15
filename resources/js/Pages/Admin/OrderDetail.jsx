@@ -99,7 +99,8 @@ export default function OrderDetail() {
               {money.discount > 0 && <div><span>Coupon discount</span><b className="neg">-{naira(money.discount)}</b></div>}
               <div className="tot"><span>Buyer paid</span><b>{naira(money.payment_total)}</b></div>
               <hr />
-              <div><span>Flockr commission</span><b>{naira(money.flockr_fee)}</b></div>
+              <div><span>Flockr commission</span><b>{naira(money.commission ?? money.flockr_fee)}</b></div>
+              <div><span>Flockr delivery fee</span><b>{naira(money.delivery_fee ?? 0)}</b></div>
               <div className="tot"><span>Seller earns</span><b className="pos">{naira(money.seller_earning)}</b></div>
             </div>
           </Card>

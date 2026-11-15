@@ -140,7 +140,8 @@ public function notifyEventLive(Event $event): void
         }
 
         $standings = $this->standings($event);
-        $topSellerId = $standings->first()['revenue'] > 0 ? $standings->first()['seller_id'] : null;
+        $first = $standings->first();   // null when nobody joined — the event must still close cleanly
+        $topSellerId = ($first && $first['revenue'] > 0) ? $first['seller_id'] : null;
 
         foreach ($standings as $row) {
             $final = ['orders_count' => $row['orders_count'], 'revenue' => $row['revenue'], 'rank' => $row['rank'], 'total_sellers' => $row['total_sellers']];
