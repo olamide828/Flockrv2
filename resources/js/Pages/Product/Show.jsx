@@ -483,6 +483,7 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
                     </div>
                 )}
             </div>
+            {showCouponModal && earnedCoupon && <CouponModal coupon={earnedCoupon} onClose={() => setShowCouponModal(false)} />}
         </>
     );
 }
@@ -1026,7 +1027,6 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
 )}
 
 {showReport && <ReportProductModal product={product} onClose={() => setShowReport(false)} />}
-            {showCouponModal && earnedCoupon && <CouponModal coupon={earnedCoupon} onClose={() => setShowCouponModal(false)} />}
             {ToastComponent}
         </>
     );
