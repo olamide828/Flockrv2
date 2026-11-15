@@ -7,6 +7,12 @@ import {
     RiBellLine,
     RiChat1Line,
     RiCheckDoubleLine,
+    RiAlarmWarningLine,
+    RiGiftLine,
+    RiStarLine,
+    RiTrophyLine,
+    RiTruckLine,
+    RiRefreshLine,
     RiHeartLine,
     RiShoppingBagLine,
     RiStoreLine,
@@ -34,6 +40,12 @@ function notifIcon(type) {
         new_video: <RiVideoLine size={s} color="#8B5CF6" />,
         new_order: <RiShoppingBagLine size={s} color="#10B981" />,
         new_product: <RiStoreLine size={s} color="#F59E0B" />,
+        product_restocked: <RiRefreshLine size={s} color="#10B981" />,
+        product_sold_out: <RiAlarmWarningLine size={s} color="#EF4444" />,
+        coupon_earned: <RiGiftLine size={s} color="#F59E0B" />,
+        rating_reminder: <RiStarLine size={s} color="#F59E0B" />,
+        order_status: <RiTruckLine size={s} color="#8B5CF6" />,
+        event_announcement: <RiTrophyLine size={s} color="#FF6B35" />,
     };
     return map[type] ?? <RiBellLine size={s} color="rgba(255,255,255,0.4)" />;
 }

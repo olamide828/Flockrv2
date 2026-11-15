@@ -4,6 +4,7 @@ import CheckoutModal from '@/Components/CheckoutModal';
 import TrustScoreModal from '@/Components/TrustScoreModal';
 import ChirpAnalysisSheet from '@/Components/Chirp/ChirpAnalysisSheet';
 import ReportProductModal from '@/Components/Product/ReportProductModal';
+import CouponModal from '@/Components/CouponModal';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useToast } from '@/Components/Toast';
@@ -337,6 +338,7 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
     const [reviewList,      setReviewList]      = useState(initialReviews ?? []);
     const [reviewSubmitted, setReviewSubmitted] = useState(false);
     const [earnedCoupon,    setEarnedCoupon]    = useState(null);
+    const [showCouponModal, setShowCouponModal] = useState(false);
     const [filterStar,      setFilterStar]      = useState(null);
     const [filterPhoto,     setFilterPhoto]     = useState(false);
     const [page,            setPage]            = useState(1);
@@ -362,7 +364,7 @@ function ReviewsSection({ product, reviews: initialReviews, userOrderId, auth })
 
     const handleReviewSubmitted = (data) => {
         setReviewSubmitted(true);
-        if (data.coupon) setEarnedCoupon(data.coupon);
+        if (data.coupon) { setEarnedCoupon(data.coupon); setShowCouponModal(true); }
         axios.get(`/api/products/${product.slug}/reviews`, { params: { page: 1, per_page: 10 } })
             .then(r => {
                 setReviewList(r.data.reviews ?? []);
@@ -492,7 +494,10 @@ export default function ProductShow({ product, similarProducts = [], reviews = [
     const [quantity,       setQuantity]       = useState(1);
     const [buying,         setBuying]         = useState(false);
     const [saved,          setSaved]          = useState(product.is_saved ?? false);
-    const [activeTab,      setActiveTab]      = useState('description');
+    const [activeTab,      setActiveTab]      = useState(() => {
+        try { return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') === 'reviews' ? 'reviews' : 'description'; }
+        catch { return 'description'; }
+    });
     const [sellerProducts, setSellerProducts] = useState([]);
     const [lightboxOpen,   setLightboxOpen]   = useState(false);
     const [lightboxIdx,    setLightboxIdx]    = useState(0);
@@ -622,6 +627,14 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [lightboxOpen, allImages.length]);
+
+    useEffect(() => {
+        try {
+            if (new URLSearchParams(window.location.search).get('tab') === 'reviews') {
+                setTimeout(() => document.getElementById('reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
+            }
+        } catch {}
+    }, []);
 
     const isReviewsTab = activeTab === 'reviews';
 
@@ -758,6 +771,8 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                                 <span className={`text-sm font-medium ${product.is_in_stock ? 'text-flockr-green' : 'text-flockr-red'}`}>
                                     {product.is_in_stock ? `In Stock (${product.stock_quantity} left)` : 'Out of Stock'}
                                 </span>
+                                {product.just_restocked && <span className="rounded-full bg-flockr-green/15 px-2 py-0.5 text-[10px] font-bold tracking-wide text-flockr-green uppercase">Back in stock</span>}
+                                {product.is_in_stock && product.stock_quantity <= 5 && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-400">Selling fast</span>}
                             </div>
 
                             {/* Tags */}
@@ -941,7 +956,7 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
                         )}
 
                         {activeTab === 'reviews' && (
-                            <ReviewsSection product={product} reviews={reviews} userOrderId={userOrderId} auth={auth} />
+                            <div id="reviews"><ReviewsSection product={product} reviews={reviews} userOrderId={userOrderId} auth={auth} /></div>
                         )}
                     </div>
 
@@ -1011,6 +1026,7 @@ const totalPrice = (effectivePrice * quantity).toLocaleString();
 )}
 
 {showReport && <ReportProductModal product={product} onClose={() => setShowReport(false)} />}
+            {showCouponModal && earnedCoupon && <CouponModal coupon={earnedCoupon} onClose={() => setShowCouponModal(false)} />}
             {ToastComponent}
         </>
     );

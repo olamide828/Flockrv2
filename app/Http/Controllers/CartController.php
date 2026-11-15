@@ -210,7 +210,7 @@ class CartController extends Controller
         }
 
         foreach ($items as $item) {
-            if ($item->product->stock_quantity < $item->quantity) {
+            if (app(\App\Services\StockReservationService::class)->available($item->product_id) < $item->quantity) {
                 return response()->json([
                     'message' => "Not enough stock for \"{$item->product->name}\".",
                 ], 422);
@@ -267,6 +267,7 @@ class CartController extends Controller
         $grandTotal = 0;
         $batchId    = (string) Str::uuid();
 
+        try {
         DB::transaction(function () use (
             $grouped, $address, $validated, $coupon,
             $couponDiscount, $ratesBySeller, $batchId, &$orders, &$grandTotal
@@ -329,14 +330,17 @@ class CartController extends Controller
                 ]);
 
                 foreach ($sellerItems as $item) {
+                    $unit = $item->product->event_price ?? $item->product->price;
                     OrderItem::create([
                         'order_id'     => $order->id,
                         'product_id'   => $item->product_id,
                         'product_name' => $item->product->name,
-                        'unit_price'   => $item->product->event_price ?? $item->product->price,
+                        'unit_price'   => $unit,
                         'quantity'     => $item->quantity,
-                        'total'        => $item->product->event_price ?? $item->product->price * $item->quantity,
+                        'total'        => $unit * $item->quantity,   // was: event_price ?? (price * qty) — event price ignored quantity
                     ]);
+                    // Hold stock; throws OutOfStockException (rolls the whole checkout back) if someone else got it
+                    app(\App\Services\StockReservationService::class)->reserve($order, (int) $item->product_id, (int) $item->quantity);
                 }
 
                 if ($coupon && $isFirstOrder) {
@@ -347,6 +351,9 @@ class CartController extends Controller
                 $isFirstOrder = false;
             }
         });
+        } catch (\App\Exceptions\OutOfStockException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $primaryOrder = $orders[0];
         if (count($orders) > 1) {

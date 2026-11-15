@@ -117,6 +117,10 @@ export default function ProductCard({ product, layout = 'grid' }) {
                                 ) : null}
                            </>
 
+                {product.just_restocked && product.is_in_stock && (
+                    <span style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, background: '#10B981', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999, letterSpacing: '0.04em' }}>RESTOCKED</span>
+                )}
+
                 {/* Sold out overlay */}
                 {!product.is_in_stock && (
                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

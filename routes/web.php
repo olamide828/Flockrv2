@@ -79,13 +79,16 @@ Route::post('/suspended/appeal', [SuspensionController::class, 'appeal'])->name(
     Route::post('/onboarding', [BuyerOnboardingController::class, 'store'])->name('buyer.onboarding.store');
     Route::post('/onboarding/skip', [BuyerOnboardingController::class, 'skip'])->name('buyer.onboarding.skip');
 
-    Route::get('/community/rooms/join/{code}', function (string $code) {
-    return redirect('/community?invite=' . $code);
-})->name('community.room.invite');
+    Route::get('/community/rooms/join/{code}', [CommunityController::class, 'joinInviteRedirect'])
+        ->name('community.room.invite');
 
 Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::class, 'showRoomMedia'])
     ->where('messageId', '[0-9]+')
     ->name('room.media.show');
+
+    // Anyone logged in can upload (sellers get product tagging; everyone else picks Fun/Haul/Review)
+    Route::get('/upload', [VideoController::class, 'create'])->name('upload');
+    Route::redirect('/seller/upload', '/upload');
 
     Route::get('/dashboard', [UserDashboardController::class, 'index'])
     ->middleware('role:buyer');
@@ -125,33 +128,22 @@ Route::get('/{roomSlug}/@{username}/media/{messageId}', [CommunityController::cl
     Route::middleware('role:seller')->prefix('seller')->name('seller.')->group(function () {
         Route::get('/dashboard', [SellerController::class, 'dashboard'])->name('dashboard');
         Route::get('/analytics', [SellerController::class, 'analytics'])->name('analytics');
-        Route::get('/upload', [VideoController::class, 'create'])->name('upload');
-        Route::get('/videos', [SellerController::class, 'videos'])->name('videos');
         Route::get('/products', [SellerController::class, 'products'])->name('products');
         Route::get('/products/create', [ProductController::class, 'create'])->name('products.create');
         Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
-        Route::get('/orders', [SellerController::class, 'orders'])->name('orders');
-        Route::get('/payouts', [SellerController::class, 'payouts'])->name('payouts');
         Route::get('/settings', [SellerController::class, 'settings'])->name('settings');
+        Route::inertia('/events/{event}/results', 'Seller/EventResults')->name('event-results');
     });
 
-    Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
-        Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
-        Route::get('/users/{userId}', [AdminController::class, 'showUser'])->name('users.show');
-        Route::get('/orders/{order}', [AdminController::class, 'showOrder'])->name('orders.show');
-    Route::get('/users',      [AdminController::class, 'users'])->name('admin.users');
-    Route::get('/videos',     [AdminController::class, 'videos'])->name('admin.videos');
-    Route::get('/orders',     [AdminController::class, 'orders'])->name('admin.orders');
-    Route::get('/payouts',    [AdminController::class, 'payouts'])->name('admin.payouts');
-    Route::get('/reports',    [AdminController::class, 'reports'])->name('admin.reports');
-    Route::get('/analytics',  [AdminController::class, 'analyticsPage'])->name('admin.analytics');
-Route::get('/flagged-sellers', [AdminController::class, 'flaggedSellers'])->name('flagged-sellers');
-Route::get('/disputes', [AdminController::class, 'disputesPage'])->name('admin.disputes');
-Route::get('/events', [AdminController::class, 'eventsPage'])->name('admin.events');
-Route::get('/support-tickets', [AdminController::class, 'supportTickets'])->name('admin.support-tickets');
-Route::get('/music', [\App\Http\Controllers\AdminMusicController::class, 'page'])->name('admin.music');    
+    // Admin pages: new kit pages live in routes/admin_web.php (dashboard, analytics, users, orders/{id}, system, audit …).
+    // Pages not yet redesigned keep their old routes here.
+    Route::middleware('role:admin')->prefix('admin')->name('admin.legacy.')->group(function () {
+        Route::get('/support-tickets', [AdminController::class, 'supportTickets'])->name('support-tickets');
+        Route::get('/music',           [\App\Http\Controllers\AdminMusicController::class, 'page'])->name('music');
+    });
 });
-});
+
+require __DIR__.'/admin_web.php';
 
 // composer dump-autoload
 // php artisan optimize:clear

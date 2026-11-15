@@ -30,8 +30,8 @@ class AdminController extends Controller
         'total_videos'      => Video::where('status', 'active')->count(),
         'total_products'    => Product::where('status', 'active')->count(),
         'total_orders'      => Order::count(),
-        'gmv_30d'           => Order::paid()->where('created_at', '>=', now()->subDays(30))->sum('total'),
-        'gmv_7d'            => Order::paid()->where('created_at', '>=', now()->subDays(7))->sum('total'),
+        'gmv_30d'           => Order::revenue()->where('created_at', '>=', now()->subDays(30))->sum('total'),
+        'gmv_7d'            => Order::revenue()->where('created_at', '>=', now()->subDays(7))->sum('total'),
         'new_users_today'   => User::whereDate('created_at', today())->count(),
         'new_users_7d'      => User::where('created_at', '>=', now()->subDays(7))->count(),
         'videos_today'      => Video::whereDate('created_at', today())->count(),
@@ -39,7 +39,7 @@ class AdminController extends Controller
         'pending_videos'    => Video::where('status', 'pending')->count(),
         'failed_video_jobs' => Video::where('status', 'failed')->count(),
         'queue_size'        => \DB::table('jobs')->count(),
-        'revenue_total'     => Order::paid()->sum('total'),
+        'revenue_total'     => Order::revenue()->sum('total'),
     ];
 
     $recentUsers = User::latest()->limit(20)
@@ -50,10 +50,10 @@ class AdminController extends Controller
         ->latest()->limit(12)->get();
 
     $flaggedOrders = Order::whereIn('status', ['cancelled', 'refunded', 'disputed'])
-        ->with(['buyer:id,name,username', 'seller:id,name,username'])
+        ->with(['buyer:id,name,username', 'seller:id,name,username', 'items.product:id,name,images'])
         ->latest()->limit(20)->get();
 
-    $recentOrders = Order::with(['buyer:id,name,username', 'seller:id,name,username'])
+    $recentOrders = Order::with(['buyer:id,name,username', 'seller:id,name,username', 'items.product:id,name,images'])
         ->latest()->limit(10)->get();
 
     return Inertia::render('Admin/Dashboard', compact(
@@ -99,19 +99,17 @@ class AdminController extends Controller
     ]);
 }
 
-    public function showUser($userId): Response
-{
-    $user = User::withTrashed()->findOrFail($userId);   
-    $user->load(['videos' => fn($q) => $q->latest()->limit(12), 'products' => fn($q) => $q->latest()->limit(12)]);
-    $user->setAttribute('videos_count', $user->videos()->count());
-    $user->setAttribute('products_count', $user->products()->count());
+    public function showUser(User $user): Response
+    {
+        $user->load(['videos' => fn($q) => $q->latest()->limit(12), 'products' => fn($q) => $q->latest()->limit(12)]);
+        $user->loadCount(['videos', 'products']);
 
         $orders = Order::where(fn($q) => $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id))
-            ->with(['buyer:id,name,username', 'seller:id,name,username'])
+            ->with(['buyer:id,name,username', 'seller:id,name,username', 'items.product:id,name,images'])
             ->latest()->limit(20)->get();
 
-        $totalSpent    = Order::where('buyer_id', $user->id)->paid()->sum('total');
-        $totalEarned   = Order::where('seller_id', $user->id)->paid()->sum('total');
+        $totalSpent    = Order::where('buyer_id', $user->id)->revenue()->sum('total');
+        $totalEarned   = Order::where('seller_id', $user->id)->revenue()->sum('total');
         $totalViews    = VideoView::whereIn('video_id', $user->videos()->pluck('id'))->count();
 
         return Inertia::render('Admin/UserDetail', [
@@ -125,7 +123,7 @@ class AdminController extends Controller
 
     public function orders(Request $request): Response
     {
-        $query = Order::with(['buyer:id,name,username', 'seller:id,name,username'])->latest();
+        $query = Order::with(['buyer:id,name,username', 'seller:id,name,username', 'items.product:id,name,images'])->latest();
 
         if ($request->filled('status')) $query->where('status', $request->status);
         if ($request->filled('search')) {
@@ -238,12 +236,16 @@ public function suspendUser(Request $request, User $user): JsonResponse
      */
     public function refundOrder(Order $order): JsonResponse
     {
-        DB::transaction(function () use ($order) {
-            $order->update(['status' => 'refunded']);
-            $order->reverseSellerCredit("Order {$order->reference} refunded by admin");
-        });
+        $result = app(OrderController::class)->cancelAndRefund($order, 'Refunded by admin');
+        \App\Support\Audit::log('order.refund', $order, $result);
 
-        return response()->json(['message' => "Order {$order->reference} marked as refunded and seller balance adjusted."]);
+        $msg = "Order {$order->reference} cancelled";
+        if ($result['paid']) {
+            $msg .= $result['refund_ok'] ? ' and the buyer was refunded.' : '. The Paystack refund failed — retry it from the order page.';
+        } else {
+            $msg .= '.';
+        }
+        return response()->json(['message' => $msg, 'refund_ok' => $result['refund_ok']]);
     }
 
     /** POST /api/admin/orders/{order}/resolve */
@@ -254,6 +256,7 @@ public function suspendUser(Request $request, User $user): JsonResponse
         $updates['delivered_at'] = now();
     }
     $order->update($updates);
+    \App\Support\Audit::log('order.resolve', $order);
     return response()->json(['message' => "Order {$order->reference} resolved."]);
 }
 
@@ -264,7 +267,7 @@ public function suspendUser(Request $request, User $user): JsonResponse
             'total_users'    => User::count(),
             'total_sellers'  => User::where('role', 'seller')->count(),
             'total_orders'   => Order::count(),
-            'total_revenue'  => Order::paid()->sum('total'),
+            'total_revenue'  => Order::revenue()->sum('total'),
             'pending_videos' => Video::where('status', 'pending')->count(),
             'queue_size'     => DB::table('jobs')->count(),
         ]);
@@ -274,7 +277,7 @@ public function suspendUser(Request $request, User $user): JsonResponse
     public function analytics(): JsonResponse
     {
         // Revenue by day for last 30 days
-        $revenueByDay = Order::paid()
+        $revenueByDay = Order::revenue()
             ->where('created_at', '>=', now()->subDays(30))
             ->selectRaw('DATE(created_at) as date, SUM(total) as revenue, COUNT(*) as orders')
             ->groupBy('date')
@@ -283,7 +286,7 @@ public function suspendUser(Request $request, User $user): JsonResponse
 
         // Top sellers by revenue
         $topSellers = User::where('role', 'seller')
-            ->withSum(['sellerOrders as revenue' => fn($q) => $q->paid()], 'total')
+            ->withSum(['sellerOrders as revenue' => fn($q) => $q->revenue()], 'total')
             ->orderByDesc('revenue')
             ->limit(10)
             ->get(['id', 'name', 'username', 'avatar']);
@@ -304,85 +307,12 @@ public function suspendUser(Request $request, User $user): JsonResponse
         return response()->json(compact('revenueByDay', 'topSellers', 'topProducts', 'userGrowth'));
     }
 
-public function approvePayout(
-    \App\Models\Payout $payout,
-    \App\Services\PaystackService $paystack,
-): JsonResponse {
-    if ($payout->status !== 'pending') {
-        return response()->json(['message' => 'This payout is not pending.'], 422);
-    }
-
-    $seller = $payout->seller;
-
-    if (!$seller->paystack_recipient_code) {
-        return response()->json(['message' => 'Seller has no Paystack recipient code. They need to reconnect their bank.'], 422);
-    }
-
-    // ── TEMPORARY: Mock transfer for Starter Business accounts ──────────────
-    // Paystack Starter Business accounts cannot initiate third-party transfers.
-    // This bypasses the actual transfer and marks the payout as paid for testing.
-    // TODO: Remove this block and uncomment the real transfer below once your
-    //       Paystack account is upgraded to Registered Business.
-    // ────────────────────────────────────────────────────────────────────────
-    $payout->update([
-        'status'    => 'paid',
-        'reference' => 'TEST-FLK-PAY-' . $payout->id . '-' . now()->timestamp,
-        'paid_at'   => now(),
-    ]);
-
-    try {
-        $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
-    } catch (\Throwable) {}
-
-    return response()->json([
-        'message' => "₦" . number_format($payout->amount, 2) . " payout to {$seller->account_name} approved (test mode — no real transfer made).",
-    ]);
-
-    // ── REAL TRANSFER (uncomment when Paystack account is upgraded) ──────────
-    /*
-    try {
-        $transfer = $paystack->initiateTransfer(
-            recipientCode: $seller->paystack_recipient_code,
-            amount:        $payout->amount,
-            reason:        "Flockr payout to @{$seller->username}",
-            reference:     'FLK-PAY-' . $payout->id,
-        );
-
-        $payout->update([
-            'status'    => 'paid',
-            'reference' => $transfer['reference'] ?? null,
-            'paid_at'   => now(),
-        ]);
-
-        try {
-            $seller->notify(new \App\Notifications\PayoutProcessedNotification($payout));
-        } catch (\Throwable) {}
-
-        return response()->json([
-            'message'  => "₦" . number_format($payout->amount, 2) . " sent to {$seller->account_name}.",
-            'transfer' => $transfer,
-        ]);
-
-    } catch (\Throwable $e) {
-        // Re-credit wallet if transfer fails
-        $lastTx        = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
-        $balanceBefore = $lastTx?->balance_after ?? 0;
-
-        \App\Models\WalletTransaction::create([
-            'user_id'       => $seller->id,
-            'amount'        => $payout->amount,
-            'type'          => 'credit',
-            'source'        => 'payout_reversal',
-            'description'   => 'Payout failed — funds returned to wallet',
-            'balance_after' => $balanceBefore + $payout->amount,
-        ]);
-
-        $payout->update(['status' => 'failed']);
-
-        return response()->json(['message' => 'Transfer failed: ' . $e->getMessage()], 500);
-    }
-    */
+/** POST /api/admin/payouts/{payout}/approve — logic lives in Admin\PayoutAdminController. */
+public function approvePayout(\App\Models\Payout $payout): JsonResponse
+{
+    return app(\App\Http\Controllers\Admin\PayoutAdminController::class)->approve($payout);
 }
+
     public function videos(Request $request): Response
 {
     $query = Video::with('user:id,name,username,avatar')->latest();
@@ -481,23 +411,32 @@ public function analyticsPage(): Response
 public function updateOrderStatus(Request $request, Order $order): JsonResponse
 {
     $request->validate(['status' => 'required|in:confirmed,processing,shipped,delivered,cancelled,refunded']);
-    
+
+    // Cancel / refund always goes through the one refund path (restock, coupon back, Paystack refund).
+    if (in_array($request->status, ['cancelled', 'refunded'])) {
+        $result = app(OrderController::class)->cancelAndRefund($order, "Marked {$request->status} by admin");
+        \App\Support\Audit::log('order.status', $order, ['to' => $request->status] + $result);
+        return response()->json([
+            'message'   => "Order cancelled" . ($result['paid'] ? ($result['refund_ok'] ? ' and refunded.' : '; Paystack refund failed — retry from the order page.') : '.'),
+            'status'    => 'cancelled',
+            'refund_ok' => $result['refund_ok'],
+        ]);
+    }
+
+    $from = $order->status;
     $updates = ['status' => $request->status];
     if ($request->status === 'delivered' && !$order->delivered_at) {
         $updates['delivered_at'] = now();
     }
-    
-    $order->update($updates);
-
-    // If an admin manually flips a paid order to cancelled/refunded from here,
-    // reverse the seller credit the same way the dedicated refund endpoint does.
-    if (in_array($request->status, ['cancelled', 'refunded'])) {
-        $order->reverseSellerCredit("Order {$order->reference} marked {$request->status} by admin");
+    if ($request->status === 'shipped' && !$order->shipped_at) {
+        $updates['shipped_at'] = now();
     }
+    $order->update($updates);
+    \App\Support\Audit::log('order.status', $order, ['from' => $from, 'to' => $request->status]);
 
     return response()->json(['message' => "Order marked as {$request->status}.", 'status' => $order->status]);
 }
- 
+
 /** POST /api/admin/reports/{report}/actioned */
 public function actionReport(\App\Models\Report $report): JsonResponse
 {

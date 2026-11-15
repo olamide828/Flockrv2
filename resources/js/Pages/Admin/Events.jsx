@@ -1,258 +1,125 @@
-import { useState, useEffect } from 'react'
-import { Head, Link } from '@inertiajs/react'
+import { Head } from '@inertiajs/react'
 import axios from 'axios'
-import {
-  RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
-  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiAddLine, RiCloseLine,
-} from 'react-icons/ri'
-import ConfirmModal from '@/Components/Community/ConfirmModal'
-import { useToast } from '@/Components/Toast'
+import { useState } from 'react'
+import AdminShell from '@/Components/Admin/AdminShell'
+import { Btn, Card, DataTable, Drawer, Empty, Field, Input, PageHeader, Pill, Stat, StatGrid, Textarea, UserCell, useAdmin } from '@/Components/Admin/ui'
+import { errMsg, fmtDate, naira, num, useAdminFetch } from '@/Components/Admin/lib'
 
-function AdminLayout({ children, active }) {
-  const links = [
-    { href: '/admin/dashboard', icon: RiBarChartLine,    label: 'Overview'  },
-    { href: '/admin/users',     icon: RiGroupLine,       label: 'Users'     },
-    { href: '/admin/videos',    icon: RiVideoLine,       label: 'Videos'    },
-    { href: '/admin/orders',    icon: RiShoppingBagLine, label: 'Orders'    },
-    { href: '/admin/payouts',   icon: RiBankCardLine,    label: 'Payouts'   },
-    { href: '/admin/reports',   icon: RiAlertLine,       label: 'Reports'   },
-    { href: '/admin/disputes',  icon: RiAlertLine,       label: 'Disputes'  },
-    { href: '/admin/events',    icon: RiAlertLine,       label: 'Events'    },
-    { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
-  ]
-  return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>
-      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)', padding: '24px 12px', display: 'flex', flexDirection: 'column', gap: 4, position: 'sticky', top: 0, height: '100vh' }}>
-        <div style={{ padding: '8px 14px 20px' }}>
-          <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 18 }}>Flockr</p>
-          <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Admin Panel</p>
-        </div>
-        {links.map(l => (
-          <Link key={l.href} href={l.href} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, textDecoration: 'none', background: active === l.href ? 'rgba(255,107,53,0.12)' : 'transparent', color: active === l.href ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontWeight: active === l.href ? 600 : 400, fontSize: 14 }}>
-            <l.icon size={18} />{l.label}
-          </Link>
-        ))}
-      </div>
-      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '32px' }}>{children}</div>
-    </div>
-  )
-}
+const TONE = { draft: 'mute', scheduled: 'info', active: 'good', ended: 'mute' }
+const LABEL = { draft: 'Draft', scheduled: 'Scheduled', active: 'Live', ended: 'Ended' }
+const EMPTY = { title: '', description: '', theme_color: '#FF6B35', banner_image: '', starts_at: '', ends_at: '', discount_tiers: '5,10,15', max_sellers: '', scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '' }
+const local = (d) => (d ? new Date(new Date(d).getTime() - new Date(d).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '')
 
-const STATUS_CFG = {
-  draft:     { label: 'Draft',     color: '#6B7280', bg: 'rgba(107,114,128,0.12)' },
-  scheduled: { label: 'Scheduled', color: '#3B82F6', bg: 'rgba(59,130,246,0.12)'  },
-  active:    { label: 'Live',      color: '#10B981', bg: 'rgba(16,185,129,0.12)'  },
-  ended:     { label: 'Ended',     color: '#9CA3AF', bg: 'rgba(156,163,175,0.12)' },
-}
+function EventForm({ initial, onDone, onClose }) {
+  const { toast } = useAdmin()
+  const [f, setF] = useState(initial ? { ...EMPTY, ...initial, starts_at: local(initial.starts_at), ends_at: local(initial.ends_at), discount_tiers: (initial.discount_tiers || []).join(',') } : EMPTY)
+  const [busy, setBusy] = useState(false)
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
 
-
-
-function EventForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial ?? {
-    title: '', description: '', theme_color: '#FF6B35', banner_image: '',
-    starts_at: '', ends_at: '', discount_tiers: '5,10,15', max_sellers: '',
-    scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '',
-  })
-  const [saving, setSaving] = useState(false)
-  const [uploadingBanner, setUploadingBanner] = useState(false) 
-
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  const handleBannerUpload = async (e) => {
-  const file = e.target.files?.[0]
-  if (!file) return
-  setUploadingBanner(true)
-  try {
-    const fd = new FormData()
-    fd.append('image', file)
-    const { data } = await axios.post('/api/admin/events/upload-banner', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    set('banner_image', data.url)
-  } catch {
-    showToast('Failed to upload banner.', 'error')
-  } finally {
-    setUploadingBanner(false)
+  const upload = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return
+    const fd = new FormData(); fd.append('image', file)
+    try { const r = await axios.post('/api/admin/events/upload-banner', fd); set('banner_image', r.data.url) } catch (er) { toast(errMsg(er), 'error') }
   }
-}
-
-  const submit = async () => {
-    setSaving(true)
-    try {
-      const payload = {
-        ...form,
-        discount_tiers: String(form.discount_tiers).split(',').map(s => parseInt(s.trim())).filter(Boolean),
-        scavenger_hunt_target: form.scavenger_hunt_target || null,
-        scavenger_hunt_coupon_amount: form.scavenger_hunt_coupon_amount || null,
-        event_fee_percent: form.event_fee_percent || null,
-        max_sellers: form.max_sellers || null,
-      }
-      await onSave(payload)
-    } finally {
-      setSaving(false)
+  const save = async () => {
+    setBusy(true)
+    const payload = {
+      ...f,
+      discount_tiers: String(f.discount_tiers).split(',').map((s) => parseInt(s.trim())).filter(Boolean),
+      scavenger_hunt_target: f.scavenger_hunt_target || null, scavenger_hunt_coupon_amount: f.scavenger_hunt_coupon_amount || null,
+      event_fee_percent: f.event_fee_percent || null, max_sellers: f.max_sellers || null,
     }
+    try {
+      initial ? await axios.put(`/api/admin/events/${initial.id}`, payload) : await axios.post('/api/admin/events', payload)
+      toast('Event saved'); onDone()
+    } catch (er) { toast(errMsg(er), 'error') } finally { setBusy(false) }
   }
 
-  const inp = { width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }
-  const lbl = { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 6px', display: 'block' }
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div><label style={lbl}>Title</label><input style={inp} value={form.title} onChange={e => set('title', e.target.value)} /></div>
-      <div><label style={lbl}>Description</label><textarea style={{ ...inp, resize: 'none' }} rows={2} value={form.description} onChange={e => set('description', e.target.value)} /></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div><label style={lbl}>Theme color</label><input type="color" style={{ ...inp, height: 40, padding: 4 }} value={form.theme_color} onChange={e => set('theme_color', e.target.value)} /></div>
-<div>
-  <label style={lbl}>Banner image</label>
-  {form.banner_image ? (
-    <div style={{ position: 'relative', marginBottom: 8 }}>
-      <img src={form.banner_image} alt="" style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 10 }} />
-      <button onClick={() => set('banner_image', '')} style={{ position: 'absolute', top: 6, right: 6, width: 26, height: 26, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
-    </div>
-  ) : (
-    <label style={{ ...inp, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80, cursor: uploadingBanner ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.4)' }}>
-      {uploadingBanner ? 'Uploading…' : 'Click to upload banner image'}
-      <input type="file" accept="image/*" disabled={uploadingBanner} onChange={handleBannerUpload} style={{ display: 'none' }} />
-    </label>
-  )}
-</div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div><label style={lbl}>Starts at</label><input type="datetime-local" style={inp} value={form.starts_at?.slice(0,16) ?? ''} onChange={e => set('starts_at', e.target.value)} /></div>
-        <div><label style={lbl}>Ends at</label><input type="datetime-local" style={inp} value={form.ends_at?.slice(0,16) ?? ''} onChange={e => set('ends_at', e.target.value)} /></div>
-      </div>
-        <div>
-        <label style={lbl}>Discount tiers (comma-separated %)</label>
-        <input style={inp} value={form.discount_tiers} onChange={e => set('discount_tiers', e.target.value)} placeholder="5,10,15" />
-        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Sellers pick ONE of these percentages when they join — this is how much their prices drop for the whole event.</p>
-      </div>
-      <div>
-        <label style={lbl}>Max sellers (min 5, leave blank for unlimited)</label>
-        <input type="number" style={inp} value={form.max_sellers ?? ''} onChange={e => set('max_sellers', e.target.value)} placeholder="e.g. 10" />
-        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Caps how many sellers can join, to keep the event exclusive. Leave blank for no limit.</p>
-        </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <div>
-          <label style={lbl}>Scavenger hunt: sellers</label>
-          <input type="number" style={inp} value={form.scavenger_hunt_target ?? ''} onChange={e => set('scavenger_hunt_target', e.target.value)} placeholder="e.g. 3" />
-          <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Buyers who purchase from this many DIFFERENT participating sellers automatically earn the reward coupon below.</p>
-          </div>
-        <div><label style={lbl}>Hunt reward (₦)</label><input type="number" style={inp} value={form.scavenger_hunt_coupon_amount ?? ''} onChange={e => set('scavenger_hunt_coupon_amount', e.target.value)} placeholder="e.g. 500" /></div>
-        <div>
-          <label style={lbl}>Event fee % (optional)</label>
-        <input type="number" style={inp} value={form.event_fee_percent ?? ''} onChange={e => set('event_fee_percent', e.target.value)} placeholder="e.g. 2" />
-        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Lowers Flockr's normal 5% commission to this number for participating sellers, as an incentive to join. Leave blank to keep it at 5%.</p>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button onClick={submit} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, background: '#FF6B35', border: 'none', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-          {saving ? 'Saving…' : 'Save Event'}
-        </button>
-        <button onClick={onCancel} style={{ padding: '12px 20px', borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-          Cancel
-        </button>
-      </div>
+    <div style={{ display: 'grid', gap: 12 }}>
+      <Field label="Title"><Input value={f.title} onChange={(e) => set('title', e.target.value)} /></Field>
+      <Field label="Description"><Textarea value={f.description || ''} onChange={(e) => set('description', e.target.value)} /></Field>
+      <Field label="Banner image">
+        {f.banner_image && <img src={f.banner_image} alt="" style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 10, marginBottom: 6 }} />}
+        <input type="file" accept="image/*" onChange={upload} />
+      </Field>
+      <Field label="Theme colour"><Input type="color" value={f.theme_color || '#FF6B35'} onChange={(e) => set('theme_color', e.target.value)} /></Field>
+      <Field label="Starts at"><Input type="datetime-local" value={f.starts_at} onChange={(e) => set('starts_at', e.target.value)} /></Field>
+      <Field label="Ends at"><Input type="datetime-local" value={f.ends_at} onChange={(e) => set('ends_at', e.target.value)} /></Field>
+      <Field label="Discount tiers (%)" hint="Sellers pick ONE of these when they join, e.g. 5,10,15."><Input value={f.discount_tiers} onChange={(e) => set('discount_tiers', e.target.value)} /></Field>
+      <Field label="Max sellers" hint="Minimum 5. Leave blank for no limit."><Input type="number" value={f.max_sellers ?? ''} onChange={(e) => set('max_sellers', e.target.value)} /></Field>
+      <Field label="Scavenger hunt: different sellers a buyer must buy from"><Input type="number" value={f.scavenger_hunt_target ?? ''} onChange={(e) => set('scavenger_hunt_target', e.target.value)} /></Field>
+      <Field label="Hunt reward (₦ coupon)"><Input type="number" value={f.scavenger_hunt_coupon_amount ?? ''} onChange={(e) => set('scavenger_hunt_coupon_amount', e.target.value)} /></Field>
+      <Field label="Event fee % (optional)" hint="Replaces the normal commission for sellers in this event."><Input type="number" value={f.event_fee_percent ?? ''} onChange={(e) => set('event_fee_percent', e.target.value)} /></Field>
+      <div style={{ display: 'flex', gap: 8 }}><Btn kind="primary" busy={busy} onClick={save}>Save event</Btn><Btn onClick={onClose}>Cancel</Btn></div>
     </div>
   )
 }
 
-export default function AdminEvents() {
-  const [events, setEvents] = useState([])
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState(null)
-
-  const load = () => axios.get('/api/admin/events').then(r => setEvents(r.data))
-  useEffect(() => { load() }, [])
-
-  const handleSave = async (payload) => {
-    if (editing) await axios.put(`/api/admin/events/${editing.id}`, payload)
-    else await axios.post('/api/admin/events', payload)
-    setShowForm(false)
-    setEditing(null)
-    load()
-  }
-
-  const publish = async (event) => {
-    await axios.post(`/api/admin/events/${event.id}/publish`)
-    load()
-  }
-
- const { showToast, ToastComponent } = useToast()
-const [confirmEnd, setConfirmEnd] = useState(null) 
-
-const endNow = (event) => setConfirmEnd(event)
-
-const handleConfirmEnd = async () => {
-  try {
-    await axios.post(`/api/admin/events/${confirmEnd.id}/end`)
-    showToast(`"${confirmEnd.title}" has been ended.`, 'success')
-    load()
-  } catch {
-    showToast('Failed to end event.', 'error')
-  }
-}
-
+function Results({ event, onClose }) {
+  const { data, loading } = useAdminFetch(`/api/admin/events/${event.id}/results`, {}, [event.id])
+  const rows = data?.rows || []
   return (
-    <AdminLayout active="/admin/events">
-      <Head title="Admin · Events" />
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Events</h1>
-          <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>{events.length} total</p>
-        </div>
-        <button onClick={() => { setEditing(null); setShowForm(true) }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 12, background: '#FF6B35', border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-          <RiAddLine size={16} /> New Event
-        </button>
-      </div>
-
-      {showForm && (
+    <Drawer open title={`Results · ${event.title}`} onClose={onClose} width={560}>
+      {loading ? 'Loading…' : rows.length === 0 ? <Empty title="No sellers joined" sub="Nobody has joined this event yet." /> : (
         <>
-          <div onClick={() => setShowForm(false)} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.7)' }} />
-          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, zIndex: 101, background: '#111', borderLeft: '1px solid rgba(255,255,255,0.08)', overflowY: 'auto', padding: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{editing ? 'Edit Event' : 'New Event'}</h3>
-              <button onClick={() => setShowForm(false)} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', color: '#fff' }}><RiCloseLine size={16} /></button>
+          <p style={{ opacity: .6, fontSize: 13 }}>{event.status === 'ended' ? 'Final standings (revenue is what sellers earned, before payout fees).' : 'Live standings — they update as orders come in.'}</p>
+          {rows.map((r) => (
+            <div key={r.seller_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+              <b style={{ width: 30 }}>#{r.rank}</b>
+              <div style={{ flex: 1 }}>{r.seller ? <UserCell user={r.seller} /> : `Seller ${r.seller_id}`}</div>
+              <div style={{ textAlign: 'right' }}><div>{naira(r.revenue)}</div><small style={{ opacity: .6 }}>{r.orders_count} sales · {r.discount_percent}% off</small></div>
             </div>
-            <EventForm initial={editing} onSave={handleSave} onCancel={() => setShowForm(false)} />
-          </div>
+          ))}
         </>
       )}
-
-      <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden' }}>
-        {events.map((e, i) => {
-          const cfg = STATUS_CFG[e.status] ?? STATUS_CFG.draft
-          return (
-            <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderBottom: i < events.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: 14 }}>{e.title}</p>
-                <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
-                  {new Date(e.starts_at).toLocaleDateString()} → {new Date(e.ends_at).toLocaleDateString()} · {e.participants_count} sellers
-                </p>
-              </div>
-              <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-              {e.status === 'draft' && (
-                <button onClick={() => publish(e)} style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#10B981', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Publish</button>
-              )}
-              {['scheduled', 'active'].includes(e.status) && (
-                <button onClick={() => endNow(e)} style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>End Now</button>
-              )}
-              <button onClick={() => { setEditing(e); setShowForm(true) }} style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', fontSize: 12, cursor: 'pointer' }}>Edit</button>
-              <Link href={`/events/${e.id}`} target="_blank" style={{ color: 'rgba(255,255,255,0.3)', display: 'flex' }}><RiArrowRightLine size={16} /></Link>
-            </div>
-          )
-        })}
-        {events.length === 0 && <p style={{ textAlign: 'center', padding: 48, color: 'rgba(255,255,255,0.3)' }}>No events yet.</p>}
-      </div>
-      {ToastComponent}
-{confirmEnd && (
-  <ConfirmModal
-    title="End this event?"
-    message={`"${confirmEnd.title}" will be marked as ended immediately, and all seller discounts will revert.`}
-    confirmLabel="End Event"
-    danger
-    onConfirm={handleConfirmEnd}
-    onClose={() => setConfirmEnd(null)}
-  />
-)}
-    </AdminLayout>
+    </Drawer>
   )
 }
+
+export default function Events() {
+  const { data, loading, reload } = useAdminFetch('/api/admin/events', {}, [])
+  const events = Array.isArray(data) ? data : data?.rows || []
+  const { toast, confirm } = useAdmin()
+  const [form, setForm] = useState(null) // null | {} | event
+  const [view, setView] = useState(null)
+
+  const run = async (fn, ok) => { try { await fn(); toast(ok); reload() } catch (e) { toast(errMsg(e), 'error') } }
+  const publish = async (e) => { if (await confirm({ title: `Publish “${e.title}”?`, message: 'Sellers (or everyone, if it is already live) are notified straight away.', confirmLabel: 'Publish', danger: false })) run(() => axios.post(`/api/admin/events/${e.id}/publish`), 'Event published') }
+  const end = async (e) => { if (await confirm({ title: `End “${e.title}” now?`, message: 'Discounts revert immediately, sellers get their results and the top seller is crowned Champion.', confirmLabel: 'End event' })) run(() => axios.post(`/api/admin/events/${e.id}/end`), 'Event ended — results saved') }
+
+  const live = events.filter((e) => e.status === 'active').length
+  return (
+    <>
+      <Head title="Events · Admin" />
+      <PageHeader title="Events" sub="Sales events, seller discounts and scavenger hunts" actions={<Btn kind="primary" size="sm" onClick={() => setForm({})}>New event</Btn>} />
+      <StatGrid>
+        <Stat label="Total" value={num(events.length)} />
+        <Stat label="Live now" value={num(live)} tone={live ? 'good' : undefined} />
+        <Stat label="Scheduled" value={num(events.filter((e) => e.status === 'scheduled').length)} />
+        <Stat label="Sellers joined" value={num(events.reduce((a, e) => a + (e.participants_count || 0), 0))} />
+      </StatGrid>
+      <Card pad={false}>
+        <DataTable rows={events} loading={loading} meta={null} onRetry={reload} empty={<Empty title="No events yet" sub="Create one to run a platform-wide sale." />}
+          columns={[
+            { key: 't', label: 'Event', mobile: 'title', render: (e) => <span><b>{e.title}</b>{e.scavenger_hunt_target ? <> <Pill tone="violet">Hunt ×{e.scavenger_hunt_target}</Pill></> : null}</span> },
+            { key: 's', label: 'Status', render: (e) => <Pill tone={TONE[e.status] || 'mute'}>{LABEL[e.status] || e.status}</Pill> },
+            { key: 'd', label: 'Dates', mobile: 'hide', render: (e) => `${fmtDate(e.starts_at)} → ${fmtDate(e.ends_at)}` },
+            { key: 'p', label: 'Sellers', render: (e) => num(e.participants_count) },
+            { key: 'a', label: '', render: (e) => (
+              <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+                {e.status === 'draft' && <Btn size="sm" kind="primary" onClick={() => publish(e)}>Publish</Btn>}
+                {['scheduled', 'active'].includes(e.status) && <Btn size="sm" kind="danger" onClick={() => end(e)}>End now</Btn>}
+                <Btn size="sm" onClick={() => setView(e)}>Results</Btn>
+                {e.status !== 'ended' && <Btn size="sm" onClick={() => setForm(e)}>Edit</Btn>}
+              </span>) },
+          ]} />
+      </Card>
+      <Drawer open={!!form} title={form?.id ? 'Edit event' : 'New event'} onClose={() => setForm(null)}>
+        {form && <EventForm initial={form.id ? form : null} onDone={() => { setForm(null); reload() }} onClose={() => setForm(null)} />}
+      </Drawer>
+      {view && <Results event={view} onClose={() => setView(null)} />}
+    </>
+  )
+}
+Events.layout = (page) => <AdminShell>{page}</AdminShell>

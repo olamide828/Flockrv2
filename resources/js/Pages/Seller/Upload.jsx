@@ -1,4 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react'
+import HashtagInput from '@/Components/HashtagInput'
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -22,6 +23,8 @@ const GALLERY_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'vide
 export default function Upload({ products: initialProducts = [] }) {
     const authUser = usePage().props?.auth?.user
     const isAdmin = authUser?.role === 'admin'
+    const isSeller = authUser?.role === 'seller' || isAdmin
+    const [kind, setKind] = useState('entertainment')   // entertainment | haul | review (sellers tagging a product become 'shopping' automatically)
     // 'camera' → 'edit' (preview, text, sound) → 'details' (then Post)
     const [stage, setStage] = useState('camera')
 
@@ -303,6 +306,7 @@ export default function Upload({ products: initialProducts = [] }) {
             fd.append('title', title.trim())
             fd.append('description', description.trim())
             fd.append('hashtags', hashtags.trim())
+            fd.append('kind', kind)
             fd.append('product_ids', JSON.stringify(taggedIds))
             fd.append('text_overlays', JSON.stringify(meta))
             if (videoDuration) fd.append('duration_seconds', Math.max(1, Math.round(videoDuration)))
@@ -557,10 +561,24 @@ export default function Upload({ products: initialProducts = [] }) {
                                 <CHint n={description.length} max={1000} />
                             </SCard>
 
+                            {taggedIds.length === 0 && (
+                                <SCard title="What kind of video is this?">
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                        {[['entertainment', 'Fun / Story'], ['haul', 'Haul'], ['review', 'Review']].map(([k, l]) => (
+                                            <button key={k} type="button" onClick={() => setKind(k)}
+                                                style={{ padding: '11px 6px', borderRadius: 12, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: '1px solid ' + (kind === k ? 'rgba(255,107,53,0.5)' : 'rgba(255,255,255,0.1)'), background: kind === k ? 'rgba(255,107,53,0.12)' : 'rgba(255,255,255,0.04)', color: kind === k ? '#FF6B35' : 'rgba(255,255,255,0.6)' }}>{l}</button>
+                                        ))}
+                                    </div>
+                                    <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, margin: '8px 0 0', lineHeight: 1.5 }}>
+                                        Fun, hauls and reviews get shown to everyone on For You. {isSeller ? 'Tag a product below to turn this into a shopping video that also appears in the Shop tab.' : ''}
+                                    </p>
+                                </SCard>
+                            )}
+
                             <SCard title="Hashtags">
                                 <div style={{ position: 'relative' }}>
                                     <RiHashtag size={13} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-                                    <input value={hashtags} onChange={e => setHashtags(e.target.value)} placeholder="fashion trending ootd naija" style={{ ...S.inp, paddingLeft: 30 }} />
+                                    <HashtagInput value={hashtags} onChange={setHashtags} kind="videos" placeholder="fashion trending ootd naija" inputStyle={{ ...S.inp, paddingLeft: 30, width: '100%', boxSizing: 'border-box' }} />
                                 </div>
                                 <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, margin: '4px 0 0' }}>Space-separated, no # needed</p>
                             </SCard>
@@ -594,7 +612,7 @@ export default function Upload({ products: initialProducts = [] }) {
                             </SCard>
 
                             {/* Products */}
-                            {!hasProducts ? (
+                            {!isSeller ? null : !hasProducts ? (
                                 <div style={{ background: 'linear-gradient(160deg, rgba(255,107,53,0.12), rgba(255,107,53,0.03))', border: '1px solid rgba(255,107,53,0.3)', borderRadius: 18, padding: '22px 18px', textAlign: 'center' }}>
                                     <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,107,53,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
                                         <RiShoppingBag3Line size={22} color="#FF6B35" />

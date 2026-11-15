@@ -24,13 +24,11 @@ class SellerController extends Controller
 
 $stats = [
     'revenue' => Order::forSeller($seller->id)
-    ->whereNotNull('paid_at')
-    ->where('status', '!=', 'refunded')
+    ->revenue()
     ->where('created_at', '>=', now()->subDays($period))
-    ->sum(DB::raw('total - platform_fee')),
+    ->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')),
     'orders_count' => Order::forSeller($seller->id)
-        ->whereNotNull('paid_at')
-        ->where('status', '!=', 'refunded')
+        ->revenue()
         ->where('created_at', '>=', now()->subDays($period))
         ->count(),
     'views_count'      => $seller->videos()->sum('views_count'),
@@ -38,11 +36,11 @@ $stats = [
     'revenue_change'   => $this->changePercent($seller->id, 'revenue', $period),
     'orders_change'    => $this->changePercent($seller->id, 'orders', $period),
     'available_balance' => $seller->wallet_balance,
-    'pending_escrow' => Order::forSeller($seller->id)
-    ->where('status', 'delivered')
-    ->whereNull('escrow_released_at')
-    ->sum(DB::raw('total - platform_fee')),
+    'pending_escrow'    => (float) Order::forSeller($seller->id)->inEscrow()->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')),
 ];
+
+$stats = array_merge($stats, $this->escrowSummary($seller->id));
+
 
 
 
@@ -57,7 +55,7 @@ $stats = [
             ->withCount('orderItems')
             ->orderByDesc('order_items_count')
             ->limit(9)
-            ->get(['id', 'name', 'price', 'images', 'orders_count']);
+            ->get(['id', 'name', 'price', 'images', 'orders_count', 'stock_quantity']);
 
         $recentVideos = $seller->videos()
             ->orderByDesc('created_at')
@@ -159,9 +157,20 @@ $gamification = [
     'total_videos'  => $totalVideos,
 ];
 
+// Events this seller joined (live or finished) — powers the "Event results" card
+$eventResults = \App\Models\EventParticipant::where('seller_id', $seller->id)
+    ->with('event:id,title,status,ends_at,theme_color')
+    ->latest()->limit(5)->get()
+    ->filter(fn ($p) => $p->event)
+    ->map(fn ($p) => [
+        'event_id' => $p->event->id, 'title' => $p->event->title, 'status' => $p->event->status,
+        'ends_at' => $p->event->ends_at, 'rank' => $p->final_stats['rank'] ?? null,
+        'total_sellers' => $p->final_stats['total_sellers'] ?? null,
+    ])->values();
+
 return Inertia::render('Seller/Dashboard', compact(
     'stats', 'recentOrders', 'topProducts', 'recentVideos',
-    'orders', 'savedProducts', 'savedVideos', 'gamification'
+    'orders', 'savedProducts', 'savedVideos', 'gamification', 'eventResults'
 ));
 
 }
@@ -192,8 +201,7 @@ return Inertia::render('Seller/Dashboard', compact(
         // the ->paid() scope, which only matches status === 'paid' and misses
         // orders that have since moved on to confirmed/shipped/delivered.
         $revenueOrders = fn () => Order::forSeller($sellerId)
-            ->whereNotNull('paid_at')
-            ->where('status', '!=', 'refunded');
+            ->revenue();
 
         // ── Views — deduplicated to match the public views_count definition ──
         // Video::recordView() only bumps the public counter once per viewer
@@ -204,8 +212,8 @@ return Inertia::render('Seller/Dashboard', compact(
         $dedupedIdsPrev = $period > 0 ? $this->dedupedViewIds($videoIds, $prevStart, $prevEnd) : collect();
 
         // ── KPIs ────────────────────────────────────────────────────────────
-        $revenueNow  = (clone $revenueOrders())->where('created_at', '>=', $periodStart)->sum(DB::raw('total - platform_fee'));
-        $revenuePrev = $period > 0 ? (clone $revenueOrders())->whereBetween('created_at', [$prevStart, $prevEnd])->sum(DB::raw('total - platform_fee')) : 0;
+        $revenueNow  = (clone $revenueOrders())->where('created_at', '>=', $periodStart)->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)'));
+        $revenuePrev = $period > 0 ? (clone $revenueOrders())->whereBetween('created_at', [$prevStart, $prevEnd])->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')) : 0;
 
         $ordersNow  = (clone $revenueOrders())->where('created_at', '>=', $periodStart)->count();
         $ordersPrev = $period > 0 ? (clone $revenueOrders())->whereBetween('created_at', [$prevStart, $prevEnd])->count() : 0;
@@ -235,17 +243,14 @@ return Inertia::render('Seller/Dashboard', compact(
             'new_followers_change'   => $pctChange($followersNow, $followersPrev),
             'total_followers'        => $seller->followers_count,
             'views_to_orders_rate'   => $viewsNow > 0 ? round(($ordersNow / $viewsNow) * 100, 2) : 0,
-            'pending_escrow' => Order::forSeller($sellerId)
-                ->where('status', 'delivered')
-                ->whereNull('escrow_released_at')
-                ->sum(DB::raw('total - platform_fee')),
+            'pending_escrow' => (float) Order::forSeller($sellerId)->inEscrow()->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')),
 
         ];
 
         // ── Revenue trend (daily) ───────────────────────────────────────────
         $revenueTrend = (clone $revenueOrders())
             ->where('created_at', '>=', $periodStart)
-            ->selectRaw('DATE(created_at) as date, SUM(total - platform_fee) as revenue, COUNT(*) as orders')
+            ->selectRaw('DATE(created_at) as date, SUM(COALESCE(seller_earning, subtotal - platform_fee)) as revenue, COUNT(*) as orders')
             ->groupBy('date')
             ->orderBy('date')
             ->get();
@@ -375,7 +380,7 @@ return Inertia::render('Seller/Dashboard', compact(
         // ── Best time to sell — day-of-week × hour heatmap ──────────────────
         $salesTiming = (clone $revenueOrders())
             ->where('created_at', '>=', $periodStart)
-            ->selectRaw('EXTRACT(DOW FROM created_at) as dow, EXTRACT(HOUR FROM created_at) as hour, COUNT(*) as orders, SUM(total - platform_fee) as revenue')
+            ->selectRaw('EXTRACT(DOW FROM created_at) as dow, EXTRACT(HOUR FROM created_at) as hour, COUNT(*) as orders, SUM(COALESCE(seller_earning, subtotal - platform_fee)) as revenue')
             ->groupBy('dow', 'hour')
             ->get();
 
@@ -402,6 +407,17 @@ return Inertia::render('Seller/Dashboard', compact(
             ->orderByDesc('created_at')
             ->paginate(20);
 
+        $username = Auth::user()->username;
+        $videos->through(function ($v) use ($username) {
+            // Older rows can be missing a ulid, which produced /@name/video/ (404). Backfill on the spot.
+            if (empty($v->ulid)) {
+                $v->ulid = (string) \Illuminate\Support\Str::ulid();
+                $v->saveQuietly();
+            }
+            $v->setAttribute('watch_url', "/@{$username}/video/{$v->ulid}");
+            return $v;
+        });
+
         return Inertia::render('Seller/Videos', ['videos' => $videos]);
     }
 
@@ -419,12 +435,13 @@ return Inertia::render('Seller/Dashboard', compact(
     public function orders(): Response
     {
         $sellerId = Auth::id();
+        $earning  = DB::raw('COALESCE(seller_earning, subtotal - platform_fee)');
 
         $orders = Order::forSeller($sellerId)
-            ->with('buyer:id,name,username,avatar')
+            ->with(['buyer:id,name,username,avatar', 'items.product'])
             ->withCount('items')
             ->latest()
-            ->paginate(20)
+            ->paginate(50)
             ->withQueryString();
 
         $statusCounts = Order::forSeller($sellerId)
@@ -432,9 +449,17 @@ return Inertia::render('Seller/Dashboard', compact(
             ->groupBy('status')
             ->pluck('total', 'status');
 
+        // Money summary shown at the top of the page (all orders, not just this page)
+        $summary = [
+            'in_escrow'   => (float) Order::forSeller($sellerId)->inEscrow()->sum($earning),
+            'released'    => (float) Order::forSeller($sellerId)->revenue()->whereNotNull('escrow_released_at')->sum($earning),
+            'next_release' => Order::forSeller($sellerId)->inEscrow()->whereNotNull('delivered_at')->min('delivered_at'),
+        ];
+
         return Inertia::render('Seller/Orders', [
-            'orders' => $orders,
-            'stats' => $statusCounts,
+            'orders'  => $orders,
+            'stats'   => $statusCounts,
+            'summary' => $summary,
         ]);
     }
 
@@ -457,10 +482,7 @@ return Inertia::render('Seller/Dashboard', compact(
         'wallet_balance'     => $seller->wallet_balance,
         'total_sales'        => $seller->total_sales,
         'revenue_total'      => $seller->revenue_total,
-        'pending_escrow'     => Order::forSeller($seller->id)
-            ->where('status', 'delivered')
-            ->whereNull('escrow_released_at')
-            ->sum(DB::raw('total - platform_fee')),
+        'pending_escrow'     => (float) Order::forSeller($seller->id)->inEscrow()->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')),
     ]);
 }
 
@@ -513,17 +535,15 @@ return Inertia::render('Seller/Dashboard', compact(
 private function changePercent(int $sellerId, string $metric, int $days): float
 {
     $current = Order::forSeller($sellerId)
-        ->whereNotNull('paid_at')
-        ->where('status', '!=', 'refunded')
+        ->revenue()
         ->where('created_at', '>=', now()->subDays($days));
 
     $previous = Order::forSeller($sellerId)
-        ->whereNotNull('paid_at')
-        ->where('status', '!=', 'refunded')
+        ->revenue()
         ->whereBetween('created_at', [now()->subDays($days * 2), now()->subDays($days)]);
 
     [$cur, $prev] = match ($metric) {
-    'revenue' => [$current->sum(DB::raw('total - platform_fee')), $previous->sum(DB::raw('total - platform_fee'))],
+    'revenue' => [$current->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)')), $previous->sum(DB::raw('COALESCE(seller_earning, subtotal - platform_fee)'))],
     default => [$current->count(), $previous->count()],
 };
 
@@ -533,6 +553,50 @@ private function changePercent(int $sellerId, string $metric, int $days): float
 }
 
 
+    /**
+     * Where the seller's money is right now. Same numbers feed the dashboard,
+     * analytics and the Payouts page so they can never disagree.
+     */
+    private function escrowSummary(int $sellerId): array
+    {
+        $earning = DB::raw('COALESCE(seller_earning, subtotal - platform_fee)');
+
+        $inTransit = (float) Order::forSeller($sellerId)->inEscrow()
+            ->whereIn('status', ['paid', 'confirmed', 'processing', 'shipped'])->sum($earning);
+        $awaitingRelease = (float) Order::forSeller($sellerId)->inEscrow()
+            ->where('status', 'delivered')->sum($earning);
+        $disputed = (float) Order::forSeller($sellerId)->inEscrow()
+            ->where('status', 'disputed')->sum($earning);
+
+        $nextRelease = Order::forSeller($sellerId)->inEscrow()
+            ->where('status', 'delivered')->whereNotNull('delivered_at')
+            ->orderBy('delivered_at')->value('delivered_at');
+
+        $upcoming = Order::forSeller($sellerId)->inEscrow()
+            ->with('buyer:id,name,username')
+            ->orderByRaw("CASE status WHEN 'delivered' THEN 0 ELSE 1 END")
+            ->orderBy('delivered_at')->orderByDesc('paid_at')
+            ->limit(6)->get()
+            ->map(fn (Order $o) => [
+                'id'         => $o->id,
+                'reference'  => $o->reference,
+                'status'     => $o->status,
+                'amount'     => $o->sellerAmount(),
+                'buyer'      => $o->buyer?->name,
+                'releases_at'=> $o->status === 'delivered' && $o->delivered_at ? $o->delivered_at->copy()->addDays(3)->toIso8601String() : null,
+            ]);
+
+        return [
+            'escrow_in_transit'       => $inTransit,
+            'escrow_awaiting_release' => $awaitingRelease,
+            'escrow_disputed'         => $disputed,
+            'escrow_next_release_at'  => $nextRelease ? \Carbon\Carbon::parse($nextRelease)->addDays(3)->toIso8601String() : null,
+            'escrow_orders'           => $upcoming,
+            'pending_payout'          => (float) \App\Models\Payout::where('seller_id', $sellerId)->where('status', 'pending')->sum('amount'),
+            'lifetime_released'       => (float) \App\Models\WalletTransaction::where('user_id', $sellerId)->where('source', 'sale')->sum('amount'),
+        ];
+    }
+
     public function requestPayout(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -540,51 +604,44 @@ private function changePercent(int $sellerId, string $metric, int $days): float
         ]);
 
         $seller = Auth::user();
-        $balance = $seller->wallet_balance;
-        $amt = (float) $validated['amount'];
-
-        if ($amt > $balance) {
-            return response()->json([
-                'message' => "Insufficient balance. Your available balance is ₦" . number_format($balance, 2),
-            ], 422);
-        }
-
-        $hasPending = \App\Models\Payout::where('seller_id', $seller->id)
-            ->where('status', 'pending')
-            ->exists();
-
-        if ($hasPending) {
-            return response()->json([
-                'message' => 'You have a pending payout request. Wait for it to be processed before requesting another.',
-            ], 422);
-        }
+        $amt    = round((float) $validated['amount'], 2);
 
         if (!$seller->paystack_recipient_code) {
-            return response()->json([
-                'message' => 'Please connect a bank account in Settings before requesting a payout.',
-            ], 422);
+            return response()->json(['message' => 'Please connect a bank account in Settings before requesting a payout.'], 422);
         }
 
-        $lastTx = \App\Models\WalletTransaction::where('user_id', $seller->id)->latest()->first();
-        $balanceBefore = $lastTx?->balance_after ?? 0;
+        try {
+            $payout = DB::transaction(function () use ($seller, $amt) {
+                // Lock first so two taps / two tabs can't both pass the checks below.
+                \App\Models\User::whereKey($seller->id)->lockForUpdate()->firstOrFail();
 
-        \App\Models\WalletTransaction::create([
-            'user_id' => $seller->id,
-            'amount' => $amt,
-            'type' => 'debit',
-            'source' => 'payout',
-            'description' => 'Payout withdrawal request',
-            'balance_after' => $balanceBefore - $amt,
-        ]);
+                if (\App\Models\Payout::where('seller_id', $seller->id)->where('status', 'pending')->exists()) {
+                    abort(422, 'You have a pending payout request. Wait for it to be processed before requesting another.');
+                }
 
-        $payout = \App\Models\Payout::create([
-            'seller_id' => $seller->id,
-            'amount' => $amt,
-            'status' => 'pending',
-        ]);
+                $balance = app(\App\Services\WalletService::class)->balance($seller->id);
+                if ($amt > $balance) {
+                    abort(422, 'Insufficient balance. Your available balance is ₦' . number_format($balance, 2));
+                }
+
+                app(\App\Services\WalletService::class)->post(
+                    userId: $seller->id,
+                    type: 'debit',
+                    amount: $amt,
+                    source: 'payout',
+                    description: 'Payout withdrawal request',
+                );
+
+                return \App\Models\Payout::create([
+                    'seller_id' => $seller->id,
+                    'amount'    => $amt,
+                    'status'    => 'pending',
+                ]);
+            });
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->getStatusCode());
+        }
 
         return response()->json($payout, 201);
     }
-
-
 }

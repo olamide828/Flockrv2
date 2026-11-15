@@ -34,12 +34,10 @@ class Video extends Model
         'keywords',
         'hashtags',
         'is_for_sale',
+        'content_type',
         'published_at',
         'text_overlays',
         'ai_category_id',
-        'sound_id',
-        'allow_sound_reuse',
-        'enhance',
     ];
 
     protected $casts = [
@@ -49,15 +47,12 @@ class Video extends Model
         'is_for_sale' => 'boolean',
         'published_at' => 'datetime',
         'text_overlays' => 'array',
-        'allow_sound_reuse' => 'boolean',
-        'enhance' => 'boolean',
     ];
 
     protected $appends = [
         'video_stream_url',
         'thumbnail_url_full',
         'is_processing',
-        'sound_credit',
     ];
 
     protected static function boot(): void
@@ -75,18 +70,9 @@ class Video extends Model
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
-    public function sound(): BelongsTo
-    {
-        return $this->belongsTo(Sound::class);
-    }
-
-    /**
-     * withTrashed + withDefault: a deleted creator never makes `$video->user` null, so links/names can't turn into
-     * "@undefined". Deleted accounts are anonymised on deletion (username deleted_{id}, name "Deleted User").
-     */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class)->withTrashed()->withDefault(['name' => 'Deleted user']);
+        return $this->belongsTo(User::class);
     }
 
     public function getRouteKeyName(): string
@@ -136,9 +122,7 @@ class Video extends Model
 
     public function scopeActive($query)
     {
-        // Public videos only: published, AND the creator is still around (not banned, not deleted)
-        return $query->where('status', 'active')->whereNotNull('published_at')
-            ->whereNotIn('videos.user_id', fn($q) => $q->select('id')->from('users')->where(fn($w) => $w->where('is_active', false)->orWhereNotNull('deleted_at')));
+        return $query->where('status', 'active')->whereNotNull('published_at');
     }
 
     public function scopeForFeed($query)
@@ -198,29 +182,6 @@ class Video extends Model
         }
     }
 
-    /** Credit line for the music on this video (null = just the creator's own audio). */
-    public function getSoundCreditAttribute(): ?array
-    {
-        try {
-            if (!$this->sound_id) return null;
-            $s = $this->sound;
-        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
-            return null;
-        }
-        if (!$s) return null;
-
-        return [
-            'id'          => $s->id,
-            'ulid'        => $s->ulid,
-            'path'        => $s->path(),
-            'title'       => $s->title,
-            'artist'      => $s->artist,
-            'attribution' => $s->attribution,
-            'source'      => $s->source,
-            'cover_url'   => \App\Models\Sound::urlFor($s->cover_path),
-        ];
-    }
-
     public function getIsProcessingAttribute(): bool
     {
         return in_array($this->status, ['pending', 'processing']);
@@ -269,7 +230,7 @@ class Video extends Model
     {
         $this->products()->syncWithoutDetaching([$product->id => $pivot]);
         if (!$this->is_for_sale) {
-            $this->update(['is_for_sale' => true]);
+            $this->update(['is_for_sale' => true, 'content_type' => 'shopping']);
         }
     }
 }

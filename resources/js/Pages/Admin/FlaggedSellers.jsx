@@ -1,95 +1,75 @@
-import AppLayout from '@/Layouts/AppLayout'
-import { Head, router } from '@inertiajs/react'
+import { Head } from '@inertiajs/react'
 import axios from 'axios'
 import { useState } from 'react'
-import { RiAlertLine, RiShieldCheckLine, RiUserForbidLine } from 'react-icons/ri'
+import AdminShell from '@/Components/Admin/AdminShell'
+import { Btn, Card, DataTable, Empty, Grid, Meter, PageHeader, Pager, Pill, Stat, StatGrid, UserCell, useAdmin } from '@/Components/Admin/ui'
+import { BarChart } from '@/Components/Admin/charts'
+import { errMsg, num, timeAgo, useAdminList } from '@/Components/Admin/lib'
 
-function fmtDate(iso) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })
+const API = '/api/admin/people'
+const ratio = (u) => (u.shown_count ? u.continued_count / u.shown_count : 0)
+
+export default function FlaggedSellers() {
+  const list = useAdminList(`${API}/flagged`, {})
+  const { toast, confirm, refreshBadges } = useAdmin()
+  const [busy, setBusy] = useState(null)
+
+  const run = async (id, fn, ok) => {
+    setBusy(id)
+    try { const r = await fn(); toast(r?.data?.message || ok); list.reload(); refreshBadges() } catch (e) { toast(errMsg(e), 'error') } finally { setBusy(null) }
+  }
+  const clear = async (u) => {
+    if (await confirm({ title: `Clear the flag on ${u.name}?`, message: 'They leave the review queue. They will be flagged again if they keep pushing buyers off the platform.', confirmLabel: 'Clear flag', danger: false }))
+      run(u.id, () => axios.post(`${API}/users/${u.id}/clear-flag`), 'Flag cleared')
+  }
+  const suspend = async (u) => {
+    const v = await confirm({ title: `Suspend ${u.name}?`, message: 'They are signed out and blocked until you unsuspend them.', confirmLabel: 'Suspend', fields: [{ key: 'reason', label: 'Reason (shown in the audit log)', multiline: true, required: true, value: 'Repeatedly steering buyers off-platform' }] })
+    if (v) run(u.id, () => axios.post(`${API}/users/${u.id}/suspend`, v), 'User suspended')
+  }
+
+  const rows = list.rows
+  const worst = [...rows].filter((u) => u.continued_count > 0).sort((a, b) => b.continued_count - a.continued_count).slice(0, 8)
+  const continued = rows.reduce((a, u) => a + (u.continued_count || 0), 0)
+  const shown = rows.reduce((a, u) => a + (u.shown_count || 0), 0)
+
+  return (
+    <>
+      <Head title="Flagged sellers · Admin" />
+      <PageHeader title="Flagged sellers" sub="Sellers who keep trying to take buyers off Flockr after seeing the warning" />
+
+      <StatGrid>
+        <Stat label="Awaiting review" value={list.meta ? num(list.meta.total) : '—'} tone={list.meta?.total ? 'warn' : undefined} />
+        <Stat label="Warnings shown" value={num(shown)} sub="this page" />
+        <Stat label="Ignored the warning" value={num(continued)} sub={shown ? `${Math.round((continued / shown) * 100)}% of warnings` : 'this page'} tone={continued ? 'bad' : undefined} />
+      </StatGrid>
+
+      {worst.length > 0 && (
+        <Card title="Most persistent" sub="Times each seller continued past the warning">
+          <BarChart horizontal valueFormat={num} color="#d95926" data={worst.map((u) => ({ label: u.name, value: u.continued_count, sub: `@${u.username} · shown ${num(u.shown_count)}×` }))} />
+        </Card>
+      )}
+
+      <div style={{ height: 16 }} />
+      <Card pad={false}>
+        <DataTable
+          {...list} onRetry={list.reload} onRowClick={(u) => { window.location.href = `/admin/users/${u.id}` }}
+          empty={<Empty title="Queue is clear" sub="No sellers are flagged for review." />}
+          rowActions={(u) => <>
+            <Btn size="sm" onClick={() => clear(u)} busy={busy === u.id}>Clear flag</Btn>
+            {u.is_active && <Btn size="sm" kind="danger" onClick={() => suspend(u)} busy={busy === u.id}>Suspend</Btn>}
+          </>}
+          columns={[
+            { key: 'user', label: 'Seller', mobile: 'title', render: (u) => <UserCell user={u} sub={u.email} /> },
+            { key: 'shown_count', label: 'Warned', align: 'right', render: (u) => num(u.shown_count) },
+            { key: 'continued_count', label: 'Continued', align: 'right', render: (u) => <Pill tone={u.continued_count ? 'bad' : 'mute'}>{num(u.continued_count)}</Pill> },
+            { key: 'ratio', label: 'Ignore rate', mobile: 'hide', render: (u) => <div style={{ minWidth: 90 }}><Meter value={ratio(u)} tone={ratio(u) > 0.5 ? 'bad' : 'warn'} /></div> },
+            { key: 'status', label: 'Status', render: (u) => u.is_active ? <Pill tone="good">Active</Pill> : <Pill tone="bad">Suspended</Pill> },
+            { key: 'flagged_at', label: 'Flagged', render: (u) => timeAgo(u.flagged_at) },
+          ]}
+        />
+        <Pager meta={list.meta} onPage={list.setPage} />
+      </Card>
+    </>
+  )
 }
-
-export default function FlaggedSellers({ sellers }) {
-    const [busyId, setBusyId] = useState(null)
-
-    const clearFlag = async (user) => {
-        setBusyId(user.id)
-        try {
-            await axios.post(`/api/admin/users/${user.id}/clear-flag`)
-            router.reload({ only: ['sellers'] })
-        } catch {}
-        finally { setBusyId(null) }
-    }
-
-    const suspend = async (user) => {
-        const reason = prompt(`Reason for suspending @${user.username}:`)
-        if (reason === null) return
-        setBusyId(user.id)
-        try {
-            await axios.post(`/api/admin/users/${user.id}/suspend`, { reason })
-            router.reload({ only: ['sellers'] })
-        } catch {}
-        finally { setBusyId(null) }
-    }
-
-    return (
-        <>
-            <Head title="Flagged Sellers" />
-            <div className="fs-page">
-                <header className="fs-header">
-                    <RiAlertLine size={20} color="#EF4444" />
-                    <div>
-                        <h1>Flagged Sellers</h1>
-                        <p>{sellers.total} account{sellers.total !== 1 ? 's' : ''} flagged for repeated off-platform payment warnings</p>
-                    </div>
-                </header>
-
-                <div className="fs-list">
-                    {sellers.data.length === 0 && (
-                        <div className="fs-empty">
-                            <RiShieldCheckLine size={32} color="rgba(255,255,255,0.15)" />
-                            <p>No flagged sellers right now.</p>
-                        </div>
-                    )}
-                    {sellers.data.map(s => (
-                        <div key={s.id} className="fs-row">
-                            <img src={s.avatar_url} alt={s.name} className="fs-avatar" />
-                            <div className="fs-info">
-                                <p className="fs-name">{s.name} <span className="fs-username">@{s.username}</span></p>
-                                <p className="fs-meta">Flagged {fmtDate(s.flagged_at)} · {s.continued_count} continued / {s.shown_count} shown warnings</p>
-                            </div>
-                            <div className="fs-actions">
-                                <button onClick={() => clearFlag(s)} disabled={busyId === s.id} className="fs-btn fs-btn-clear">Clear Flag</button>
-                                <button onClick={() => suspend(s)} disabled={busyId === s.id} className="fs-btn fs-btn-suspend"><RiUserForbidLine size={13} /> Suspend</button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            <style>{`
-                * { box-sizing: border-box; }
-                .fs-page { min-height: 100vh; background: #0a0a0a; color: #fff; font-family: "DM Sans", sans-serif; padding: 28px 24px 60px; max-width: 900px; margin: 0 auto; }
-                .fs-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
-                .fs-header h1 { margin: 0; font-size: 19px; font-weight: 800; }
-                .fs-header p { margin: 2px 0 0; font-size: 12.5px; color: rgba(255,255,255,0.4); }
-                .fs-list { background: #111; border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; overflow: hidden; }
-                .fs-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 0; color: rgba(255,255,255,0.3); font-size: 13px; }
-                .fs-row { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.05); }
-                .fs-row:first-child { border-top: none; }
-                .fs-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
-                .fs-info { flex: 1; min-width: 0; }
-                .fs-name { margin: 0; color: #fff; font-weight: 700; font-size: 13.5px; }
-                .fs-username { color: rgba(255,255,255,0.35); font-weight: 500; margin-left: 6px; }
-                .fs-meta { margin: 3px 0 0; color: rgba(255,255,255,0.4); font-size: 12px; }
-                .fs-actions { display: flex; gap: 8px; flex-shrink: 0; }
-                .fs-btn { padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; display: flex; align-items: center; gap: 5px; }
-                .fs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-                .fs-btn-clear { background: rgba(16,185,129,0.1); color: #10B981; }
-                .fs-btn-suspend { background: rgba(239,68,68,0.1); color: #EF4444; }
-            `}</style>
-        </>
-    )
-}
-
-FlaggedSellers.layout = page => <AppLayout>{page}</AppLayout>
+FlaggedSellers.layout = (page) => <AdminShell>{page}</AdminShell>

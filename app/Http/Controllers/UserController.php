@@ -149,12 +149,13 @@ if ($authUserId && $products->isNotEmpty()) {
 
         if ($isFollowing) {
             $me->following()->detach($user->id);
+            \App\Support\NotifyOnce::retract($user, 'new_follower', ['user_id' => $me->id]);
             $this->clampedDecrement($me->id, 'following_count');
             $this->clampedDecrement($user->id, 'followers_count');
         } else {
             $me->following()->syncWithoutDetaching([$user->id]);
             try {
-                $user->notify(new \App\Notifications\NewFollowerNotification($me));
+                \App\Support\NotifyOnce::send($user, new \App\Notifications\NewFollowerNotification($me), 'new_follower', ['user_id' => $me->id]);
             } catch (\Throwable) {}
             DB::table('users')->where('id', $me->id)->increment('following_count');
             DB::table('users')->where('id', $user->id)->increment('followers_count');

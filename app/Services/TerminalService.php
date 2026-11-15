@@ -119,9 +119,10 @@ class TerminalService
      * @param array $pickup   {name, phone, address, city, state, country, postal_code}
      * @param array $delivery {name, phone, address, city, state, country, postal_code}
      * @param array $parcel   {weight, items_count, description?}
+     * @param int|null $sellerId  pass the seller's user id so NIN-cleared sellers keep all carriers
      * @throws \RuntimeException on API failure
      */
-    public function getRates(array $pickup, array $delivery, array $parcel): array
+    public function getRates(array $pickup, array $delivery, array $parcel, ?int $sellerId = null): array
     {
         $this->assertConfigured();
 
@@ -139,7 +140,7 @@ class TerminalService
 
         Log::info('Terminal getRates response', ['data' => $response['data'] ?? []]);
 
-        $rates = $response['data'] ?? [];
+        $rates = $this->filterNinCarriers($response['data'] ?? [], $sellerId);
 
         if (empty($rates)) {
             throw new \RuntimeException(
@@ -169,6 +170,28 @@ class TerminalService
         usort($mapped, fn($a, $b) => $a['amount'] <=> $b['amount']);
 
         return $mapped;
+    }
+
+    // ── NIN fee handling ──────────────────────────────────────────────────────
+
+    /** In "hide" mode, drop carriers that trigger Terminal's one-time NIN fee unless the seller is cleared. */
+    private function filterNinCarriers(array $rates, ?int $sellerId): array
+    {
+        if (config('terminal_nin.mode', 'absorb') !== 'hide') return $rates;
+
+        if ($sellerId) {
+            $cleared = \App\Models\User::whereKey($sellerId)->whereNotNull('terminal_sender_verified_at')->exists();
+            if ($cleared) return $rates;
+        }
+
+        $needles = config('terminal_nin.carriers', []);
+        return array_values(array_filter($rates, function ($r) use ($needles) {
+            $name = strtolower($r['carrier_name'] ?? '');
+            foreach ($needles as $n) {
+                if ($n !== '' && str_contains($name, $n)) return false;
+            }
+            return true;
+        }));
     }
 
     /**

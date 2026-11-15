@@ -182,7 +182,7 @@ class DisputeController extends Controller
         try {
     \App\Models\User::where('role', 'admin')->get()->each(
         fn($admin) => $admin->notify(new \App\Notifications\OrderStatusNotification(
-            $order,
+            $dispute->order,
             'New response on dispute',
             "New reply on dispute #{$dispute->id} — needs review"
         ))
@@ -206,14 +206,63 @@ class DisputeController extends Controller
      */
     public function adminIndex(Request $request): JsonResponse
     {
-        $query = Dispute::with(['buyer:id,name,username', 'seller:id,name,username', 'order:id,reference,total'])
+        $query = Dispute::with(['buyer:id,name,username,avatar', 'seller:id,name,username,avatar', 'order:id,reference,total,status'])
+            ->withCount('messages')
             ->latest();
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
+        if ($request->filled('status') && $request->status !== 'all') {
+            $request->status === 'open'
+                ? $query->whereNotIn('status', ['resolved_buyer', 'resolved_seller', 'closed'])
+                : $query->where('status', $request->status);
+        }
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->whereHas('order', fn ($o) => $o->where('reference', 'ilike', "%{$s}%"))
+                  ->orWhereHas('buyer', fn ($u) => $u->where('name', 'ilike', "%{$s}%")->orWhere('username', 'ilike', "%{$s}%"))
+                  ->orWhereHas('seller', fn ($u) => $u->where('name', 'ilike', "%{$s}%")->orWhere('username', 'ilike', "%{$s}%"));
+            });
         }
 
-        return response()->json($query->paginate(30));
+        $closed = ['resolved_buyer', 'resolved_seller', 'closed'];
+        return response()->json([
+            'rows'   => $query->paginate(30),
+            'counts' => [
+                'open'     => Dispute::whereNotIn('status', $closed)->count(),
+                'resolved' => Dispute::whereIn('status', $closed)->count(),
+                'all'      => Dispute::count(),
+            ],
+        ]);
+    }
+
+    /** GET /api/admin/disputes/{disputeId} — full thread for the admin drawer. */
+    public function adminShow(int $disputeId): JsonResponse
+    {
+        $dispute = Dispute::with([
+            'buyer:id,name,username,avatar,email', 'seller:id,name,username,avatar,email',
+            'order:id,reference,total,status,paid_at,delivered_at,escrow_released_at,refund_status,refund_error,seller_earning',
+            'messages.user:id,name,username,avatar,role',
+            'resolvedBy:id,name',
+        ])->findOrFail($disputeId);
+
+        return response()->json(['dispute' => $dispute]);
+    }
+
+    /** POST /api/admin/disputes/{disputeId}/messages — admin posts into the thread. */
+    public function adminReply(Request $request, int $disputeId): JsonResponse
+    {
+        $data = $request->validate(['message' => 'required|string|max:2000']);
+        $dispute = Dispute::findOrFail($disputeId);
+
+        $msg = DisputeMessage::create([
+            'dispute_id' => $dispute->id,
+            'user_id'    => Auth::id(),
+            'message'    => '[Admin] ' . $data['message'],
+        ]);
+        if ($dispute->status === 'open') $dispute->update(['status' => 'awaiting_seller']);
+
+        \App\Support\Audit::log('dispute.reply', $dispute);
+        return response()->json(['message' => 'Reply sent.', 'dispute_message' => $msg->load('user:id,name,username,avatar,role')]);
     }
 
     /**
@@ -238,8 +287,11 @@ class DisputeController extends Controller
                 $order->update(['status' => 'refunded']);
                 $order->reverseSellerCredit("Dispute #{$dispute->id} resolved in buyer's favor");
             } else {
-                $order->update(['status' => 'delivered']);
-                $order->releaseEscrow("Dispute #{$dispute->id} resolved in seller's favor");
+                $order->update([
+                    'status'       => 'delivered',
+                    'delivered_at' => $order->delivered_at ?? now(),
+                ]);
+                $order->refresh()->releaseEscrow("Dispute #{$dispute->id} resolved in seller's favor");
             }
 
             $dispute->update([
@@ -256,12 +308,11 @@ class DisputeController extends Controller
             ]);
         });
 
-        if ($validated['outcome'] === 'refund_buyer' && $order->paystack_reference) {
-            try {
-                $paystack->refundTransaction($order->paystack_reference, (float) $order->total);
-            } catch (\Throwable $e) {
-                Log::error('Dispute refund via Paystack failed', ['dispute' => $dispute->id, 'error' => $e->getMessage()]);
-            }
+        \App\Support\Audit::log('dispute.resolve', $dispute, ['outcome' => $validated['outcome']]);
+
+        $refund = null;
+        if ($validated['outcome'] === 'refund_buyer') {
+            $refund = app(\App\Services\RefundService::class)->refund($order->fresh());
         }
 
         try {
@@ -269,6 +320,10 @@ class DisputeController extends Controller
             $dispute->seller->notify(new \App\Notifications\OrderStatusNotification($order, 'Dispute resolved', $validated['resolution_note']));
         } catch (\Throwable) {}
 
-        return response()->json(['message' => 'Dispute resolved.', 'dispute' => $dispute->fresh()]);
+        return response()->json([
+            'message' => 'Dispute resolved.' . ($refund && !$refund['ok'] ? ' ⚠ ' . $refund['message'] . ' You can retry the refund from the order page.' : ''),
+            'refund'  => $refund,
+            'dispute' => $dispute->fresh(),
+        ]);
     }
 }

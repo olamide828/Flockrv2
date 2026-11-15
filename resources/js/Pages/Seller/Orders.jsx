@@ -1,412 +1,325 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import axios from 'axios';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import ConfirmModal from '@/Components/Community/ConfirmModal';
 import { useToast } from '@/Components/Toast';
 import {
-    RiArrowRightSLine,
-    RiBox3Line,
-    RiCheckDoubleLine,
-    RiCheckLine,
-    RiCloseLine,
-    RiExternalLinkLine,
-    RiGiftLine,
-    RiLoader4Line,
-    RiMapPinLine,
-    RiMotorbikeLine,
-    RiRefreshLine,
-    RiSearchLine,
-    RiShieldCheckLine,
-    RiTimeLine,
-    RiTruckLine,
-    RiWallet3Line,
+    RiBox3Line, RiCheckLine, RiCloseLine, RiExternalLinkLine, RiGiftLine, RiLoader4Line,
+    RiMapPinLine, RiMotorbikeLine, RiSearchLine, RiShieldCheckLine, RiTimeLine, RiTruckLine, RiWallet3Line,
 } from 'react-icons/ri';
 
-// ── Status config ─────────────────────────────────────────────────────────────
 const S = {
-    pending:         { label: 'Pending',          color: '#EAB308', bg: 'rgba(234,179,8,0.08)'    },
-    paid:            { label: 'Pack Item',         color: '#3B82F6', bg: 'rgba(59,130,246,0.08)'  },
-    confirmed:       { label: 'Courier Coming',   color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)'  },
-    processing:      { label: 'Ready for Pickup', color: '#FF6B35', bg: 'rgba(255,107,53,0.08)'  },
-    ready_for_pickup:{ label: 'Ready for Pickup', color: '#FF6B35', bg: 'rgba(255,107,53,0.08)'  },
-    shipped:         { label: 'Picked Up',        color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)'  },
-    in_transit:      { label: 'In Transit',       color: '#6366F1', bg: 'rgba(99,102,241,0.08)'  },
-    delivered:       { label: 'Delivered',        color: '#10B981', bg: 'rgba(16,185,129,0.08)'  },
-    pickup_failed:   { label: 'Pickup Failed',    color: '#EF4444', bg: 'rgba(239,68,68,0.08)'   },
-    delivery_failed: { label: 'Delivery Failed',  color: '#EF4444', bg: 'rgba(239,68,68,0.08)'   },
-    returned:        { label: 'Returned',         color: '#9CA3AF', bg: 'rgba(156,163,175,0.08)' },
-    cancelled:       { label: 'Cancelled',        color: '#EF4444', bg: 'rgba(239,68,68,0.08)'   },
-    disputed:        { label: 'Disputed',         color: '#F59E0B', bg: 'rgba(245,158,11,0.08)'  },
-    refunded:        { label: 'Refunded',         color: '#9CA3AF', bg: 'rgba(156,163,175,0.08)' },
+    pending:          { label: 'Awaiting payment', color: '#EAB308' },
+    paid:             { label: 'Pack item',        color: '#3B82F6' },
+    confirmed:        { label: 'Courier coming',   color: '#8B5CF6' },
+    processing:       { label: 'Ready for pickup', color: '#FF6B35' },
+    ready_for_pickup: { label: 'Ready for pickup', color: '#FF6B35' },
+    shipped:          { label: 'Picked up',        color: '#8B5CF6' },
+    in_transit:       { label: 'In transit',       color: '#6366F1' },
+    delivered:        { label: 'Delivered',        color: '#10B981' },
+    pickup_failed:    { label: 'Pickup failed',    color: '#EF4444' },
+    delivery_failed:  { label: 'Delivery failed',  color: '#EF4444' },
+    returned:         { label: 'Returned',         color: '#9CA3AF' },
+    cancelled:        { label: 'Cancelled',        color: '#EF4444' },
+    disputed:         { label: 'Disputed',         color: '#F59E0B' },
+    refunded:         { label: 'Refunded',         color: '#9CA3AF' },
 };
 
-const TABS = [
-    { key: 'all',           label: 'All'       },
-    { key: 'paid',          label: 'To Pack'   },
-    { key: 'processing',    label: 'Ready'     },
-    { key: 'shipped',       label: 'In Transit'},
-    { key: 'delivered',     label: 'Delivered' },
-    { key: 'issues',        label: 'Issues'    },
-];
+const GROUPS = {
+    todo:      ['paid', 'confirmed', 'pickup_failed'],
+    transit:   ['processing', 'ready_for_pickup', 'shipped', 'in_transit'],
+    delivered: ['delivered'],
+    issues:    ['delivery_failed', 'disputed', 'returned', 'cancelled', 'refunded'],
+};
+const TABS = [['all', 'All'], ['todo', 'To do'], ['transit', 'On the way'], ['delivered', 'Delivered'], ['issues', 'Issues']];
+const STEPS = ['Paid', 'Packed', 'Picked up', 'Delivered', 'Paid out'];
 
-const ISSUE_STATUSES = ['pickup_failed', 'delivery_failed', 'disputed', 'returned'];
+const naira = n => '₦' + Number(n ?? 0).toLocaleString('en-NG');
+const fmt = d => d ? new Date(d).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+const parseAddr = raw => { if (!raw) return null; if (typeof raw === 'object') return raw; try { return JSON.parse(raw); } catch { return null; } };
+const earningOf = o => Number(o.seller_earning ?? Math.max(0, Number(o.subtotal ?? 0) - Number(o.platform_fee ?? 0)));
 
-function fmtDate(d) {
-    if (!d) return null;
-    return new Date(d).toLocaleDateString('en-NG', {
-        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    });
+// how far along the order is (0-4), -1 when it never got going
+function stepOf(o) {
+    if (o.escrow_released_at) return 4;
+    if (o.status === 'delivered') return 3;
+    if (['shipped', 'in_transit'].includes(o.status)) return 2;
+    if (['processing', 'ready_for_pickup'].includes(o.status)) return 1;
+    if (['paid', 'confirmed', 'pickup_failed'].includes(o.status)) return 0;
+    return -1;
 }
 
-function parseAddr(raw) {
-    if (!raw) return null;
-    if (typeof raw === 'object') return raw;
-    try { return JSON.parse(raw); } catch { return null; }
+// when will the money land?
+function payoutNote(o) {
+    if (o.escrow_released_at) return { tone: 'good', text: 'Released to your wallet ' + fmt(o.escrow_released_at) };
+    if (o.status === 'delivered') {
+        const at = o.delivered_at ? new Date(new Date(o.delivered_at).getTime() + 3 * 864e5) : null;
+        return { tone: 'warn', text: 'Held in escrow' + (at ? ' · auto-releases ' + fmt(at) + ' unless the buyer raises an issue' : '') };
+    }
+    if (['paid', 'confirmed', 'processing', 'ready_for_pickup', 'shipped', 'in_transit', 'pickup_failed'].includes(o.status))
+        return { tone: 'info', text: 'Held safely by Flockr until the buyer receives the item' };
+    if (o.status === 'disputed') return { tone: 'warn', text: 'On hold while the dispute is reviewed' };
+    if (['cancelled', 'refunded', 'returned'].includes(o.status)) return { tone: 'mute', text: 'No earnings — buyer was refunded' };
+    return null;
 }
 
-// ── Single order row ──────────────────────────────────────────────────────────
-function OrderRow({ order: init, showToast }) {
-    const [order,   setOrder]   = useState(init);
-    const [open,    setOpen]    = useState(false);
-    const [loading, setLoading] = useState(false);
-
-    const cfg     = S[order.status] ?? S.pending;
-    const addr    = parseAddr(order.shipping_address);
-    const earning = Math.max(0, Number(order.subtotal ?? 0) - Number(order.platform_fee ?? 0));
-    const isPaid  = ['paid', 'confirmed'].includes(order.status);
-    const isFail  = ISSUE_STATUSES.includes(order.status);
-    const isDone  = order.status === 'delivered';
-
-    const markReady = async () => {
-        if (!confirm('Confirm your item is packed and ready for courier pickup?')) return;
-        setLoading(true);
-        try {
-            await axios.patch('/api/orders/' + order.id + '/status', { status: 'processing' });
-            setOrder(o => ({ ...o, status: 'processing' }));
-            showToast('Marked ready! Courier dispatching shortly.', 'success');
-        } catch (e) {
-            showToast(e.response?.data?.message ?? 'Failed to update.', 'error');
-        } finally { setLoading(false); }
-    };
-
-    const reschedule = async () => {
-        setLoading(true);
-        try {
-            await axios.post('/api/orders/' + order.id + '/reschedule-pickup');
-            setOrder(o => ({ ...o, status: 'processing' }));
-            showToast('Pickup rescheduled.', 'success');
-        } catch (e) {
-            showToast(e.response?.data?.message ?? 'Failed.', 'error');
-        } finally { setLoading(false); }
-    };
-
+function Stepper({ step }) {
+    if (step < 0) return null;
     return (
-        <div style={{
-            borderRadius: 20,
-            overflow: 'hidden',
-            background: 'var(--flockr-card, #111)',
-            border: isPaid
-                ? '1px solid rgba(59,130,246,0.25)'
-                : isFail
-                    ? '1px solid rgba(239,68,68,0.25)'
-                    : isDone
-                        ? '1px solid rgba(16,185,129,0.15)'
-                        : '1px solid rgba(255,255,255,0.07)',
-            transition: 'border-color 0.2s',
-        }}>
-            {/* Action nudge */}
-            {isPaid && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: 'rgba(59,130,246,0.07)', borderBottom: '1px solid rgba(59,130,246,0.1)' }}>
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#3B82F6', flexShrink: 0, animation: 'blink 1.4s ease infinite' }} />
-                    <p style={{ margin: 0, color: '#3B82F6', fontSize: 12, fontWeight: 600 }}>Pack your item — tap to expand and mark ready for pickup</p>
+        <div className="so-steps">
+            {STEPS.map((l, i) => (
+                <div key={l} className={'so-step ' + (i <= step ? 'on' : '')}>
+                    <i />{i < STEPS.length - 1 && <b />}<span>{l}</span>
                 </div>
-            )}
-            {isFail && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: 'rgba(239,68,68,0.07)', borderBottom: '1px solid rgba(239,68,68,0.12)' }}>
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
-                    <p style={{ margin: 0, color: '#EF4444', fontSize: 12, fontWeight: 600 }}>{order.status === 'pickup_failed' ? 'Courier couldn\'t reach you — reschedule pickup' : S[order.status]?.label}</p>
-                </div>
-            )}
-
-            {/* Collapsed row */}
-            <div onClick={() => setOpen(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', cursor: 'pointer', userSelect: 'none' }}>
-                {/* Avatar + status dot */}
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <img
-                        src={order.buyer?.avatar_url ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(order.buyer?.name ?? 'B')}&background=161616&color=aaa&size=40`}
-                        alt=""
-                        style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', background: '#1a1a1a' }}
-                    />
-                    <span style={{ position: 'absolute', bottom: 1, right: 1, width: 10, height: 10, borderRadius: '50%', background: cfg.color, border: '2px solid #111', display: 'block' }} />
-                </div>
-
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{order.buyer?.name ?? 'Buyer'}</span>
-                        <span style={{
-                            padding: '2px 9px',
-                            borderRadius: 999,
-                            background: cfg.bg,
-                            color: cfg.color,
-                            fontSize: 10,
-                            fontWeight: 700,
-                            letterSpacing: '0.03em',
-                            border: `1px solid ${cfg.color}28`,
-                            flexShrink: 0,
-                        }}>{cfg.label}</span>
-                    </div>
-                    <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.28)', fontSize: 11, fontFamily: 'monospace' }}>
-                        {order.reference} · {fmtDate(order.created_at)}
-                    </p>
-                </div>
-
-                <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div>
-                        <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 16 }}>₦{Number(order.total ?? 0).toLocaleString()}</p>
-                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'right' }}>
-                            {order.items?.length ?? 1} item{(order.items?.length ?? 1) !== 1 ? 's' : ''}
-                        </p>
-                    </div>
-                    <RiArrowRightSLine size={16} color="rgba(255,255,255,0.2)" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s', marginLeft: 2 }} />
-                </div>
-            </div>
-
-            {/* Expanded */}
-            {open && (
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-
-                    {/* Items */}
-                    <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        {(order.items ?? []).map((item, i) => (
-                            <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                                <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: '#1a1a1a', flexShrink: 0, border: '1px solid rgba(255,255,255,0.06)' }}>
-                                    {item.product?.primary_image
-                                        ? <img src={item.product.primary_image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiGiftLine size={16} color="rgba(255,255,255,0.15)" /></div>
-                                    }
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.product_name}</p>
-                                    <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Qty {item.quantity} · ₦{Number(item.unit_price).toLocaleString()}</p>
-                                </div>
-                                <p style={{ margin: 0, color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>₦{Number(item.total).toLocaleString()}</p>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Delivery + courier */}
-                    {(addr || order.courier_name) && (
-                        <div style={{ display: 'grid', gridTemplateColumns: addr && order.courier_name ? '1fr 1fr' : '1fr', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            {addr && (
-                                <div style={{ padding: '12px 18px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
-                                        <RiMapPinLine size={11} color="rgba(255,107,53,0.7)" />
-                                        <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ship to</span>
-                                    </div>
-                                    <p style={{ margin: 0, color: '#fff', fontSize: 12, fontWeight: 600 }}>{addr.name}</p>
-                                    <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11, lineHeight: 1.5 }}>
-                                        {[addr.address, addr.city, addr.state].filter(Boolean).join(', ')}
-                                    </p>
-                                </div>
-                            )}
-                            {order.courier_name && (
-                                <div style={{ padding: '12px 18px', borderLeft: addr ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
-                                        <RiTruckLine size={11} color="rgba(139,92,246,0.7)" />
-                                        <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Courier</span>
-                                    </div>
-                                    <p style={{ margin: 0, color: '#fff', fontSize: 12, fontWeight: 600 }}>{order.courier_name}</p>
-                                    {order.tracking_number
-                                        ? <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11, fontFamily: 'monospace' }}>{order.tracking_number}</p>
-                                        : <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>Awaiting tracking #</p>
-                                    }
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Earnings pills */}
-                    <div style={{ padding: '12px 18px', display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        {[
-                            { k: 'Subtotal',   v: '₦' + Number(order.subtotal ?? 0).toLocaleString(),       c: 'rgba(255,255,255,0.45)' },
-                            { k: 'Flockr fee', v: '-₦' + Number(order.platform_fee ?? 0).toLocaleString(),  c: 'rgba(239,68,68,0.8)'   },
-                            { k: 'You earn',   v: '₦' + earning.toLocaleString(),                           c: '#10B981', bold: true    },
-                        ].map(r => (
-                            <div key={r.k} style={{ flex: 1, padding: '10px 8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, textAlign: 'center' }}>
-                                <p style={{ margin: '0 0 3px', color: 'rgba(255,255,255,0.25)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{r.k}</p>
-                                <p style={{ margin: 0, color: r.c, fontSize: r.bold ? 15 : 13, fontWeight: r.bold ? 800 : 500 }}>{r.v}</p>
-                            </div>
-                        ))}
-                    </div>
-                    {isDone && (
-                        <div style={{ padding: '8px 18px', background: 'rgba(16,185,129,0.05)', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <RiCheckDoubleLine size={13} color="#10B981" />
-                            <p style={{ margin: 0, color: 'rgba(16,185,129,0.7)', fontSize: 11 }}>Earnings released after delivery confirmation</p>
-                        </div>
-                    )}
-
-                    {/* Timestamps */}
-                    <div style={{ padding: '10px 18px 4px', display: 'flex', flexDirection: 'column', gap: 5, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        {[
-                            { l: 'Order placed',  v: fmtDate(order.created_at)   },
-                            { l: 'Paid',          v: fmtDate(order.paid_at)       },
-                            { l: 'Picked up',     v: fmtDate(order.shipped_at)    },
-                            { l: 'Delivered',     v: fmtDate(order.delivered_at)  },
-                        ].filter(r => r.v).map(row => (
-                            <div key={row.l} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>{row.l}</span>
-                                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{row.v}</span>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Actions */}
-                    <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {isPaid && (
-                            <button type="button" onClick={markReady} disabled={loading} style={{ width: '100%', padding: '14px', background: loading ? 'rgba(59,130,246,0.4)' : '#3B82F6', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                                {loading ? <><RiLoader4Line size={16} style={{ animation: 'spin 0.8s linear infinite' }} />Updating…</> : <><RiCheckLine size={16} />Mark Ready for Pickup</>}
-                            </button>
-                        )}
-                        {order.status === 'pickup_failed' && (
-                            <button type="button" onClick={reschedule} disabled={loading} style={{ width: '100%', padding: '14px', background: loading ? 'rgba(255,107,53,0.4)' : '#FF6B35', border: 'none', borderRadius: 14, color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                                {loading ? <><RiLoader4Line size={16} style={{ animation: 'spin 0.8s linear infinite' }} />Rescheduling…</> : <><RiMotorbikeLine size={16} />Reschedule Pickup</>}
-                            </button>
-                        )}
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                            <Link href={'/orders/' + order.id + '/tracking'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(139,92,246,0.07)', border: '1px solid rgba(139,92,246,0.18)', color: '#8B5CF6', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                                <RiTruckLine size={13} /> Track Delivery
-                            </Link>
-                            <Link href={'/orders/' + order.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                                <RiExternalLinkLine size={13} /> View Order
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            )}
+            ))}
         </div>
     );
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-export default function SellerOrders({ orders: raw = [] }) {
-    const { showToast, ToastComponent } = useToast();
+function OrderCard({ order: init, ask, showToast }) {
+    const [order, setOrder] = useState(init);
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
 
-    const orders = Array.isArray(raw) ? raw : (raw?.data ?? []);
-    const [tab,    setTab]    = useState('all');
-    const [search, setSearch] = useState('');
+    const cfg = S[order.status] ?? S.pending;
+    const addr = parseAddr(order.shipping_address);
+    const earn = earningOf(order);
+    const fee = Number(order.flockr_fee ?? order.platform_fee ?? 0);
+    const note = payoutNote(order);
+    const needsPack = ['paid', 'confirmed'].includes(order.status);
+    const pickupFailed = order.status === 'pickup_failed';
+    const issue = ['delivery_failed', 'pickup_failed', 'disputed'].includes(order.status);
+    const items = order.items ?? [];
 
-    // Counts per tab
-    const counts = orders.reduce((acc, o) => {
-        const k = ISSUE_STATUSES.includes(o.status) ? 'issues'
-                : ['confirmed', 'ready_for_pickup'].includes(o.status) ? 'processing'
-                : o.status === 'in_transit' ? 'shipped'
-                : o.status;
-        acc[k] = (acc[k] ?? 0) + 1;
-        return acc;
-    }, {});
+    const act = async (fn, okMsg) => {
+        setBusy(true);
+        try { await fn(); showToast(okMsg, 'success'); }
+        catch (e) { showToast(e.response?.data?.message ?? 'Something went wrong. Try again.', 'error'); }
+        finally { setBusy(false); }
+    };
 
-    const filtered = orders.filter(o => {
-        const groups = {
-            all:        null,
-            paid:       ['paid', 'confirmed'],
-            processing: ['processing', 'ready_for_pickup'],
-            shipped:    ['shipped', 'in_transit'],
-            delivered:  ['delivered'],
-            issues:     ISSUE_STATUSES,
-        };
-        const allowed = groups[tab];
-        return (!allowed || allowed.includes(o.status))
-            && (!search || o.reference.toLowerCase().includes(search.toLowerCase()) || (o.buyer?.name ?? '').toLowerCase().includes(search.toLowerCase()));
+    const markReady = () => ask({
+        title: 'Ready for pickup?',
+        message: 'Confirm the item is packed. A courier will be sent to collect it.',
+        confirmLabel: 'Yes, it\'s packed',
+        danger: false,
+        onConfirm: () => act(async () => {
+            await axios.patch('/api/orders/' + order.id + '/status', { status: 'processing' });
+            setOrder(o => ({ ...o, status: 'processing' }));
+        }, 'Marked ready. Courier dispatching shortly.'),
     });
 
-    // Summary stats
-    const earned  = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Math.max(0, Number(o.subtotal ?? 0) - Number(o.platform_fee ?? 0)), 0);
-    const toAct   = orders.filter(o => ['paid', 'confirmed', 'pickup_failed'].includes(o.status)).length;
-    const transit = orders.filter(o => ['shipped', 'in_transit', 'processing', 'ready_for_pickup'].includes(o.status)).length;
+    const reschedule = () => act(async () => {
+        await axios.post('/api/orders/' + order.id + '/reschedule-pickup');
+        setOrder(o => ({ ...o, status: 'processing' }));
+    }, 'Pickup rescheduled.');
+
+    return (
+        <article className={'so-card' + (needsPack ? ' hot' : '') + (issue ? ' bad' : '')}>
+            <button className="so-head" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+                <div className="so-thumb">
+                    {items[0]?.product?.primary_image
+                        ? <img src={items[0].product.primary_image} alt="" />
+                        : <RiGiftLine size={18} color="rgba(255,255,255,.2)" />}
+                    {items.length > 1 && <em>+{items.length - 1}</em>}
+                </div>
+                <div className="so-mid">
+                    <div className="so-title">{items[0]?.product_name ?? 'Order'}{items.length > 1 ? ` + ${items.length - 1} more` : ''}</div>
+                    <div className="so-sub">{order.buyer?.name ?? 'Buyer'} · {fmt(order.created_at)}</div>
+                    <span className="so-chip" style={{ color: cfg.color, borderColor: cfg.color + '40', background: cfg.color + '12' }}>{cfg.label}</span>
+                </div>
+                <div className="so-amt">
+                    <b>{naira(earn)}</b>
+                    <small>{order.escrow_released_at ? 'received' : 'you earn'}</small>
+                </div>
+            </button>
+
+            {needsPack && <div className="so-nudge"><i />Pack this item, then tap “Mark ready”.</div>}
+            {pickupFailed && <div className="so-nudge red"><i />The courier couldn’t collect. Reschedule the pickup.</div>}
+
+            {(needsPack || pickupFailed) && (
+                <div className="so-cta">
+                    {needsPack && <button className="so-btn blue" onClick={markReady} disabled={busy}>{busy ? <RiLoader4Line className="spin" size={16} /> : <RiCheckLine size={16} />} Mark ready for pickup</button>}
+                    {pickupFailed && <button className="so-btn orange" onClick={reschedule} disabled={busy}>{busy ? <RiLoader4Line className="spin" size={16} /> : <RiMotorbikeLine size={16} />} Reschedule pickup</button>}
+                </div>
+            )}
+
+            {open && (
+                <div className="so-body">
+                    <Stepper step={stepOf(order)} />
+
+                    {note && <div className={'so-note ' + note.tone}><RiWallet3Line size={14} />{note.text}</div>}
+
+                    <div className="so-sec">
+                        {items.map((it, i) => (
+                            <div key={i} className="so-item">
+                                <div className="so-thumb sm">{it.product?.primary_image ? <img src={it.product.primary_image} alt="" /> : <RiGiftLine size={14} color="rgba(255,255,255,.2)" />}</div>
+                                <div className="so-im"><b>{it.product_name}</b><small>Qty {it.quantity} · {naira(it.unit_price)}</small></div>
+                                <span>{naira(it.total)}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="so-money">
+                        <div><small>Item total</small><b>{naira(order.subtotal)}</b></div>
+                        <div><small>Flockr fee</small><b className="neg">-{naira(fee)}</b></div>
+                        <div><small>You earn</small><b className="pos">{naira(earn)}</b></div>
+                    </div>
+
+                    {(addr || order.courier_name) && (
+                        <div className="so-two">
+                            {addr && <div><small><RiMapPinLine size={11} /> Ship to</small><b>{addr.name}</b><p>{[addr.address, addr.city, addr.state].filter(Boolean).join(', ')}</p></div>}
+                            {order.courier_name && <div><small><RiTruckLine size={11} /> Courier</small><b>{order.courier_name}</b><p className="mono">{order.tracking_number ?? 'Awaiting tracking #'}</p></div>}
+                        </div>
+                    )}
+
+                    <div className="so-ref">Ref {order.reference}</div>
+
+                    <div className="so-links">
+                        <Link href={'/orders/' + order.id + '/tracking'}><RiTruckLine size={13} /> Track delivery</Link>
+                        <Link href={'/orders/' + order.id}><RiExternalLinkLine size={13} /> View order</Link>
+                    </div>
+                </div>
+            )}
+        </article>
+    );
+}
+
+export default function SellerOrders({ orders: raw = [], summary = {} }) {
+    const { showToast, ToastComponent } = useToast();
+    const orders = Array.isArray(raw) ? raw : (raw?.data ?? []);
+    const [tab, setTab] = useState('all');
+    const [q, setQ] = useState('');
+    const [dlg, setDlg] = useState(null);
+
+    const counts = useMemo(() => {
+        const c = { all: orders.length };
+        Object.entries(GROUPS).forEach(([k, st]) => { c[k] = orders.filter(o => st.includes(o.status)).length; });
+        return c;
+    }, [orders]);
+
+    const list = orders.filter(o => {
+        if (tab !== 'all' && !GROUPS[tab].includes(o.status)) return false;
+        if (!q) return true;
+        const t = q.toLowerCase();
+        return (o.reference ?? '').toLowerCase().includes(t) || (o.buyer?.name ?? '').toLowerCase().includes(t)
+            || (o.items ?? []).some(i => (i.product_name ?? '').toLowerCase().includes(t));
+    });
 
     return (
         <>
-            <Head title="My Orders" />
-            <div className="scroll-hidden h-screen overflow-y-auto" style={{ background: 'var(--flockr-black, #0a0a0a)' }}>
-
-                {/* Sticky header */}
-                <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(10,10,10,0.96)', backdropFilter: 'blur(24px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                    <div style={{ maxWidth: 720, margin: '0 auto', padding: '14px 20px 0' }}>
-
-                        {/* Top row */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                            <h1 style={{ margin: 0, color: '#fff', fontSize: 20, fontWeight: 800, fontFamily: 'var(--font-display, sans-serif)' }}>Orders</h1>
-
-                            {/* Mini stat chips */}
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                {[
-                                    { label: 'Earned',    value: '₦' + (earned >= 1000 ? (earned / 1000).toFixed(1) + 'k' : earned.toLocaleString()), color: '#10B981' },
-                                    { label: 'Action',    value: toAct,   color: toAct > 0 ? '#3B82F6' : 'rgba(255,255,255,0.3)' },
-                                    { label: 'In Transit',value: transit, color: transit > 0 ? '#8B5CF6' : 'rgba(255,255,255,0.3)' },
-                                ].map(s => (
-                                    <div key={s.label} style={{ textAlign: 'center', padding: '5px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10 }}>
-                                        <p style={{ margin: 0, color: s.color, fontWeight: 800, fontSize: 13 }}>{s.value}</p>
-                                        <p style={{ margin: 0, color: 'rgba(255,255,255,0.25)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</p>
-                                    </div>
-                                ))}
-                            </div>
+            <Head title="Orders" />
+            <div className="so-page scroll-hidden h-screen overflow-y-auto">
+                <div className="so-top">
+                    <div className="so-wrap">
+                        <h1>Orders</h1>
+                        <div className="so-sum">
+                            <div className={counts.todo ? 'hl' : ''}><b>{counts.todo}</b><small>To do</small></div>
+                            <div><b>{counts.transit}</b><small>On the way</small></div>
+                            <div><b className="amber">{naira(summary.in_escrow)}</b><small>In escrow</small></div>
+                            <div><b className="green">{naira(summary.released)}</b><small>Paid to wallet</small></div>
                         </div>
-
-                        {/* Search */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 1 }}>
-                            <RiSearchLine size={14} color="rgba(255,255,255,0.2)" />
-                            <input
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                placeholder="Search orders or buyers…"
-                                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontFamily: 'inherit' }}
-                            />
-                            {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.25)', display: 'flex' }}><RiCloseLine size={15} /></button>}
+                        <div className="so-search">
+                            <RiSearchLine size={15} />
+                            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search buyer, product or reference" />
+                            {q && <button onClick={() => setQ('')} aria-label="Clear"><RiCloseLine size={15} /></button>}
                         </div>
-                    </div>
-
-                    {/* Filter tabs */}
-                    <div style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
-                        <div style={{ display: 'flex', maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
-                            {TABS.map(t => {
-                                const n      = t.key === 'all' ? orders.length : (counts[t.key] ?? 0);
-                                const active = tab === t.key;
-                                return (
-                                    <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '11px 12px 9px', background: 'none', border: 'none', borderBottom: active ? '2px solid #FF6B35' : '2px solid transparent', color: active ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 13, fontWeight: active ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5, marginBottom: -1 }}>
-                                        {t.label}
-                                        {n > 0 && <span style={{ padding: '1px 6px', background: active ? '#FF6B35' : 'rgba(255,255,255,0.08)', borderRadius: 999, fontSize: 10, fontWeight: 700, color: active ? '#fff' : 'rgba(255,255,255,0.35)' }}>{n}</span>}
-                                    </button>
-                                );
-                            })}
+                        <div className="so-tabs">
+                            {TABS.map(([k, l]) => (
+                                <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+                                    {l}{counts[k] > 0 && <em>{counts[k]}</em>}
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </div>
 
-                {/* List */}
-                <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 20px 100px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {filtered.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '72px 0' }}>
-                            <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                                <RiBox3Line size={26} color="rgba(255,255,255,0.15)" />
-                            </div>
-                            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontWeight: 600, margin: '0 0 6px' }}>
-                                {search ? 'No matching orders' : tab === 'all' ? 'No orders yet' : 'Nothing here'}
-                            </p>
-                            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13, margin: 0 }}>
-                                {search ? 'Try a different search' : tab === 'all' ? 'Orders from buyers will appear here' : 'No orders in this category'}
-                            </p>
-                        </div>
-                    ) : filtered.map(o => (
-                        <OrderRow key={o.id} order={o} showToast={showToast} />
-                    ))}
+                <div className="so-wrap so-list">
+                    <div className="so-escrow-tip"><RiShieldCheckLine size={14} />Payment is held in escrow, then released to your wallet 3 days after delivery (or sooner when the buyer confirms).</div>
+                    {list.length === 0 ? (
+                        <div className="so-empty"><RiBox3Line size={28} /><b>{q ? 'No matching orders' : tab === 'all' ? 'No orders yet' : 'Nothing here'}</b><p>{q ? 'Try a different search.' : 'New orders will show up here.'}</p></div>
+                    ) : list.map(o => <OrderCard key={o.id} order={o} ask={setDlg} showToast={showToast} />)}
                 </div>
             </div>
 
+            {dlg && <ConfirmModal title={dlg.title} message={dlg.message} confirmLabel={dlg.confirmLabel} danger={dlg.danger} onConfirm={() => { const f = dlg.onConfirm; setDlg(null); f(); }} onClose={() => setDlg(null)} />}
             {ToastComponent}
-            <style>{'@keyframes spin{to{transform:rotate(360deg)}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}'}</style>
+            <style>{css}</style>
         </>
     );
 }
 
 SellerOrders.layout = page => <AppLayout>{page}</AppLayout>;
+
+const css = `
+.so-page{background:var(--flockr-black,#0a0a0a);color:#fff}
+.so-wrap{max-width:720px;margin:0 auto;padding:0 16px}
+.so-top{position:sticky;top:0;z-index:30;background:rgba(10,10,10,.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.07);padding-bottom:0}
+.so-top h1{margin:0;padding:16px 0 12px;font-size:22px;font-weight:800;font-family:var(--font-display,inherit)}
+.so-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.so-sum>div{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:9px 8px;text-align:center;min-width:0}
+.so-sum>div.hl{border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.08)}
+.so-sum b{display:block;font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.so-sum b.amber{color:#F5B93B}.so-sum b.green{color:#10B981}
+.so-sum small{display:block;margin-top:2px;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.35)}
+.so-search{display:flex;align-items:center;gap:9px;padding:9px 13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;color:rgba(255,255,255,.3)}
+.so-search input{flex:1;background:none;border:0;outline:0;color:#fff;font-size:13px;font-family:inherit;min-width:0}
+.so-search button{background:none;border:0;color:rgba(255,255,255,.4);cursor:pointer;display:flex}
+.so-tabs{display:flex;gap:6px;overflow-x:auto;padding:12px 0;scrollbar-width:none}
+.so-tabs button{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;border:1px solid rgba(255,255,255,.09);background:transparent;color:rgba(255,255,255,.5);font-size:12.5px;font-weight:600;cursor:pointer}
+.so-tabs button.on{background:#fff;color:#000;border-color:#fff}
+.so-tabs em{font-style:normal;font-size:10px;font-weight:800;opacity:.7}
+.so-list{padding-top:14px;padding-bottom:110px;display:flex;flex-direction:column;gap:10px}
+.so-escrow-tip{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;color:rgba(255,255,255,.5);background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:12px;padding:10px 12px}
+.so-escrow-tip svg{color:#10B981;flex-shrink:0;margin-top:2px}
+.so-card{background:#111;border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden}
+.so-card.hot{border-color:rgba(59,130,246,.35)}.so-card.bad{border-color:rgba(239,68,68,.3)}
+.so-head{all:unset;box-sizing:border-box;width:100%;display:flex;gap:12px;align-items:center;padding:14px;cursor:pointer}
+.so-thumb{position:relative;width:52px;height:52px;border-radius:12px;background:#1a1a1a;border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:visible}
+.so-thumb img{width:100%;height:100%;object-fit:cover;border-radius:12px}
+.so-thumb em{position:absolute;right:-6px;bottom:-6px;font-style:normal;font-size:10px;font-weight:800;background:#FF6B35;color:#fff;border-radius:999px;padding:1px 6px;border:2px solid #111}
+.so-thumb.sm{width:38px;height:38px;border-radius:9px}.so-thumb.sm img{border-radius:9px}
+.so-mid{flex:1;min-width:0}
+.so-title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.so-sub{font-size:11.5px;color:rgba(255,255,255,.38);margin:2px 0 6px}
+.so-chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid}
+.so-amt{text-align:right;flex-shrink:0}
+.so-amt b{display:block;font-size:16px;font-weight:800;color:#10B981}
+.so-amt small{font-size:10.5px;color:rgba(255,255,255,.35)}
+.so-nudge{display:flex;gap:9px;align-items:center;padding:9px 14px;font-size:12px;font-weight:600;color:#3B82F6;background:rgba(59,130,246,.07);border-top:1px solid rgba(59,130,246,.12)}
+.so-nudge.red{color:#EF4444;background:rgba(239,68,68,.07);border-color:rgba(239,68,68,.14)}
+.so-nudge i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:soblink 1.4s ease infinite}
+.so-cta{padding:10px 14px 14px}
+.so-btn{width:100%;display:flex;gap:8px;align-items:center;justify-content:center;padding:13px;border:0;border-radius:13px;color:#fff;font-size:14px;font-weight:700;cursor:pointer}
+.so-btn.blue{background:#3B82F6}.so-btn.orange{background:#FF6B35}.so-btn:disabled{opacity:.5;cursor:not-allowed}
+.so-body{border-top:1px solid rgba(255,255,255,.06);padding:14px;display:flex;flex-direction:column;gap:14px}
+.so-steps{display:flex}
+.so-step{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:9.5px;color:rgba(255,255,255,.3);text-align:center}
+.so-step i{width:11px;height:11px;border-radius:50%;background:#222;border:2px solid #333;z-index:1}
+.so-step b{position:absolute;top:5px;left:50%;width:100%;height:2px;background:#222}
+.so-step.on{color:rgba(255,255,255,.75)}.so-step.on i{background:#10B981;border-color:#10B981}.so-step.on b{background:#10B981}
+.so-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;padding:10px 12px;border-radius:12px;border:1px solid}
+.so-note svg{flex-shrink:0;margin-top:2px}
+.so-note.good{color:#10B981;background:rgba(16,185,129,.07);border-color:rgba(16,185,129,.2)}
+.so-note.warn{color:#F5B93B;background:rgba(245,185,59,.07);border-color:rgba(245,185,59,.2)}
+.so-note.info{color:#6aa3ee;background:rgba(57,135,229,.07);border-color:rgba(57,135,229,.2)}
+.so-note.mute{color:rgba(255,255,255,.5);background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)}
+.so-sec{display:flex;flex-direction:column;gap:10px}
+.so-item{display:flex;gap:11px;align-items:center;font-size:13px}
+.so-im{flex:1;min-width:0}.so-im b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.so-im small{color:rgba(255,255,255,.35);font-size:11.5px}
+.so-money{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.so-money>div{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px 6px;text-align:center}
+.so-money small{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.3);margin-bottom:3px}
+.so-money b{font-size:13.5px}.so-money .neg{color:#ef7a7a}.so-money .pos{color:#10B981;font-size:15px;font-weight:800}
+.so-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.so-two>div{background:rgba(255,255,255,.03);border-radius:12px;padding:10px 12px;min-width:0}
+.so-two small{display:flex;gap:4px;align-items:center;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.3);margin-bottom:5px}
+.so-two b{font-size:12.5px;display:block}.so-two p{margin:2px 0 0;font-size:11.5px;color:rgba(255,255,255,.4);line-height:1.45;word-break:break-word}.so-two .mono{font-family:monospace}
+@media(max-width:420px){.so-two{grid-template-columns:1fr}}
+.so-ref{font:11px monospace;color:rgba(255,255,255,.25)}
+.so-links{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.so-links a{display:flex;gap:6px;align-items:center;justify-content:center;padding:11px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.7);font-size:12.5px;font-weight:600;text-decoration:none}
+.so-empty{text-align:center;padding:70px 0;color:rgba(255,255,255,.25)}.so-empty b{display:block;margin-top:10px;color:rgba(255,255,255,.5);font-size:15px}.so-empty p{margin:4px 0 0;font-size:13px}
+.spin{animation:sospin .8s linear infinite}@keyframes sospin{to{transform:rotate(360deg)}}@keyframes soblink{50%{opacity:.3}}
+`;

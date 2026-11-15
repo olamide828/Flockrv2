@@ -1,4 +1,6 @@
-import { Head, Link } from '@inertiajs/react'
+import { Head } from '@inertiajs/react'
+import AdminShell from '@/Components/Admin/AdminShell'
+import { PageHeader, Tabs } from '@/Components/Admin/ui'
 import axios from 'axios'
 import { useCallback, useEffect, useState } from 'react'
 import ConfirmModal from '@/Components/Community/ConfirmModal'
@@ -47,19 +49,14 @@ export default function AdminMusic({ counts }) {
         catch (e) { say(e.response?.data?.message || 'Something went wrong'); return null }
     }
 
+    const tabs = TABS.map(([id, label]) => [id, label + (id === 'claims' && counts?.open_claims ? ` (${counts.open_claims})` : '') + (id === 'videos' && counts?.stuck_videos ? ` (${counts.stuck_videos})` : '')])
+
     return (
-        <div style={{ minHeight: '100dvh', background: '#0a0a0a', color: '#fff', fontFamily: 'DM Sans, sans-serif' }}>
+        <>
             <Head title="Music & copyright · Admin" />
-            <div style={{ maxWidth: 980, margin: '0 auto', padding: '20px 16px 60px' }}>
-                <Link href="/admin" style={{ ...mute, textDecoration: 'none' }}>← Admin</Link>
-                <h1 style={{ margin: '8px 0 14px', fontSize: 22, fontWeight: 800 }}>Music &amp; copyright</h1>
-                <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 14 }}>
-                    {TABS.map(([id, label]) => (
-                        <button key={id} onClick={() => setTab(id)} style={{ ...btn(tab === id ? '#fff' : 'rgba(255,255,255,0.07)', tab === id ? '#000' : '#fff'), whiteSpace: 'nowrap', padding: '9px 14px' }}>
-                            {label}{id === 'claims' && counts?.open_claims ? ` (${counts.open_claims})` : ''}{id === 'videos' && counts?.stuck_videos ? ` (${counts.stuck_videos})` : ''}
-                        </button>
-                    ))}
-                </div>
+            <PageHeader title="Music & copyright" sub="Claims, sounds, repeat sellers, stuck videos and system checks. Every takedown can be undone." />
+            <Tabs tabs={tabs} value={tab} onChange={setTab} />
+            <div style={{ maxWidth: 980 }}>
                 {msg && <div style={{ ...card, borderColor: 'rgba(255,107,53,0.4)', color: '#FFB08F', fontSize: 13 }}>{msg}</div>}
                 {tab === 'claims' && <Claims call={call} ask={ask} />}
                 {tab === 'submissions' && <Submissions call={call} ask={ask} />}
@@ -72,7 +69,7 @@ export default function AdminMusic({ counts }) {
                 {tab === 'system' && <System call={call} />}
             </div>
             {dialog && <Dialog cfg={dialog} onClose={() => setDialog(null)} />}
-        </div>
+        </>
     )
 }
 
@@ -341,3 +338,5 @@ function System({ call }) {
         </>
     )
 }
+
+AdminMusic.layout = (page) => <AdminShell>{page}</AdminShell>

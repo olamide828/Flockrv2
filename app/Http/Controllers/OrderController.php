@@ -45,8 +45,8 @@ class OrderController extends Controller
         $userId = Auth::id();
         abort_unless($order->buyer_id === $userId || $order->seller_id === $userId, 403);
 
-        $order->load(['seller', 'buyer', 'items.product', 'video:id,thumbnail_url', 'dispute.messages.user:id,name,username,avatar']);
-        return Inertia::render('Order/Show', ['order' => $order]);
+        $order->load(['video:id,thumbnail_url']);
+        return Inertia::render('Order/Show', ['order' => app(\App\Services\OrderTrackingService::class)->present($order)]);
     }
 
     public function success(Request $request): Response|\Illuminate\Http\RedirectResponse
@@ -80,16 +80,7 @@ class OrderController extends Controller
             return redirect()->route('orders.index');
         }
 
-        return Inertia::render('Order/Success', [
-    'order' => array_merge($order->toArray(), [
-        'formatted_total' => '₦' . number_format($order->total, 2),
-        'courier_name'    => $order->courier_name ?? $order->courier ?? null,
-        'tracking_number' => $order->tracking_number ?? null,
-        'courier_fee'     => (float) ($order->courier_fee > 0
-                                ? $order->courier_fee
-                                : $order->shipping_fee), 
-    ]),
-]);
+        return Inertia::render('Order/Success', ['order' => app(\App\Services\OrderTrackingService::class)->present($order)]);
     }
 
     // ── API ───────────────────────────────────────────────────────────────────
@@ -122,8 +113,9 @@ class OrderController extends Controller
 
     $qty = $validated['quantity'];
 
-    if ($product->stock_quantity < $qty) {
-        return response()->json(['message' => 'Not enough stock available.'], 422);
+    $stockSvc = app(\App\Services\StockReservationService::class);
+    if ($stockSvc->available($product->id) < $qty) {
+        return response()->json(['message' => 'Not enough stock available right now — another buyer may be checking out with the last units.'], 422);
     }
 
     // Apply an active event discount if this seller has joined one — computed
@@ -135,9 +127,10 @@ class OrderController extends Controller
 
     $courierFee          = (float) ($validated['courier_fee'] ?? $product->shipping_fee ?? 0);
     $deliveryPlatformFee = (float) ($validated['delivery_platform_fee'] ?? 0);
-    $feePercent = $product->seller->hasActiveSubscription()
-        ? config('flockr.pro_platform_fee_percent', 3)
-        : config('flockr.platform_fee_percent', 5);
+    $feePercent = $activeEvent?->event_fee_percent
+        ?? ($product->seller->hasActiveSubscription()
+            ? config('flockr.pro_platform_fee_percent', 3)
+            : config('flockr.platform_fee_percent', 5));
     $platformFee = round($subtotal * $feePercent / 100, 2);
     $total       = $subtotal + $courierFee + $deliveryPlatformFee;
 
@@ -156,16 +149,20 @@ class OrderController extends Controller
     if ($applicableCoupon) {
         $coupon         = $applicableCoupon;
         $couponDiscount = min((float) $coupon->amount, $total);
+        $couponDiscount = round($couponDiscount, 2);
         $sellerShare    = round($couponDiscount / 2, 2);
         $flockrShare    = $couponDiscount - $sellerShare;
         $platformFee    = max(0, $platformFee - $flockrShare);
         $total          = max(0, $total - $couponDiscount);
     }
 
+    $sellerEarning = max(0, round($subtotal - $couponDiscount - $platformFee, 2));
+
+    try {
     $order = DB::transaction(function () use (
         $product, $qty, $subtotal, $platformFee, $unitPrice,
         $activeEvent, $eventDiscountAmount,
-        $total, $coupon, $validated
+        $total, $coupon, $validated, $sellerEarning, $couponDiscount, $deliveryPlatformFee
     ) {
         $order = Order::create([
             'buyer_id'              => Auth::id(),
@@ -178,7 +175,11 @@ class OrderController extends Controller
             'terminal_rate_id'      => $validated['rate_id'] ?? null,
             'delivery_address_id'   => $validated['address_id'] ?? null,
             'platform_fee'          => $platformFee,
+            'seller_earning'        => $sellerEarning,
+            'flockr_fee'            => $deliveryPlatformFee,
+            'discount_amount'       => $couponDiscount,
             'total'                 => $total,
+            'payment_total'         => $total,
             'event_id'              => $activeEvent?->id,
             'event_discount_amount' => $eventDiscountAmount,
             'shipping_address'      => $validated['address_id']
@@ -200,8 +201,14 @@ class OrderController extends Controller
             $coupon->update(['used_on_order_id' => $order->id]);
         }
 
+        // Hold the stock for 30 minutes (locks the product row; throws if someone else got the last unit)
+        app(\App\Services\StockReservationService::class)->reserve($order, $product->id, $qty);
+
         return $order;
     });
+    } catch (\App\Exceptions\OutOfStockException $e) {
+        return response()->json(['message' => $e->getMessage()], 422);
+    }
 
     try {
         $payment = $this->paystack->initializeTransaction($order->load(['buyer', 'seller']));
@@ -234,21 +241,7 @@ public function tracking(Order $order): Response|\Illuminate\Http\RedirectRespon
         return redirect()->route('orders.index');
     }
 
-    $order->load([
-        'items.product:id,name,images,slug',
-        'seller:id,name,username,avatar',
-        'buyer:id,name,email',
-    ]);
-
-    return Inertia::render('Order/Tracking', [
-        'order' => array_merge($order->toArray(), [
-            'courier_name'    => $order->courier_name ?? $order->courier ?? null,
-            'tracking_number' => $order->tracking_number ?? null,
-            'courier_fee'     => (float) ($order->courier_fee > 0
-                                    ? $order->courier_fee
-                                    : $order->shipping_fee),
-        ]),
-    ]);
+    return Inertia::render('Order/Tracking', ['order' => app(\App\Services\OrderTrackingService::class)->present($order)]);
 }
 
 /**
@@ -269,6 +262,7 @@ public function getStatus(Order $order): JsonResponse
             'delivered_at'    => $order->delivered_at,
             'tracking_number' => $order->tracking_number,
             'courier_name'    => $order->courier_name ?? $order->courier,
+            'timeline'        => app(\App\Services\OrderTrackingService::class)->timeline($order),
         ],
     ]);
 }
@@ -283,17 +277,7 @@ public function getTrackingEvents(Order $order): JsonResponse
         return response()->json(['message' => 'Unauthorized.'], 403);
     }
 
-    if (!$order->terminal_shipment_id) {
-        return response()->json(['events' => []]);
-    }
-
-    try {
-        $terminal = app(\App\Services\TerminalService::class);
-        $events   = $terminal->trackShipment($order->terminal_shipment_id);
-        return response()->json(['events' => $events]);
-    } catch (\Throwable $e) {
-        return response()->json(['events' => []]);
-    }
+    return response()->json(['events' => app(\App\Services\OrderTrackingService::class)->timeline($order)]);
 }
 
     /**
@@ -311,30 +295,8 @@ public function getTrackingEvents(Order $order): JsonResponse
             $data  = $this->paystack->verifyTransaction($reference);
             $order = Order::where('reference', $reference)->firstOrFail();
 
-            if ($data['status'] === 'success' && $order->status === 'pending') {
-                $order->markAsPaid($reference, $data['id']);
-
-                try {
-                    $order->buyer->notify(new NewOrderNotification($order));
-                } catch (\Throwable $e) {
-                    Log::warning('Buyer notification failed in paystackCallback', ['error' => $e->getMessage()]);
-                }
-
-                $this->awardPurchaseBadges($order->buyer_id);
-
-                if ($order->checkout_batch_id) {
-                    $siblingOrders = Order::where('checkout_batch_id', $order->checkout_batch_id)
-                        ->where('id', '!=', $order->id)
-                        ->where('status', 'pending')
-                        ->get();
-
-                    foreach ($siblingOrders as $sibling) {
-                        $sibling->markAsPaid($reference, $data['id']);
-                        try {
-                            $sibling->buyer->notify(new NewOrderNotification($sibling));
-                        } catch (\Throwable) {}
-                    }
-                }
+            if (($data['status'] ?? null) === 'success') {
+                $this->settlePaidBatch($order, $reference, $data);
             }
 
             return redirect()->route('orders.success', ['reference' => $reference]);
@@ -363,26 +325,12 @@ public function getTrackingEvents(Order $order): JsonResponse
         $data  = $request->json('data');
 
         if ($event === 'charge.success') {
-            $primaryOrder = Order::where('reference', $data['reference'])->first();
+            $primaryOrder = Order::where('reference', $data['reference'] ?? '')->first();
 
-            if ($primaryOrder && $primaryOrder->status === 'pending') {
-    $primaryOrder->markAsPaid($data['reference'], $data['id']);
-
-    if ($primaryOrder->checkout_batch_id) {
-        $siblingOrders = Order::where('checkout_batch_id', $primaryOrder->checkout_batch_id)
-            ->where('id', '!=', $primaryOrder->id)
-            ->where('status', 'pending')
-            ->get();
-
-        foreach ($siblingOrders as $sibling) {
-            $sibling->markAsPaid($data['reference'], $data['id']);
-            try {
-                $sibling->buyer->notify(new NewOrderNotification($sibling));
-                    } catch (\Throwable) {}
-                }
+            if ($primaryOrder) {
+                $this->settlePaidBatch($primaryOrder, $data['reference'], $data);
             }
         }
-    }
 
         if ($event === 'transfer.success') {
             \App\Models\Payout::where('reference', $data['reference'])
@@ -393,16 +341,13 @@ public function getTrackingEvents(Order $order): JsonResponse
         if ($event === 'transfer.failed') {
             $payout = \App\Models\Payout::where('reference', $data['reference'])->first();
             if ($payout && $payout->status !== 'failed') {
-                $lastTx        = \App\Models\WalletTransaction::where('user_id', $payout->seller_id)->latest()->first();
-                $balanceBefore = $lastTx?->balance_after ?? 0;
-                \App\Models\WalletTransaction::create([
-                    'user_id'       => $payout->seller_id,
-                    'amount'        => $payout->amount,
-                    'type'          => 'credit',
-                    'source'        => 'payout_reversal',
-                    'description'   => 'Payout failed — funds returned to wallet',
-                    'balance_after' => $balanceBefore + $payout->amount,
-                ]);
+                app(\App\Services\WalletService::class)->post(
+                    userId: $payout->seller_id,
+                    type: 'credit',
+                    amount: (float) $payout->amount,
+                    source: 'payout_reversal',
+                    description: 'Payout failed — funds returned to wallet',
+                );
                 $payout->update(['status' => 'failed', 'failure_reason' => $data['reason'] ?? 'Transfer failed']);
             }
         }
@@ -422,26 +367,91 @@ public function cancel(Order $order, Request $request): JsonResponse
         return response()->json(['message' => 'This order cannot be cancelled.'], 422);
     }
 
-    DB::transaction(function () use ($order, $request) {
-        $order->update([
-            'status'              => 'cancelled',
-            'cancellation_reason' => $request->input('reason', 'Cancelled by buyer'),
-        ]);
+    // Once a courier has been booked the parcel may already be collected.
+    if ($order->terminal_shipment_id && in_array($order->status, ['processing', 'shipped'])) {
+        return response()->json(['message' => 'This order is already with a courier. Please open a dispute instead.'], 422);
+    }
 
-        // If the order had already been paid (canBeCancelled() allows
-        // cancelling a 'paid' order, not just 'pending'), the seller's
-        // wallet was already credited via markAsPaid(). Reverse that now —
-        // previously this silently let the seller keep funds for an order
-        // the buyer just cancelled.
-        $order->reverseSellerCredit("Order {$order->reference} cancelled by buyer");
+    $result = $this->cancelAndRefund($order, $request->input('reason', 'Cancelled by buyer'));
+
+    return response()->json(['message' => $result['paid']
+        ? ($result['refund_ok'] ? 'Order cancelled and your refund is on its way.' : 'Order cancelled. Your refund is being processed by our team.')
+        : 'Order cancelled.']);
+}
+
+/**
+ * Shared by buyer cancel, seller cancel and admin cancel: cancel, return coupon,
+ * take back seller money (only if it had been released), refund the buyer on Paystack.
+ *
+ * @return array{paid:bool,refund_ok:bool}
+ */
+public function cancelAndRefund(Order $order, string $reason): array
+{
+    $wasPaid = (bool) $order->paid_at;
+
+    DB::transaction(function () use ($order, $reason) {
+        $order->update(['status' => 'cancelled', 'cancellation_reason' => $reason]);
+        $order->reverseSellerCredit("Order {$order->reference} cancelled");
+
+        // Put the stock back for orders that had already been paid for.
+        if ($order->paid_at) {
+            foreach ($order->items as $item) {
+                \App\Models\Product::where('id', $item->product_id)
+                    ->update(['stock_quantity' => DB::raw('stock_quantity + ' . (int) $item->quantity)]);
+            }
+        }
     });
 
     Coupon::where('used_on_order_id', $order->id)
         ->whereNull('used_at')
         ->update(['used_on_order_id' => null]);
 
-    return response()->json(['message' => 'Order cancelled.']);
+    $refundOk = true;
+    if ($wasPaid) {
+        $refundOk = app(\App\Services\RefundService::class)->refund($order->fresh())['ok'];
+    }
+
+    return ['paid' => $wasPaid, 'refund_ok' => $refundOk];
 }
+
+/**
+ * Mark an order (and its checkout-batch siblings) paid, but only if the amount
+ * Paystack actually collected matches what we expected to charge.
+ */
+private function settlePaidBatch(Order $order, string $reference, array $data): void
+{
+    if ($order->status !== 'pending') {
+        return; // already handled by the other path (callback vs webhook)
+    }
+
+    $expected = (int) round(((float) ($order->payment_total ?: $order->total)) * 100);
+    $paid     = (int) ($data['amount'] ?? 0);
+    $currency = strtoupper($data['currency'] ?? 'NGN');
+
+    if ($paid < $expected || $currency !== 'NGN') {
+        Log::critical('Paystack amount mismatch — order NOT marked paid', [
+            'order' => $order->reference, 'expected_kobo' => $expected, 'paid_kobo' => $paid, 'currency' => $currency,
+        ]);
+        return;
+    }
+
+    $order->markAsPaid($reference, (string) $data['id']);
+
+    try { $order->buyer->notify(new NewOrderNotification($order)); } catch (\Throwable) {}
+    $this->awardPurchaseBadges($order->buyer_id);
+
+    if ($order->checkout_batch_id) {
+        Order::where('checkout_batch_id', $order->checkout_batch_id)
+            ->where('id', '!=', $order->id)
+            ->where('status', 'pending')
+            ->get()
+            ->each(function (Order $sibling) use ($reference, $data) {
+                $sibling->markAsPaid($reference, (string) $data['id']);
+                try { $sibling->buyer->notify(new NewOrderNotification($sibling)); } catch (\Throwable) {}
+            });
+    }
+}
+
     public function apiShow(Order $order): JsonResponse
     {
         $userId = Auth::id();
@@ -459,8 +469,17 @@ public function cancel(Order $order, Request $request): JsonResponse
     }
 
     $validated = $request->validate([
-        'status' => 'required|in:processing,shipped,delivered,cancelled',
+        'status' => 'required|in:processing,shipped,cancelled',
     ]);
+
+    // 'delivered' starts the escrow clock, so only the courier webhook (or an admin) may set it.
+    if ($validated['status'] === 'cancelled') {
+        if (!in_array($order->status, ['paid', 'confirmed', 'processing'])) {
+            return response()->json(['message' => 'This order can no longer be cancelled.'], 422);
+        }
+        $this->cancelAndRefund($order, 'Cancelled by seller');
+        return response()->json(['status' => 'cancelled']);
+    }
 
 
     if ($validated['status'] === 'processing' && !$order->terminal_shipment_id) {
@@ -534,6 +553,12 @@ public function cancel(Order $order, Request $request): JsonResponse
             ->with(['buyer', 'seller'])
             ->firstOrFail();
 
+        try {
+            app(\App\Services\StockReservationService::class)->ensureForOrder($order->load('items'));
+        } catch (\App\Exceptions\OutOfStockException $e) {
+            return response()->json(['message' => $e->getMessage() . ' Your order can no longer be completed.'], 422);
+        }
+
         $newReference = 'FLK_' . Str::upper(Str::random(16));
         $order->update(['reference' => $newReference]);
 
@@ -559,61 +584,6 @@ public function cancel(Order $order, Request $request): JsonResponse
 
     return response()->json(['message' => 'Thanks! The seller has been paid.']);
 }
-
-    public function openDispute(Request $request, Order $order): JsonResponse
-    {
-        if ($order->buyer_id !== Auth::id()) {
-        return response()->json(['message' => 'Unauthorized.'], 403);
-    }
-
-    $eligible = ['paid', 'confirmed', 'processing', 'shipped', 'delivered'];
-    if (!in_array($order->status, $eligible)) {
-        return response()->json([
-            'message' => 'You can only dispute a paid or in-progress order.',
-        ], 422);
-    }
-
-    if ($order->status === 'disputed') {
-        return response()->json(['message' => 'A dispute is already open for this order.'], 422);
-    }
-
-    // ESCROW: give a generous buffer beyond the 3-day auto-release window
-    // (so buyers who confirm late aren't locked out) but close disputes
-    // eventually — past this point funds are considered final.
-    if ($order->delivered_at && $order->delivered_at->diffInDays(now()) > 7) {
-        return response()->json([
-            'message' => 'The dispute window for this order has closed (7 days after delivery). Please contact support directly.',
-        ], 422);
-    }
-
-        $validated = $request->validate([
-            'reason'      => 'required|string|max:200',
-            'description' => 'nullable|string|max:1000',
-        ]);
-
-        $fullReason = $validated['reason']
-            . ($validated['description'] ? ': ' . $validated['description'] : '');
-
-        $order->update([
-            'status'              => 'disputed',
-            'cancellation_reason' => $fullReason,
-        ]);
-
-        \App\Models\Report::create([
-            'reporter_id' => Auth::id(),
-            'reported_id' => $order->seller_id,
-            'reason'      => "Order dispute ({$order->reference}): {$fullReason}",
-            'status'      => 'pending',
-        ]);
-
-        try {
-            $order->seller->notify(new \App\Notifications\NewOrderNotification($order));
-        } catch (\Throwable) {}
-
-        return response()->json([
-            'message' => 'Dispute submitted. Our team will review within 24–48 hours.',
-        ]);
-    }
 
     public function reschedulePickup(Order $order): JsonResponse
     {

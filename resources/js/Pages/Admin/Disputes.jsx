@@ -1,202 +1,151 @@
-import { useState } from 'react'
-import { Head, Link, router } from '@inertiajs/react'
+import { Head } from '@inertiajs/react'
 import axios from 'axios'
+import { useState } from 'react'
+import AdminShell from '@/Components/Admin/AdminShell'
 import {
-  RiGroupLine, RiVideoLine, RiShoppingBagLine, RiBankCardLine,
-  RiAlertLine, RiBarChartLine, RiArrowRightLine, RiLoader4Line, 
-} from 'react-icons/ri'
-import DisputeLightbox from "../Order/DisputeLightBox"
+  Btn, Card, DataTable, Drawer, Empty, ErrorBox, Grid, KV, PageHeader, Pager, Pill, SearchInput, Skeleton, Stat, StatGrid, StatusPill, Tabs, Toolbar, UserCell, useAdmin,
+} from '@/Components/Admin/ui'
+import { BarChart, Donut, SERIES } from '@/Components/Admin/charts'
+import { errMsg, fmtDate, naira, num, timeAgo, useAdminFetch, useAdminList } from '@/Components/Admin/lib'
 
-function AdminLayout({ children, active }) {
-  const links = [
-    { href: '/admin/dashboard', icon: RiBarChartLine,    label: 'Overview'  },
-    { href: '/admin/users',     icon: RiGroupLine,       label: 'Users'     },
-    { href: '/admin/videos',    icon: RiVideoLine,       label: 'Videos'    },
-    { href: '/admin/orders',    icon: RiShoppingBagLine, label: 'Orders'    },
-    { href: '/admin/payouts',   icon: RiBankCardLine,    label: 'Payouts'   },
-    { href: '/admin/reports',   icon: RiAlertLine,       label: 'Reports'   },
-    { href: '/admin/disputes',  icon: RiAlertLine,       label: 'Disputes'  },
-    { href: '/admin/analytics', icon: RiBarChartLine,    label: 'Analytics' },
-    { href: '/admin/events', icon: RiAlertLine, label: 'Events' },
-  ]
+const API = '/api/admin/disputes'
+const CLOSED = ['resolved_buyer', 'resolved_seller', 'closed']
+
+function Thread({ id, onChanged }) {
+  const { data, loading, error, reload } = useAdminFetch(`${API}/${id}`, {}, [id])
+  const { toast, confirm, refreshBadges } = useAdmin()
+  const [busy, setBusy] = useState(false)
+  if (loading && !data) return <Skeleton rows={7} />
+  if (error || !data) return <ErrorBox error={error || 'Dispute not found'} onRetry={reload} />
+  const d = data.dispute
+  const closed = CLOSED.includes(d.status)
+  const o = d.order
+
+  const run = async (fn, ok) => {
+    setBusy(true)
+    try { const r = await fn(); toast(r?.data?.message || ok); reload(); onChanged(); refreshBadges() } catch (e) { toast(errMsg(e), 'error') } finally { setBusy(false) }
+  }
+  const reply = async () => {
+    const v = await confirm({ title: 'Reply in this dispute', message: 'Both the buyer and seller can see admin replies.', confirmLabel: 'Send reply', danger: false, fields: [{ key: 'message', label: 'Message', multiline: true, required: true }] })
+    if (v) run(() => axios.post(`${API}/${id}/messages`, v), 'Reply sent')
+  }
+  const resolve = async () => {
+    const v = await confirm({
+      title: 'Resolve this dispute',
+      message: `Refund buyer: the order is marked refunded, the seller credit is reversed and ${naira(o?.total)} goes back through Paystack. Release to seller: escrow is released to the seller now. Both are final.`,
+      confirmLabel: 'Resolve dispute',
+      fields: [
+        { key: 'outcome', label: 'Outcome', value: 'refund_buyer', options: [{ value: 'refund_buyer', label: 'Refund the buyer' }, { value: 'release_seller', label: 'Release money to the seller' }] },
+        { key: 'resolution_note', label: 'Resolution note (sent to both parties)', multiline: true, required: true },
+      ],
+    })
+    if (v) run(() => axios.post(`${API}/${id}/resolve`, v), 'Dispute resolved')
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"DM Sans", sans-serif', display: 'flex' }}>
-      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)', padding: '24px 12px', display: 'flex', flexDirection: 'column', gap: 4, position: 'sticky', top: 0, height: '100vh' }}>
-        <div style={{ padding: '8px 14px 20px' }}>
-          <p style={{ margin: 0, color: '#FF6B35', fontWeight: 800, fontSize: 18 }}>Flockr</p>
-          <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Admin Panel</p>
-        </div>
-        {links.map(l => (
-          <Link key={l.href} href={l.href} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, textDecoration: 'none', background: active === l.href ? 'rgba(255,107,53,0.12)' : 'transparent', color: active === l.href ? '#FF6B35' : 'rgba(255,255,255,0.5)', fontWeight: active === l.href ? 600 : 400, fontSize: 14 }}>
-            <l.icon size={18} />{l.label}
-          </Link>
-        ))}
+    <div className="a-stack">
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <StatusPill status={d.status} />
+        {o?.refund_status && <Pill tone={{ succeeded: 'good', failed: 'bad' }[o.refund_status] || 'warn'}>Refund {o.refund_status}</Pill>}
+        {o && <a className="a-btn sm" href={`/admin/orders/${o.id}`}>Open order {o.reference}</a>}
       </div>
-      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '32px' }}>{children}</div>
+      {o?.refund_status === 'failed' && <div className="a-error"><span>{o.refund_error || 'The refund failed.'} Retry it from the order page.</span></div>}
+
+      <KV items={[
+        ['Reason', d.reason], ['Order total', o ? naira(o.total) : null], ['Opened', fmtDate(d.created_at, true)],
+        ['Order status', o?.status], ['Delivered', o?.delivered_at ? fmtDate(o.delivered_at) : null],
+        d.resolved_at && ['Resolved', `${fmtDate(d.resolved_at, true)}${d.resolvedBy || d.resolved_by ? ` by ${d.resolvedBy?.name ?? 'admin'}` : ''}`],
+        d.resolution_note && ['Resolution', d.resolution_note],
+      ]} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div><small className="a-mute">Buyer</small><UserCell user={d.buyer} sub={d.buyer?.email} /></div>
+        <div><small className="a-mute">Seller</small><UserCell user={d.seller} sub={d.seller?.email} /></div>
+      </div>
+
+      <h4 style={{ margin: '6px 0 0' }}>Conversation</h4>
+      {(d.messages ?? []).length === 0 ? <Empty title="No messages" /> : (d.messages ?? []).map((m) => {
+        const role = m.user?.role === 'admin' ? 'Admin' : m.user_id === d.buyer_id ? 'Buyer' : m.user_id === d.seller_id ? 'Seller' : 'User'
+        const att = Array.isArray(m.attachments) ? m.attachments.length : 0
+        return (
+          <div key={m.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', background: role === 'Admin' ? 'rgba(255,255,255,.04)' : 'transparent' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <b style={{ fontSize: 13 }}>{m.user?.name ?? 'User'} <Pill tone={role === 'Admin' ? 'violet' : role === 'Buyer' ? 'info' : 'mute'}>{role}</Pill></b>
+              <small className="a-mute">{timeAgo(m.created_at)}</small>
+            </div>
+            <p style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 13.5 }}>{m.message}</p>
+            {att > 0 && <small className="a-mute">{att} attachment{att === 1 ? '' : 's'} (photos or video)</small>}
+          </div>
+        )
+      })}
+
+      {!closed ? (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn kind="primary" busy={busy} onClick={reply}>Reply</Btn>
+          <Btn kind="danger" busy={busy} onClick={resolve}>Resolve…</Btn>
+        </div>
+      ) : <small className="a-mute">This dispute is closed.</small>}
     </div>
   )
 }
 
-const STATUS_CFG = {
-  open:            { label: 'Awaiting seller',  color: '#EAB308', bg: 'rgba(234,179,8,0.12)'   },
-  awaiting_admin:  { label: 'Needs review',     color: '#F59E0B', bg: 'rgba(245,158,11,0.12)'  },
-  resolved_buyer:  { label: 'Refunded',         color: '#3B82F6', bg: 'rgba(59,130,246,0.12)'  },
-  resolved_seller: { label: 'Seller paid',      color: '#10B981', bg: 'rgba(16,185,129,0.12)'  },
-  closed:          { label: 'Closed',           color: '#6B7280', bg: 'rgba(107,114,128,0.12)' },
-}
+export default function Disputes() {
+  const list = useAdminList(API, { search: '', status: 'open' })
+  const [sel, setSel] = useState(null)
+  const { counts = {} } = list.extra
+  const rows = list.rows
 
-export default function AdminDisputes() {
-  const [disputes, setDisputes] = useState(null)
-  const [loading,   setLoading]   = useState(true)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [detail,    setDetail]    = useState(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [note,      setNote]      = useState('')
-  const [resolving, setResolving] = useState(false)
-  const [lightbox, setLightbox] = useState(null)
-
-  const load = (status = statusFilter) => {
-    setLoading(true)
-    axios.get('/api/admin/disputes', { params: status ? { status } : {} })
-      .then(r => setDisputes(r.data))
-      .finally(() => setLoading(false))
-  }
-
-  useState(() => { load() }, [])
-
-  const openDetail = async (d) => {
-    setDetail({ ...d, messages: [] })
-    setDetailLoading(true)
-    try {
-      const { data } = await axios.get(`/api/disputes/${d.id}`)
-      setDetail(data)
-    } finally {
-      setDetailLoading(false)
-    }
-  }
-
-  const resolve = async (outcome) => {
-    if (!note.trim()) { alert('Please add a resolution note explaining the decision.'); return }
-    if (!confirm(`Resolve this dispute: ${outcome === 'refund_buyer' ? 'refund the buyer' : 'release funds to the seller'}?`)) return
-    setResolving(true)
-    try {
-      await axios.post(`/api/admin/disputes/${detail.id}/resolve`, { outcome, resolution_note: note })
-      setDetail(null)
-      setNote('')
-      load()
-    } catch (e) {
-      alert(e.response?.data?.message ?? 'Failed to resolve.')
-    } finally {
-      setResolving(false)
-    }
-  }
-
-  const list = disputes?.data ?? []
+  const reasons = Object.entries(rows.reduce((a, d) => { const k = (d.reason || 'Other').slice(0, 28); a[k] = (a[k] || 0) + 1; return a }, {}))
+    .sort((a, b) => b[1] - a[1]).slice(0, 6).map(([label, value], i) => ({ label, value, color: SERIES[i % SERIES.length] }))
+  const awaiting = rows.filter((d) => d.status === 'awaiting_admin').length
 
   return (
-    <AdminLayout active="/admin/disputes">
-      <Head title="Admin · Disputes" />
+    <>
+      <Head title="Disputes · Admin" />
+      <PageHeader title="Disputes" sub="Buyer and seller disagreements. Read the thread, reply, then refund the buyer or release money to the seller." />
 
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Disputes</h1>
-        <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>{disputes?.total ?? 0} total</p>
-      </div>
+      <StatGrid>
+        <Stat label="Open" value={num(counts.open)} tone={counts.open ? 'warn' : undefined} onClick={() => list.setParam('status', 'open')} />
+        <Stat label="Waiting on you" value={num(awaiting)} sub="On this page" tone={awaiting ? 'bad' : undefined} onClick={() => list.setParam('status', 'awaiting_admin')} />
+        <Stat label="Resolved" value={num(counts.resolved)} />
+        <Stat label="All time" value={num(counts.all)} onClick={() => list.setParam('status', 'all')} />
+      </StatGrid>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {[['', 'All'], ['open', 'Awaiting seller'], ['awaiting_admin', 'Needs review'], ['resolved_buyer', 'Refunded'], ['resolved_seller', 'Seller paid']].map(([v, l]) => (
-          <button key={v} onClick={() => { setStatusFilter(v); load(v) }} style={{ padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: statusFilter === v ? '#FF6B35' : 'rgba(255,255,255,0.04)', color: statusFilter === v ? '#fff' : 'rgba(255,255,255,0.5)', fontWeight: statusFilter === v ? 700 : 400, fontSize: 13, cursor: 'pointer' }}>
-            {l}
-          </button>
-        ))}
-      </div>
+      <Grid cols={2}>
+        <Card title="Open vs resolved">
+          <Donut valueFormat={num} center={{ value: num(counts.all), label: 'Disputes' }} data={[
+            { label: 'Open', value: counts.open ?? 0, color: SERIES[3] }, { label: 'Resolved', value: counts.resolved ?? 0, color: SERIES[2] },
+          ]} />
+        </Card>
+        <Card title="Top reasons" sub="In the current list">
+          <BarChart horizontal data={reasons} valueFormat={num} />
+        </Card>
+      </Grid>
 
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-          <RiLoader4Line size={28} color="rgba(255,255,255,0.3)" style={{ animation: 'spin 0.8s linear infinite' }} />
-        </div>
-      ) : (
-        <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 20, overflow: 'hidden' }}>
-          {list.map((d, i) => {
-            const cfg = STATUS_CFG[d.status] ?? STATUS_CFG.open
-            return (
-              <div key={d.id} onClick={() => openDetail(d)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', borderBottom: i < list.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', cursor: 'pointer' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, color: '#fff', fontSize: 13, fontWeight: 700 }}>{d.order?.reference} — {d.reason}</p>
-                  <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>@{d.buyer?.username} vs @{d.seller?.username}</p>
-                </div>
-                <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-                <RiArrowRightLine size={16} color="rgba(255,255,255,0.2)" />
-              </div>
-            )
-          })}
-          {list.length === 0 && <p style={{ textAlign: 'center', padding: '48px', color: 'rgba(255,255,255,0.3)' }}>No disputes.</p>}
-        </div>
-      )}
+      <Tabs tabs={[['open', 'Open', counts.open], ['awaiting_admin', 'Waiting on admin'], ['awaiting_seller', 'Waiting on seller'], ['resolved_buyer', 'Buyer won'], ['resolved_seller', 'Seller won'], ['all', 'All']]}
+        value={list.params.status} onChange={(v) => list.setParam('status', v)} />
+      <Toolbar><SearchInput value={list.params.search} onChange={(v) => list.setParam('search', v)} placeholder="Order reference, buyer or seller…" /></Toolbar>
 
-      {detail && (
-        <>
-          <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.7)' }} />
-          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 460, zIndex: 101, background: '#111', borderLeft: '1px solid rgba(255,255,255,0.08)', overflowY: 'auto', padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Dispute #{detail.id}</h3>
-              <button onClick={() => setDetail(null)} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', color: '#fff' }}>✕</button>
-            </div>
+      <Card pad={false}>
+        <DataTable
+          {...list} onRetry={list.reload} onRowClick={(d) => setSel(d.id)}
+          empty={<Empty title="No disputes here" sub="Good news, or try another tab." />}
+          columns={[
+            { key: 'order', label: 'Order', mobile: 'title', render: (d) => <><b style={{ fontFamily: 'monospace' }}>{d.order?.reference ?? `#${d.order_id}`}</b><br /><small className="a-mute">{d.reason}</small></> },
+            { key: 'buyer', label: 'Buyer', render: (d) => <UserCell user={d.buyer} sub={null} /> },
+            { key: 'seller', label: 'Seller', render: (d) => <UserCell user={d.seller} sub={null} /> },
+            { key: 'total', label: 'Amount', align: 'right', render: (d) => d.order ? naira(d.order.total) : '—' },
+            { key: 'status', label: 'Status', render: (d) => <StatusPill status={d.status} /> },
+            { key: 'messages_count', label: 'Msgs', align: 'right', mobile: 'hide' },
+            { key: 'created_at', label: 'Opened', render: (d) => timeAgo(d.created_at) },
+          ]}
+        />
+        <Pager meta={list.meta} onPage={list.setPage} />
+      </Card>
 
-            {detailLoading ? (
-              <p style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '30px 0' }}>Loading…</p>
-            ) : (
-              <>
-                <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}>
-                  <p style={{ margin: 0, fontSize: 13, color: '#fff' }}>Order {detail.order?.reference} · ₦{Number(detail.order?.total).toLocaleString()}</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Buyer @{detail.buyer?.username} vs Seller @{detail.seller?.username}</p>
-                </div>
-
-                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 8px' }}>Thread</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-                  {detail.messages?.map(m => (
-                    <div key={m.id} style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
-                      <p style={{ margin: '0 0 4px', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                        {m.user_id === detail.buyer_id ? 'Buyer' : m.user_id === detail.seller_id ? 'Seller' : 'Admin'} · {new Date(m.created_at).toLocaleString()}
-                      </p>
-                      <p style={{ margin: 0, fontSize: 13, color: '#fff' }}>{m.message}</p>
-                      {m.attachment_urls?.length > 0 && (
-  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-    {m.attachment_urls.map((att, i) => (
-      <button key={i} onClick={() => setLightbox({ items: m.attachment_urls, idx: i })} style={{ width: 64, height: 64, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', padding: 0, cursor: 'zoom-in', background: '#1a1a1a', position: 'relative', overflow: 'hidden' }}>
-        {att.type === 'video'
-          ? <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={20} color="rgba(255,255,255,0.5)" /></div>
-          : <img src={att.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        }
-      </button>
-    ))}
-  </div>
-)}
-                    </div>
-                  ))}
-                </div>
-
-                {!['resolved_buyer', 'resolved_seller', 'closed'].includes(detail.status) && (
-                  <>
-                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 8px' }}>Resolution note (required)</p>
-                    <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="Explain your decision — this is visible to both parties."
-                      style={{ width: '100%', padding: '11px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: '#fff', fontSize: 13, outline: 'none', resize: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <button onClick={() => resolve('refund_buyer')} disabled={resolving} style={{ padding: '12px', borderRadius: 12, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', color: '#3B82F6', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-                        Refund Buyer
-                      </button>
-                      <button onClick={() => resolve('release_seller')} disabled={resolving} style={{ padding: '12px', borderRadius: 12, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10B981', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-                        Release to Seller
-                      </button>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-            {lightbox && <DisputeLightbox items={lightbox.items} startIdx={lightbox.idx} onClose={() => setLightbox(null)} />}
-          </div>
-        </>
-      )}
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </AdminLayout>
+      <Drawer open={!!sel} onClose={() => setSel(null)} title={`Dispute #${sel ?? ''}`} width={600}>
+        {sel && <Thread id={sel} onChanged={list.reload} />}
+      </Drawer>
+    </>
   )
 }
+Disputes.layout = (page) => <AdminShell>{page}</AdminShell>

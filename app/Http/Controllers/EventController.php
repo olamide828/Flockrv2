@@ -248,8 +248,56 @@ public function adminUploadBanner(Request $request): JsonResponse
 
 public function adminEnd(Event $event): JsonResponse
 {
-    $event->update(['status' => 'ended', 'ends_at' => now()]);
-    return response()->json($event);
+    $event->update(['ends_at' => now()]);
+    app(\App\Services\EventService::class)->finalize($event->fresh());   // results + champion, same as the auto-end
+    return response()->json($event->fresh());
+}
+
+/** GET /api/admin/events/{event}/results — standings (live while running, frozen once ended). */
+public function adminResults(Event $event): JsonResponse
+{
+    $rows = app(\App\Services\EventService::class)->standings($event)->map(fn ($r) => [
+        'seller_id' => $r['seller_id'], 'seller' => $r['seller'], 'discount_percent' => $r['discount_percent'],
+        'orders_count' => $r['orders_count'], 'revenue' => $r['revenue'], 'rank' => $r['rank'],
+    ]);
+    return response()->json(['event' => $event->loadCount('participants'), 'rows' => $rows]);
+}
+
+/** GET /api/events/{event}/my-results — the logged-in seller's own results for an event they joined. */
+public function myResults(Event $event): JsonResponse
+{
+    $mine = $event->participants()->where('seller_id', Auth::id())->first();
+    abort_unless($mine, 404);
+
+    $svc = app(\App\Services\EventService::class);
+    $standings = $svc->standings($event);
+    $me = $standings->firstWhere('seller_id', Auth::id());
+
+    return response()->json([
+        'event' => ['id' => $event->id, 'title' => $event->title, 'starts_at' => $event->starts_at, 'ends_at' => $event->ends_at, 'status' => $event->status, 'theme_color' => $event->theme_color, 'banner_image' => $event->banner_image],
+        'final' => $event->status === 'ended',
+        'me' => $me ? ['orders_count' => $me['orders_count'], 'revenue' => $me['revenue'], 'rank' => $me['rank'], 'total_sellers' => $me['total_sellers'], 'discount_percent' => $me['discount_percent']] : null,
+        'top' => $standings->take(5)->map(fn ($r) => [
+            'rank' => $r['rank'], 'name' => $r['seller']?->name, 'username' => $r['seller']?->username,
+            'orders_count' => $r['orders_count'], 'is_me' => $r['seller_id'] === Auth::id(),
+        ])->values(),
+        'champion' => $event->status === 'ended' && $standings->first() && $standings->first()['seller_id'] === Auth::id() && $standings->first()['revenue'] > 0,
+    ]);
+}
+
+/** GET /api/events/{event}/hunt-progress — the buyer's scavenger-hunt progress. */
+public function huntProgress(Event $event): JsonResponse
+{
+    return response()->json(['progress' => app(\App\Services\EventService::class)->huntProgress($event, Auth::id())]);
+}
+
+/** GET /api/events/hunts — progress for every live event that has a hunt (powers the floating progress pill). */
+public function activeHunts(): JsonResponse
+{
+    $svc = app(\App\Services\EventService::class);
+    $list = Event::currentlyActive()->whereNotNull('scavenger_hunt_target')->get()
+        ->map(fn ($e) => $svc->huntProgress($e, Auth::id()))->filter()->values();
+    return response()->json(['hunts' => $list]);
 }
 
 }

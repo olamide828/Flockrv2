@@ -24,6 +24,8 @@ class Order extends Model
     'shipped_at', 'delivered_at', 'last_rating_reminder_at',
     'cancellation_reason', 'delivery_address_id', 'courier_name', 'courier_fee', 'terminal_rate_id',
     'terminal_shipment_id', 'escrow_released_at', 'checkout_batch_id', 'event_id', 'event_discount_amount',
+    'seller_earning', 'flockr_fee', 'discount_amount', 'payment_total',
+    'refund_status', 'refund_error', 'refunded_at',
 ];
 
     protected $casts = [
@@ -35,6 +37,10 @@ class Order extends Model
         'paid_at'                 => 'datetime',
         'shipped_at'              => 'datetime',
         'delivered_at'            => 'datetime',
+        'refunded_at'             => 'datetime',
+        'seller_earning'          => 'decimal:2',
+        'payment_total'           => 'decimal:2',
+        'escrow_released_at'      => 'datetime',
         'last_rating_reminder_at' => 'datetime',
     ];
 
@@ -44,6 +50,18 @@ class Order extends Model
         static::creating(function (Order $order) {
             if (empty($order->reference)) {
                 $order->reference = 'FLK-' . now()->format('Ymd') . '-' . strtoupper(Str::random(6));
+            }
+        });
+
+        // Flockr-side milestones for the tracking timeline (courier milestones come from Terminal's webhook).
+        static::updated(function (Order $order) {
+            if (!$order->wasChanged('status')) return;
+            if ($order->status !== 'pending') {
+                try { app(\App\Services\StockReservationService::class)->release($order->id); } catch (\Throwable) {}
+            }
+            $event = ['paid' => 'order.paid', 'processing' => 'order.packed', 'cancelled' => 'order.cancelled'][$order->status] ?? null;
+            if ($event) {
+                app(\App\Services\OrderTrackingService::class)->log($order, $event, 'flockr', $event === 'order.paid' ? ($order->paid_at ?? now()) : now());
             }
         });
     }
@@ -92,6 +110,23 @@ class Order extends Model
         return $query->where('status', 'paid');
     }
 
+    /** Orders that earned real revenue: paid, and not cancelled/refunded. */
+    public function scopeRevenue($query)
+    {
+        return $query->whereNotNull('paid_at')->whereNotIn('status', ['cancelled', 'refunded', 'pending']);
+    }
+
+    /**
+     * Money Flockr is holding for a seller: paid, still in play (not cancelled/refunded),
+     * and not yet released to their wallet.
+     */
+    public function scopeInEscrow($query)
+    {
+        return $query->whereNotNull('paid_at')
+            ->whereNull('escrow_released_at')
+            ->whereIn('status', ['paid', 'confirmed', 'processing', 'shipped', 'delivered', 'disputed']);
+    }
+
     public function scopeForSeller($query, int $sellerId)
     {
         return $query->where('seller_id', $sellerId);
@@ -110,6 +145,13 @@ class Order extends Model
 
         DB::transaction(function () use ($paystackReference, $transactionId) {
 
+            // Callback + webhook can arrive together. Lock the row and re-check, so
+            // stock is only ever decremented once.
+            $fresh = static::whereKey($this->id)->lockForUpdate()->first();
+            if (!$fresh || $fresh->status !== 'pending') {
+                return;
+            }
+
             // 1. Mark order as paid
             $this->update([
                 'status'                  => 'paid',
@@ -125,12 +167,30 @@ class Order extends Model
             foreach ($this->items as $item) {
                 if (!$item->product) continue;
 
-                Product::where('id', $item->product_id)
-                    ->where('stock_quantity', '>=', $item->quantity)
+                $qty = (int) $item->quantity;
+                $updated = Product::where('id', $item->product_id)
+                    ->where('stock_quantity', '>=', $qty)
                     ->update([
-                        'stock_quantity' => DB::raw("GREATEST(stock_quantity - {$item->quantity}, 0)"),
+                        'stock_quantity' => DB::raw("stock_quantity - {$qty}"),
                         'orders_count'   => DB::raw('orders_count + 1'),
                     ]);
+
+                if (!$updated) {
+                    // Paid for something that just sold out. Money is taken, so don't hide it:
+                    // log loudly so it shows up for admin to refund or restock.
+                    Log::critical('OVERSOLD: paid order item had no stock', [
+                        'order' => $this->reference, 'product_id' => $item->product_id, 'qty' => $qty,
+                    ]);
+                    Product::where('id', $item->product_id)->increment('orders_count');
+                }
+
+                if ($updated) {
+                    $left = (int) Product::whereKey($item->product_id)->value('stock_quantity');
+                    if ($left <= 0) {
+                        try { $item->product->seller?->notify(new \App\Notifications\ProductSoldOutNotification($item->product)); }
+                        catch (\Throwable $e) { Log::warning('sold-out notify failed: ' . $e->getMessage()); }
+                    }
+                }
 
                 Log::info('Stock decremented', [
                     'product_id' => $item->product_id,
@@ -167,71 +227,72 @@ class Order extends Model
     }
 
     /**
- * Reverse the wallet credit the seller received when this order was paid.
- * Call this any time a PAID order transitions to a state where the seller
- * should no longer keep the funds (refund, post-payment cancellation).
- * Safe to call even if the order was never paid — it's a no-op then.
+ * What this seller is owed for the order: item subtotal minus coupon share minus
+ * platform fee. Courier cost and Flockr's delivery fee are NEVER the seller's money.
  */
-public function reverseSellerCredit(string $reason): void
+public function sellerAmount(): float
 {
-    if (!$this->paid_at) {
-        return; // never credited in the first place — nothing to reverse
+    if ($this->seller_earning !== null) {
+        return max(0, (float) $this->seller_earning);
     }
-
-    // Guard against double-reversal if this is somehow called twice
-    $alreadyReversed = \App\Models\WalletTransaction::where('user_id', $this->seller_id)
-        ->where('order_id', $this->id)
-        ->where('source', 'refund')
-        ->exists();
-
-    if ($alreadyReversed) {
-        return;
-    }
-
-    $sellerAmount = $this->total - $this->platform_fee;
-    $lastTx = \App\Models\WalletTransaction::where('user_id', $this->seller_id)->latest('id')->first();
-    $balanceBefore = $lastTx?->balance_after ?? 0;
-
-    \App\Models\WalletTransaction::create([
-        'user_id'       => $this->seller_id,
-        'amount'        => $sellerAmount,
-        'type'          => 'debit',
-        'source'        => 'refund',
-        'order_id'      => $this->id,
-        'description'   => $reason,
-        'balance_after' => $balanceBefore - $sellerAmount,
-    ]);
+    return max(0, (float) $this->subtotal - (float) $this->platform_fee);
 }
 
 /**
- * Release escrowed funds to the seller's wallet.
- * Only fires for delivered orders that haven't already been released.
- * A dispute changes order status away from 'delivered', which naturally
- * excludes the order from the auto-release job — no extra check needed there.
+ * Take back the seller's money for an order that is being refunded/cancelled.
+ * Only does anything if escrow was ALREADY released into their wallet; before
+ * release the seller never received anything, so there is nothing to take back.
  */
-public function releaseEscrow(string $reason = 'Escrow window cleared'): void
+public function reverseSellerCredit(string $reason): void
 {
-    if ($this->status !== 'delivered' || $this->escrow_released_at) {
+    if (!$this->escrow_released_at) {
         return;
     }
 
+    $wallet = app(\App\Services\WalletService::class);
+
+    try {
+        // unique(order_id, source) makes a second reversal impossible.
+        $wallet->post(
+            userId: $this->seller_id,
+            type: 'debit',
+            amount: $this->sellerAmount(),
+            source: 'refund',
+            orderId: $this->id,
+            description: $reason,
+            allowNegative: true, // seller may already have withdrawn it: admin sees the negative balance
+        );
+    } catch (\Illuminate\Database\QueryException $e) {
+        Log::info("Seller credit already reversed for order {$this->reference}");
+    }
+}
+
+/**
+ * Release escrowed funds to the seller's wallet (delivered orders only, once).
+ */
+public function releaseEscrow(string $reason = 'Escrow window cleared'): void
+{
     DB::transaction(function () use ($reason) {
-        $sellerAmount  = $this->total - $this->platform_fee;
-        $lastTx        = WalletTransaction::where('user_id', $this->seller_id)->latest('id')->first();
-        $balanceBefore = $lastTx?->balance_after ?? 0;
+        $fresh = static::whereKey($this->id)->lockForUpdate()->first();
+        if (!$fresh || $fresh->status !== 'delivered' || $fresh->escrow_released_at) {
+            return;
+        }
 
-        WalletTransaction::create([
-            'user_id'       => $this->seller_id,
-            'amount'        => $sellerAmount,
-            'type'          => 'credit',
-            'source'        => 'sale',
-            'order_id'      => $this->id,
-            'description'   => "Sale from order {$this->reference} — {$reason}",
-            'balance_after' => $balanceBefore + $sellerAmount,
-        ]);
+        $amount = $this->sellerAmount();
 
-        if (in_array('revenue_total', $this->seller->getFillable())) {
-            $this->seller->increment('revenue_total', $sellerAmount);
+        if ($amount > 0) {
+            app(\App\Services\WalletService::class)->post(
+                userId: $this->seller_id,
+                type: 'credit',
+                amount: $amount,
+                source: 'sale',
+                orderId: $this->id,
+                description: "Sale from order {$this->reference} — {$reason}",
+            );
+
+            if (in_array('revenue_total', $this->seller->getFillable())) {
+                $this->seller->increment('revenue_total', $amount);
+            }
         }
 
         $this->update(['escrow_released_at' => now()]);

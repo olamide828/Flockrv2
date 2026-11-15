@@ -172,9 +172,10 @@ class PaystackService
      * Initialize a payment transaction.
      * Returns authorization_url, access_code, reference.
      */
-    public function initializeTransaction(Order $order): array
+    public function initializeTransaction(Order $order, ?float $amountNaira = null): array
 {
-    $amountKobo  = (int) round($order->total * 100);
+    // Multi-seller carts pass the whole batch amount; single orders charge their own total.
+    $amountKobo  = (int) round(($amountNaira ?? ($order->payment_total ?: $order->total)) * 100);
     $callbackUrl = route('orders.callback');
 
     $payload = [

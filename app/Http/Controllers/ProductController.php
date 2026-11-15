@@ -23,7 +23,32 @@ use Inertia\Response;
 class ProductController extends Controller
 {
 
-    private const COMMISSION_RATE = 0.05;
+    /**
+     * Commission is taken OUT of the seller's listed price. The buyer pays exactly the
+     * listed price; the seller receives price minus Flockr's % (5% standard, Pro rate if subscribed).
+     */
+    private function commissionPercent(?\App\Models\User $seller): float
+    {
+        return (float) (($seller && $seller->hasActiveSubscription())
+            ? config('flockr.pro_platform_fee_percent', 3)
+            : config('flockr.platform_fee_percent', 5));
+    }
+
+    private function commissionProps(): array
+    {
+        return [
+            'commissionPercent' => $this->commissionPercent(Auth::user()),
+            'standardPercent'   => (float) config('flockr.platform_fee_percent', 5),
+            'proPercent'        => (float) config('flockr.pro_platform_fee_percent', 3),
+            'isPro'             => (bool) Auth::user()?->hasActiveSubscription(),
+        ];
+    }
+
+    /** What the seller keeps from a listed price (informational copy stored on the product). */
+    private function sellerReceives(float $price, ?\App\Models\User $seller): float
+    {
+        return round($price * (1 - $this->commissionPercent($seller) / 100), 2);
+    }
 
     public function __construct(
         private readonly JinaService $jina,
@@ -183,18 +208,18 @@ class ProductController extends Controller
 
     public function create(): Response
     {
-        return Inertia::render('Seller/ProductCreate', [
+        return Inertia::render('Seller/ProductCreate', array_merge([
             'categories' => Category::where('is_active', true)->orderBy('sort_order')->get(),
-        ]);
+        ], $this->commissionProps()));
     }
 
     public function edit(Product $product): Response
     {
         abort_unless(Auth::id() === $product->seller_id, 403);
-        return Inertia::render('Seller/ProductEdit', [
+        return Inertia::render('Seller/ProductEdit', array_merge([
             'product' => $product,
             'categories' => Category::where('is_active', true)->get(),
-        ]);
+        ], $this->commissionProps()));
     }
 
     // ── API ───────────────────────────────────────────────────────────────────
@@ -303,7 +328,7 @@ class ProductController extends Controller
     $validated = $request->validate([
         'name'             => 'required|string|max:200',
         'description'      => 'nullable|string|max:5000',
-        'seller_price'     => 'required|numeric|min:1',   // ← seller inputs this
+        'price'            => 'required|numeric|min:1|max:100000000', // what the BUYER pays (commission is deducted from this)
         'compare_price'    => 'nullable|numeric|min:1',
         'stock_quantity'   => 'required|integer|min:1',
         'category_id'      => 'nullable|exists:categories,id',
@@ -314,10 +339,9 @@ class ProductController extends Controller
         'attributes'       => 'nullable|array',
     ]);
 
-    // Compute listed price: seller always receives exactly seller_price.
-    // Flockr's 5% comes out of the buyer-facing price, not seller's pocket.
-    $sellerPrice = (float) $validated['seller_price'];
-    $listedPrice = ceil($sellerPrice / (1 - self::COMMISSION_RATE)); // rounds up to nearest naira
+    // No markup: buyer pays the listed price; Flockr's commission is deducted from the seller's side.
+    $listedPrice = round((float) $validated['price'], 2);
+    $sellerPrice = $this->sellerReceives($listedPrice, Auth::user());
 
     $baseSlug = Str::slug($validated['name']);
     $slug = $baseSlug;
@@ -329,11 +353,14 @@ class ProductController extends Controller
     $product = Auth::user()->products()->create([
         ...$validated,
         'price'        => $listedPrice,   // what buyer sees and pays
-        'seller_price' => $sellerPrice,   // what seller receives
+        'seller_price' => $sellerPrice,   // informational: what seller keeps after commission
         'slug'         => $slug,
+        'tags'         => \App\Services\HashtagService::normalize($validated['tags'] ?? []),
         'status'       => 'active',
         'location'     => Auth::user()->location,
     ]);
+
+    app(\App\Services\HashtagService::class)->sync([], $product->tags ?? [], 'products');
 
     // Notify followers
     $seller = Auth::user();
@@ -355,7 +382,7 @@ public function update(Request $request, Product $product): JsonResponse
     $validated = $request->validate([
         'name'             => 'sometimes|string|max:200',
         'description'      => 'nullable|string|max:5000',
-        'seller_price'     => 'sometimes|numeric|min:1',   // ← seller edits this
+        'price'            => 'sometimes|numeric|min:1|max:100000000',
         'compare_price'    => 'nullable|numeric|min:1',
         'stock_quantity'   => 'sometimes|integer|min:0',
         'status'           => 'sometimes|in:draft,active,archived',
@@ -367,11 +394,9 @@ public function update(Request $request, Product $product): JsonResponse
         'attributes'       => 'nullable|array',
     ]);
 
-    // Re-compute listed price if seller_price changed
-    if (isset($validated['seller_price'])) {
-        $sellerPrice = (float) $validated['seller_price'];
-        $validated['price'] = (int) ceil($sellerPrice / (1 - self::COMMISSION_RATE));
-        $validated['seller_price'] = $sellerPrice;
+    if (isset($validated['price'])) {
+        $validated['price']        = round((float) $validated['price'], 2);
+        $validated['seller_price'] = $this->sellerReceives($validated['price'], Auth::user());
     }
 
     if (isset($validated['name']) && $validated['name'] !== $product->name) {
@@ -384,8 +409,20 @@ public function update(Request $request, Product $product): JsonResponse
         $validated['slug'] = $slug;
     }
 
+    $stockBefore = (int) $product->stock_quantity;
+    $oldTags = $product->tags ?? [];
+    if (array_key_exists('tags', $validated)) $validated['tags'] = \App\Services\HashtagService::normalize($validated['tags'] ?? []);
     $product->update($validated);
-    return response()->json($product->fresh());
+    if (array_key_exists('tags', $validated)) app(\App\Services\HashtagService::class)->sync($oldTags, $validated['tags'], 'products');
+    $product = $product->fresh();
+
+    // Seller edited stock from 0 → positive: same alerts as the Restock button
+    if ($stockBefore <= 0 && (int) $product->stock_quantity > 0) {
+        app(\App\Services\RestockService::class)->announce($product);
+        $product = $product->fresh();
+    }
+
+    return response()->json($product);
 }
 
     /** DELETE /api/products/{product} */
@@ -506,7 +543,7 @@ Price: {$product->price}";
         }
 
         $response = Http::timeout(30)->post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . env('GEMINI_API_KEY'),
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . config('services.gemini.key'),
             ['contents' => [['parts' => $parts]]]
         );
 
@@ -544,6 +581,36 @@ private function fetchImageAsBase64(string $url): ?array
         return null;
     }
 }
+
+    /**
+     * PUT /api/products/{product}/images  { images: [url, …] }
+     * Saves which existing images are kept and in what order (first = cover).
+     * This is what makes "remove photo" and "make cover" in ProductEdit actually persist.
+     */
+    public function syncImages(Request $request, Product $product): JsonResponse
+    {
+        abort_unless(Auth::id() === $product->seller_id, 403);
+        $data = $request->validate(['images' => 'present|array|max:6', 'images.*' => 'string']);
+
+        $current = $product->images ?? [];
+        $byUrl   = [];
+        foreach ($current as $key) {
+            $byUrl[$this->storage->url($key)] = $key;
+            $byUrl[$key] = $key;
+        }
+
+        $kept = [];
+        foreach ($data['images'] as $u) {
+            if (isset($byUrl[$u]) && !in_array($byUrl[$u], $kept, true)) $kept[] = $byUrl[$u];
+        }
+
+        $product->update(['images' => array_values($kept)]);
+
+        return response()->json([
+            'images'  => array_map(fn ($k) => $this->storage->url($k), $kept),
+            'message' => 'Photos updated.',
+        ]);
+    }
 
     public function getImages(Product $product): JsonResponse
 {

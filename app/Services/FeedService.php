@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AppSetting;
 use App\Models\FeedEvent;
 use App\Models\UserBlock;
 use App\Models\UserInterest;
@@ -72,8 +73,8 @@ class FeedService
             return $video;
         })->sortByDesc('_score');
 
-        $diverse = $this->applyDiversity($ranked, $limit);
-        $final = $this->injectExploration($diverse, $candidates, $limit);
+        // Entertainment first, shopping slipped in (never back-to-back) — see mixEntertainmentAndShopping()
+        $final = $this->mixEntertainmentAndShopping($ranked->values(), $candidates, $limit, $affinities, $isNewUser);
 
         $this->markSeen($userId, $sessionId, $final->pluck('id')->toArray());
 
@@ -423,6 +424,169 @@ return $baseScore * $proBoost;
         }
 
         return $merged->take($limit)->values();
+    }
+
+
+    // ── Entertainment / Shopping mix ──────────────────────────────────────────
+    //  "Entertainment gets you discovered. Shopping gets you paid."
+    //  ~70% entertainment, ~30% shopping (admin-tunable: AppSetting feed.shop_ratio),
+    //  never two shopping videos in a row, and each shopping video is chosen to match
+    //  the entertainment video right before it.
+
+    public static function isShopping(Video $v): bool
+    {
+        return (bool) $v->is_for_sale || ($v->content_type ?? null) === 'shopping';
+    }
+
+    public function shopRatio(bool $isNewUser = false): float
+    {
+        $r = (float) AppSetting::get('feed.shop_ratio', 0.30);
+        $r = max(0.0, min(0.5, $r));           // 0.5 max keeps a shop video from ever being adjacent
+        return $isNewUser ? $r * 0.5 : $r;      // brand-new people get entertainment first
+    }
+
+    private function mixEntertainmentAndShopping(
+        Collection $ranked,
+        Collection $candidates,
+        int $limit,
+        array $affinities,
+        bool $isNewUser,
+    ): Collection {
+        $shopN = (int) round($limit * $this->shopRatio($isNewUser));
+        $entN = $limit - $shopN;
+
+        $entPool = $ranked->reject(fn(Video $v) => self::isShopping($v))->values();
+        $shopPool = $ranked->filter(fn(Video $v) => self::isShopping($v))->values();
+        $entCandidates = $candidates->reject(fn(Video $v) => self::isShopping($v))->values();
+
+        // Entertainment: diversity + exploration, ranked with no commerce push
+        $ent = $this->injectExploration($this->applyDiversity($entPool, $entN), $entCandidates, $entN);
+        // Young platform with no entertainment yet: don't serve an empty feed
+        if ($ent->isEmpty()) {
+            return $this->applyDiversity($shopPool, $limit)->values();
+        }
+        // Not enough entertainment? let the rest be shopping, but only as many as can be spaced apart.
+        $shopN = min($shopN, max(0, (int) floor(($ent->count() + 1) / 2)));
+        $shop = $this->applyDiversity($shopPool, $shopN)->values();
+
+        if ($shop->isEmpty()) {
+            return $ent->take($limit)->values();
+        }
+
+        // Shopping slots: evenly spread, at least one entertainment video between each, never position 0
+        $slots = [];
+        $total = $ent->count() + $shop->count();
+        $prev = 0;
+        for ($k = 0; $k < $shop->count(); $k++) {
+            $pos = (int) floor(($k + 1) * $total / ($shop->count() + 1));
+            $pos = max($pos, $prev + 2, 1);
+            if ($pos >= $total) break;
+            $slots[] = $pos;
+            $prev = $pos;
+        }
+
+        $final = collect();
+        $entQ = $ent->values();
+        $shopLeft = $shop->values();
+        for ($i = 0; $i < $total; $i++) {
+            if (in_array($i, $slots, true) && $shopLeft->isNotEmpty()) {
+                $anchor = $final->last();   // the entertainment video that came right before
+                $pick = $anchor ? $this->mostRelevantShop($shopLeft, $anchor, $affinities) : $shopLeft->first();
+                $final->push($pick);
+                $shopLeft = $shopLeft->reject(fn($v) => $v->id === $pick->id)->values();
+            } elseif ($entQ->isNotEmpty()) {
+                $final->push($entQ->shift());
+            }
+        }
+        return $final->take($limit)->values();
+    }
+
+    /** Shopping video that best matches what the viewer just watched (tags, category), then by its own rank. */
+    private function mostRelevantShop(Collection $shop, Video $anchor, array $affinities): Video
+    {
+        return $shop->sortByDesc(function (Video $s) use ($anchor, $affinities) {
+            $score = (float) ($s->_score ?? 0);
+            $a = $this->tagsOf($anchor);
+            $b = $this->tagsOf($s);
+            $score += 0.15 * count(array_intersect($a, $b));
+            if ($anchor->ai_category_id && $anchor->ai_category_id === $s->ai_category_id) $score += 0.3;
+            $ca = $this->categoriesOf($anchor);
+            if ($ca && array_intersect($ca, $this->categoriesOf($s))) $score += 0.3;
+            foreach ($b as $t) {
+                if (!empty($affinities['hashtags'][$t])) { $score += 0.1; break; }
+            }
+            return $score;
+        })->first();
+    }
+
+    private function tagsOf(Video $v): array
+    {
+        $h = is_array($v->hashtags) ? $v->hashtags : (json_decode($v->hashtags ?? '[]', true) ?: []);
+        return array_values(array_unique(array_map(fn($t) => strtolower(ltrim((string) $t, '#')), $h)));
+    }
+
+    private function categoriesOf(Video $v): array
+    {
+        $ids = $v->relationLoaded('products') ? $v->products->pluck('category_id')->filter()->all() : [];
+        if ($v->ai_category_id) $ids[] = $v->ai_category_id;
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Shop tab: product videos only, personalised + commerce-weighted (this is where selling signals count).
+     */
+    public function getShopFeed(?int $userId, int $cursor = 0, int $limit = 10, ?string $sessionId = null): Collection
+    {
+        $sessionId = $sessionId ?? $this->guestSessionId();
+        $affinities = $this->getUserAffinities($userId, $sessionId);
+        $blockedIds = $this->blockedAndBlockingIds($userId);
+        $seenKey = 'shopseen:' . ($userId ? "u{$userId}" : "s{$sessionId}");
+        $seen = collect(Cache::get($seenKey, []));
+
+        $pool = function (Collection $exclude) use ($blockedIds, $limit, $affinities) {
+            $base = Video::active()
+                ->where(fn($q) => $q->where('is_for_sale', true)->orWhere('content_type', 'shopping'))
+                ->with([
+                    'user' => fn($q) => $q->select('id', 'name', 'username', 'avatar', 'is_verified', 'location')->withActiveSubscriptionFlag(),
+                    'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+                ])
+                ->withCount(['allComments'])
+                ->whereHas('products', fn($q) => $q->where('status', 'active'))
+                ->when($exclude->isNotEmpty(), fn($q) => $q->whereNotIn('id', $exclude->take(1500)))
+                ->when(!empty($blockedIds), fn($q) => $q->whereNotIn('user_id', $blockedIds));
+            $n = max($limit * 4, 40);
+            return $this->fetchAffinityMatched(clone $base, $affinities, (int) ceil($n / 3))
+                ->concat((clone $base)->orderByDesc('saves_count')->limit((int) ceil($n / 3))->get())
+                ->concat((clone $base)->orderByDesc('published_at')->limit((int) ceil($n / 3))->get())
+                ->unique('id')->values();
+        };
+
+        $candidates = $pool($seen);
+        if ($candidates->count() < $limit) {           // seen everything: recycle
+            $seen = collect();
+            $candidates = $pool($seen);
+        }
+        if ($candidates->isEmpty()) return collect();
+
+        $scores = VideoScore::whereIn('video_id', $candidates->pluck('id'))->get()->keyBy('video_id');
+        $candidates->each(function (Video $v) use ($scores) {
+            $s = $scores->get($v->id);
+            $v->_quality_score = $s ? (float) $s->quality_score : 0;
+            $v->_commerce_score = $s ? (float) $s->commerce_score : 0;
+            $v->_velocity_24h = $s ? (int) $s->velocity_24h : 0;
+        });
+        $maxVelocity = max(1, $candidates->max('_velocity_24h'));
+        $isNew = $affinities === [] ;
+
+        $ranked = $candidates->map(function (Video $v) use ($affinities, $seen, $isNew, $maxVelocity) {
+            $v->_score = $this->computeScore($v, $affinities, $seen, $isNew, $maxVelocity)
+                + 0.1 * min(1.0, ((float) ($v->_commerce_score ?? 0)) / 100);   // Shop tab leans a bit more on selling signals
+            return $v;
+        })->sortByDesc('_score');
+
+        $final = $this->applyDiversity($ranked, $limit)->values();
+        Cache::put($seenKey, $seen->merge($final->pluck('id'))->unique()->take(-500)->values()->all(), 3600);
+        return $final;
     }
 
     // ── Affinity ──────────────────────────────────────────────────────────────

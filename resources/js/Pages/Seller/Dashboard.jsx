@@ -2,6 +2,7 @@ import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import ProductCard from '@/Components/Product/ProductCard';
+import RestockButton from '@/Components/RestockSheet';
 
 import {
     RiAddLine, RiArrowDownLine, RiArrowRightLine, RiArrowUpLine,
@@ -229,10 +230,114 @@ function AnalyticsCard({ isSubscriber }) {
     );
 }
 
+// ── Money panel: available vs held in escrow ──────────────────────────────────
+const naira = (n) => '₦' + Number(n ?? 0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+
+function releaseLabel(iso) {
+    if (!iso) return null;
+    const diff = new Date(iso).getTime() - Date.now();
+    if (diff <= 0) return 'Releasing shortly';
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    return d > 0 ? `Releases in ${d}d ${h}h` : `Releases in ${Math.max(1, h)}h`;
+}
+
+function escrowStatusText(o) {
+    if (o.status === 'disputed') return { text: 'Disputed — on hold', color: '#F59E0B' };
+    if (o.status === 'delivered') return { text: releaseLabel(o.releases_at) ?? 'Delivered', color: '#10B981' };
+    if (o.status === 'shipped')   return { text: 'On the way to buyer', color: '#8B5CF6' };
+    return { text: 'Waiting to be delivered', color: '#3B82F6' };
+}
+
+function MoneyPanel({ stats }) {
+    const available   = Number(stats?.available_balance ?? 0);
+    const inTransit   = Number(stats?.escrow_in_transit ?? 0);
+    const awaiting    = Number(stats?.escrow_awaiting_release ?? 0);
+    const disputed    = Number(stats?.escrow_disputed ?? 0);
+    const pendingPay  = Number(stats?.pending_payout ?? 0);
+    const held        = inTransit + awaiting + disputed;
+    const total       = available + held;
+    const orders      = stats?.escrow_orders ?? [];
+    const pct = (n) => (total > 0 ? Math.max(n > 0 ? 2 : 0, (n / total) * 100) : 0);
+
+    const segs = [
+        { label: 'Available',          value: available, color: '#22c55e' },
+        { label: 'Awaiting release',   value: awaiting,  color: '#FF6B35' },
+        { label: 'In transit',         value: inTransit, color: '#3B82F6' },
+        { label: 'Disputed',           value: disputed,  color: '#F59E0B' },
+    ];
+
+    return (
+        <section className="money-panel">
+            <div className="money-grid">
+                <div className="money-card money-available">
+                    <div className="money-label"><RiBankCardLine size={14} /> Available to withdraw</div>
+                    <div className="money-value" style={{ color: '#22c55e' }}>{naira(available)}</div>
+                    {pendingPay > 0 && <div className="money-sub">{naira(pendingPay)} payout pending approval</div>}
+                    <Link href="/seller/payouts" className="money-link">Withdraw <RiArrowRightLine size={13} /></Link>
+                </div>
+
+                <div className="money-card">
+                    <div className="money-label"><RiLockLine size={14} /> In escrow</div>
+                    <div className="money-value" style={{ color: '#FF6B35' }}>{naira(held)}</div>
+                    <div className="money-sub">
+                        {stats?.escrow_next_release_at
+                            ? `Next release: ${releaseLabel(stats.escrow_next_release_at)?.replace('Releases ', '')}`
+                            : held > 0 ? 'Released after delivery is confirmed' : 'Nothing held right now'}
+                    </div>
+                </div>
+
+                <div className="money-card">
+                    <div className="money-label"><RiMoneyDollarCircleLine size={14} /> Earned all-time</div>
+                    <div className="money-value">{naira(Number(stats?.lifetime_released ?? 0))}</div>
+                    <div className="money-sub">Already released to your wallet</div>
+                </div>
+            </div>
+
+            {total > 0 && (
+                <div className="money-bar-wrap">
+                    <div className="money-bar">
+                        {segs.map(sg => sg.value > 0 && (
+                            <div key={sg.label} title={`${sg.label}: ${naira(sg.value)}`} style={{ width: `${pct(sg.value)}%`, background: sg.color }} />
+                        ))}
+                    </div>
+                    <div className="money-legend">
+                        {segs.filter(sg => sg.value > 0).map(sg => (
+                            <span key={sg.label}><i style={{ background: sg.color }} />{sg.label} · {naira(sg.value)}</span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {orders.length > 0 && (
+                <div className="dashboard-card" style={{ marginTop: 16 }}>
+                    <div className="card-header">
+                        <div className="card-title"><RiLockLine /><h3>Money waiting to be released</h3></div>
+                        <Link href="/seller/orders">All orders <RiArrowRightLine /></Link>
+                    </div>
+                    {orders.map(o => {
+                        const st = escrowStatusText(o);
+                        return (
+                            <div className="order-row" key={o.id}>
+                                <div className="order-meta">
+                                    <h4>{o.reference}</h4>
+                                    <p style={{ color: st.color }}>{st.text}</p>
+                                </div>
+                                <div className="order-right"><strong>{naira(o.amount)}</strong></div>
+                            </div>
+                        );
+                    })}
+                    <p className="money-note">Flockr holds your earnings safely. They move to your wallet when the buyer confirms receipt, or 3 days after delivery.</p>
+                </div>
+            )}
+        </section>
+    );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function SellerDashboard({
     stats, recentOrders = [], topProducts = [], recentVideos = [],
-    orders = [], savedProducts = [], savedVideos = [], gamification = null,
+    orders = [], savedProducts = [], savedVideos = [], gamification = null, eventResults = [],
 }) {
     const [period, setPeriod] = useState('30d');
     const [tab, setTab] = useState('overview');
@@ -368,6 +473,8 @@ const pagerBtnStyle = (disabled) => ({
                         })}
                     </section>
 
+                    <MoneyPanel stats={stats} />
+
                     {/* ── GAMIFICATION SECTION ─────────────────────────────── */}
                     {gamification && (
                         <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -397,7 +504,20 @@ const pagerBtnStyle = (disabled) => ({
                                 
                                 {/* RECENT ORDERS (seller's sales) */}
 <div className="dashboard-card">
-    <div className="card-header">
+    {eventResults.length > 0 && (
+    <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title"><RiTrophyLine /><h3>Event results</h3></div>
+        {eventResults.map(e => (
+            <a key={e.event_id} href={`/seller/events/${e.event_id}/results`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
+                <span>{e.title}</span>
+                <span style={{ color: e.status === 'ended' ? '#FBBF24' : '#10B981', fontWeight: 700, fontSize: 12 }}>
+                    {e.status === 'ended' ? (e.rank ? `#${e.rank} of ${e.total_sellers}` : 'Ended') : 'Live · view standings'}
+                </span>
+            </a>
+        ))}
+    </div>
+)}
+<div className="card-header">
         <div className="card-title"><RiShoppingBagLine /><h3>Recent Sales</h3></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {recentOrders.length > SALES_PER_PAGE && (
@@ -461,8 +581,9 @@ const pagerBtnStyle = (disabled) => ({
                     </div>
                     <div className="product-meta">
                         <h4>{product.name}</h4>
-                        <p>{product.orders_count} sold</p>
+                        <p>{product.orders_count} sold · {Number(product.stock_quantity) <= 0 ? <span style={{ color: '#EF4444', fontWeight: 700 }}>Sold out</span> : `${product.stock_quantity} left`}</p>
                     </div>
+                    {Number(product.stock_quantity) <= 5 && <RestockButton compact product={product} onDone={() => window.location.reload()} />}
                     <strong className="product-price">₦{Number(product.price).toLocaleString()}</strong>
                 </div>
             ))}
@@ -485,7 +606,7 @@ const pagerBtnStyle = (disabled) => ({
                                         </div>
                                     </Link>
                                     {recentVideos?.slice(0, 3).map(video => (
-                                        <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="video-tile">
+                                        <Link key={video.id} href={`/@${video.user?.username ?? auth.user?.username}/video/${video.ulid}`} className="video-tile">
                                             {video.thumbnail_url_full
                                                 ? <img src={video.thumbnail_url_full} alt={video.title} />
                                                 : <div className="video-empty"><RiPlayCircleLine size={28} /></div>
@@ -663,6 +784,18 @@ const pagerBtnStyle = (disabled) => ({
                 .video-stats { display: flex; gap: 10px; }
                 .video-stats span { display: flex; align-items: center; gap: 4px; font-size: 11px; color: white; }
                 .video-badge { position: absolute; top: 10px; left: 10px; padding: 5px 8px; border-radius: 999px; background: rgba(0,0,0,0.7); display: flex; align-items: center; gap: 4px; font-size: 10px; color: white; }
+                .money-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 16px; }
+                .money-card { background: #111111; border: 1px solid rgba(255,255,255,0.05); border-radius: 26px; padding: 22px; display: flex; flex-direction: column; gap: 6px; }
+                .money-available { border-color: rgba(34,197,94,0.25); background: linear-gradient(135deg, rgba(34,197,94,0.07), #111 60%); }
+                .money-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,0.5); font-weight: 600; }
+                .money-value { font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.1; }
+                .money-sub { font-size: 12px; color: rgba(255,255,255,0.4); }
+                .money-link { margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; color: #22c55e; font-size: 13px; font-weight: 700; text-decoration: none; }
+                .money-bar-wrap { margin-top: 16px; }
+                .money-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 2px; }
+                .money-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 11px; color: rgba(255,255,255,0.5); }
+                .money-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+                .money-note { margin: 0; padding: 14px 22px 18px; font-size: 12px; color: rgba(255,255,255,0.35); line-height: 1.5; }
                 .quick-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; }
                 .quick-card { padding: 22px; border-radius: 24px; text-decoration: none; color: white; display: flex; flex-direction: column; gap: 14px; transition: transform 0.2s ease; }
                 .quick-card:hover { transform: translateY(-2px); }

@@ -22,7 +22,17 @@ class TerminalWebhookController extends Controller
         $signature = $request->header('x-terminal-signature');
         $secret    = config('services.terminal.webhook_secret');
 
-        if ($secret && $signature) {
+        // In production a webhook secret MUST be configured; never accept unsigned calls there.
+        if (app()->environment('production') && !$secret) {
+            Log::error('Terminal webhook rejected: TERMINAL_WEBHOOK_SECRET is not set');
+            return response()->json(['ok' => false], 503);
+        }
+
+        if ($secret) {
+            if (!$signature) {
+                Log::warning('Terminal webhook: missing signature');
+                return response()->json(['ok' => false], 401);
+            }
             $expected = hash_hmac('sha256', $request->getContent(), $secret);
             if (!hash_equals($expected, $signature)) {
                 Log::warning('Terminal webhook: invalid signature');
@@ -55,9 +65,26 @@ class TerminalWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // Record EVERY courier event with Terminal's own timestamp (unmapped events included),
+        // so the tracking page shows exactly what Terminal reported — nothing invented.
+        $tracking = app(\App\Services\OrderTrackingService::class);
+        $eventAt  = $tracking->terminalTime(is_array($data) ? $data : []);
+        $tracking->log($order, (string) $event, 'terminal', $eventAt, [
+            'description' => $data['description'] ?? $data['status_description'] ?? $data['message'] ?? null,
+            'location'    => $data['location'] ?? $data['current_location'] ?? null,
+            'title'       => $data['title'] ?? null,
+            'payload'     => $data,
+        ]);
+
+        // Names must match the events registered in terminal:register-webhook (underscores).
         $statusMap = [
-            'shipment.in-transit' => 'shipped',
-            'shipment.delivered'  => 'delivered',
+            'shipment.picked_up'        => 'shipped',
+            'shipment.in_transit'       => 'shipped',
+            'shipment.out_for_delivery' => 'shipped',
+            'shipment.delivered'        => 'delivered',
+            'shipment.pickup_failed'    => 'pickup_failed',
+            'shipment.delivery_failed'  => 'delivery_failed',
+            'shipment.returned'         => 'returned',
         ];
 
 $newStatus = $statusMap[$event] ?? null;
@@ -71,12 +98,25 @@ if ($event === 'shipment.cancelled' && $order) {
     } catch (\Throwable) {}
 }
 
+        // Never let a late/duplicate courier event drag an order backwards or revive a closed one.
+        $rank = ['pending' => 0, 'paid' => 1, 'confirmed' => 2, 'processing' => 3, 'pickup_failed' => 3, 'shipped' => 4, 'delivery_failed' => 4, 'delivered' => 5];
+        if (in_array($order->status, ['cancelled', 'refunded', 'disputed'])
+            || ($order->status === 'delivered' && $newStatus !== 'returned')
+            || (isset($rank[$order->status], $rank[$newStatus]) && $rank[$newStatus] < $rank[$order->status]
+                && !in_array($newStatus, ['pickup_failed', 'delivery_failed', 'returned']))) {
+            Log::info('Terminal webhook: ignored out-of-order event', ['order' => $order->reference, 'event' => $event, 'status' => $order->status]);
+            return response()->json(['ok' => true]);
+        }
+
         if ($newStatus) {
             $updates = ['status' => $newStatus];
 
             // Set delivered_at when delivered
             if ($newStatus === 'delivered') {
-                $updates['delivered_at'] = now();
+                $updates['delivered_at'] = $eventAt;
+            }
+            if ($newStatus === 'shipped' && !$order->shipped_at) {
+                $updates['shipped_at'] = $eventAt;
             }
 
             // Set tracking number if provided

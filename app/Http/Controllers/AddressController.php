@@ -174,6 +174,7 @@ class AddressController extends Controller
         'items_count' => count($validated['items'] ?? [1]),
         'description' => 'Flockr order package',
     ],
+    sellerId: $seller->id,   // lets TerminalService apply the NIN rule (config/terminal_nin.php)
 );
         return response()->json(['rates' => $rates]);
     } catch (\RuntimeException $e) {

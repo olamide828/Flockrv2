@@ -24,6 +24,7 @@ class Product extends Model
         'seller_price',
         'compare_price',
         'stock_quantity',
+        'restocked_at',
         'status',
         'condition',
         'images',
@@ -47,6 +48,7 @@ class Product extends Model
         'attributes'       => 'array',
         'ships_nationwide' => 'boolean',
         'is_in_stock'      => 'boolean',
+        'restocked_at'     => 'datetime',
         'price'            => 'decimal:2',
         'seller_price'     => 'decimal:2', 
         'compare_price'    => 'decimal:2',
@@ -54,7 +56,7 @@ class Product extends Model
     ];
 
 
-    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls', 'event_price', 'active_event', 'event_discount_percent'];
+    protected $appends = ['primary_image', 'is_in_stock', 'discount_percent', 'image_urls', 'event_price', 'active_event', 'event_discount_percent', 'just_restocked'];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
@@ -200,6 +202,15 @@ class Product extends Model
         }
     }
 
+    /** True for 3 days after a sold-out product was restocked (drives the "Restocked" badge). */
+    public function getJustRestockedAttribute(): bool
+    {
+        $at = $this->getAttributes()['restocked_at'] ?? null;
+        if (!$at) return false;
+        return (int) ($this->getAttributes()['stock_quantity'] ?? 0) > 0
+            && \Illuminate\Support\Carbon::parse($at)->gt(now()->subDays(3));
+    }
+
     // Add to Product.php relationships:
 
 public function skus(): HasMany
@@ -227,11 +238,22 @@ public function getHasSkusAttribute(): bool
 
 public function getActiveEventAttribute()
 {
-    return Event::currentlyActive()
-        ->whereHas('participants', fn($q) => $q->where('seller_id', $this->seller_id))
-        ->with(['participants' => fn($q) => $q->where('seller_id', $this->seller_id)])
-        ->orderBy('ends_at')
-        ->first();
+    $sellerId = $this->getAttributes()['seller_id'] ?? null;
+    if (!$sellerId) return null;
+
+    // One query per seller per request (was 3 queries per product: event_price, active_event, event_discount_percent).
+    // Stored on the Request object so it is never shared between requests under Octane.
+    $bag   = request()->attributes;
+    $cache = $bag->get('product_active_events', []);
+    if (!array_key_exists($sellerId, $cache)) {
+        $cache[$sellerId] = Event::currentlyActive()
+            ->whereHas('participants', fn($q) => $q->where('seller_id', $sellerId))
+            ->with(['participants' => fn($q) => $q->where('seller_id', $sellerId)])
+            ->orderBy('ends_at')
+            ->first();
+        $bag->set('product_active_events', $cache);
+    }
+    return $cache[$sellerId];
 }
 
 public function getEventPriceAttribute(): ?float

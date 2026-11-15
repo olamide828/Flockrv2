@@ -129,8 +129,8 @@ class VideoController extends Controller
 
     public function create(): Response
     {
-        if (!Auth::check() || Auth::user()->role !== 'seller') {
-            abort(403, 'Only sellers can upload videos.');
+        if (!Auth::check()) {
+            abort(403, 'Sign in to upload videos.');
         }
 
         $products = Auth::user()
@@ -242,8 +242,8 @@ class VideoController extends Controller
      */
     public function uploadUrl(Request $request): JsonResponse
     {
-        if (!Auth::check() || Auth::user()->role !== 'seller') {
-            return response()->json(['message' => 'Only sellers can upload videos.'], 403);
+        if (!Auth::check()) {
+            return response()->json(['message' => 'Sign in to upload videos.'], 403);
         }
 
         $data = $request->validate([
@@ -288,8 +288,8 @@ class VideoController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        if (!Auth::check() || Auth::user()->role !== 'seller') {
-            return response()->json(['message' => 'Only sellers can upload videos.'], 403);
+        if (!Auth::check()) {
+            return response()->json(['message' => 'Sign in to upload videos.'], 403);
         }
 
         $request->validate([
@@ -299,6 +299,7 @@ class VideoController extends Controller
             'title' => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
             'hashtags' => 'nullable|string',
+            'kind' => 'nullable|in:entertainment,haul,review',
             'text_overlays'      => 'nullable|string|max:60000',  // JSON string
             'duration_seconds'   => 'nullable|integer|min:1',
             'overlay_images'     => 'nullable|array|max:20',      // one PNG per v2 text overlay, in order
@@ -319,9 +320,7 @@ class VideoController extends Controller
         ]);
 
        
-$hashtags = $request->filled('hashtags')
-    ? array_values(array_filter(array_map('trim', preg_split('/[\s,#]+/', $request->hashtags))))
-    : [];
+$hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'));
         if ($request->filled('video_key')) {
             // The browser uploaded the file straight to storage (see uploadUrl()); verify it, don't trust the key blindly
             $key  = (string) $request->input('video_key');
@@ -358,6 +357,7 @@ $hashtags = $request->filled('hashtags')
             'title' => $request->input('title'),
             'description' => $request->input('description'),
             'hashtags' => $hashtags,
+            'content_type' => $request->input('kind', 'entertainment'),
             'video_url' => $path,
             'file_size_bytes' => $fileSize,
             // Live immediately, like TikTok. The music mix (if any) and the streaming versions finish in the
@@ -444,9 +444,11 @@ $hashtags = $request->filled('hashtags')
                 $video->products()->syncWithoutDetaching(
                     collect($ids)->mapWithKeys(fn($id) => [$id => ['sort_order' => 0]])->toArray()
                 );
-                $video->update(['is_for_sale' => true]);
+                $video->update(['is_for_sale' => true, 'content_type' => 'shopping']);
             }
         }
+
+        app(\App\Services\HashtagService::class)->sync([], $hashtags, 'videos');
 
         return response()->json([
             'message' => 'Video uploaded successfully.',
@@ -602,6 +604,7 @@ $hashtags = $request->filled('hashtags')
  
         // Standard feeds
 $videos = match ($type) {
+    'shop'      => $this->feedService->getShopFeed(Auth::id(), $cursor, $limit, $sessionId),
     'following' => $this->feedService->getFollowingFeed(Auth::id(), $cursor, $limit),
     'near_me'   => $this->feedService->getNearMeFeed(Auth::id(), Auth::user()?->location, $cursor, $limit),
     default     => $this->feedService->getForYouPage(Auth::id(), $limit, $cursor, $sessionId),
@@ -623,6 +626,9 @@ return response()->json([
             $video->likes()->detach($user->id);
             $video->decrement('likes_count');
             // Unlike is a weak negative signal — don't penalise heavily
+            if ($video->user_id !== $user->id) {
+                \App\Support\NotifyOnce::retract($video->user, 'new_like', ['user_id' => $user->id, 'video_id' => $video->id]);
+            }
         } else {
             $video->likes()->attach($user->id);
             $video->increment('likes_count');
@@ -630,7 +636,7 @@ return response()->json([
             // Notify seller (existing behaviour)
             if ($video->user_id !== $user->id) {
                 try {
-                    $video->user->notify(new \App\Notifications\NewLikeNotification($user, $video));
+                    \App\Support\NotifyOnce::send($video->user, new \App\Notifications\NewLikeNotification($user, $video), 'new_like', ['user_id' => $user->id, 'video_id' => $video->id]);
                 } catch (\Throwable) {
                 }
             }
@@ -740,7 +746,7 @@ return response()->json([
                 ->toArray()
         );
 
-        $video->update(['is_for_sale' => true]);
+        $video->update(['is_for_sale' => true, 'content_type' => 'shopping']);
 
         return response()->json(['message' => 'Products tagged.', 'products' => $video->products]);
     }

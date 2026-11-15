@@ -4,7 +4,7 @@ import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RiFilmLine, RiMapPinLine, RiUserAddLine, RiVideoLine } from 'react-icons/ri';
+import { RiFilmLine, RiMapPinLine, RiShoppingBag3Line, RiUserAddLine, RiVideoLine } from 'react-icons/ri';
 
 export default function FeedIndex({ initialVideos }) {
     const { auth } = usePage().props;
@@ -12,6 +12,14 @@ export default function FeedIndex({ initialVideos }) {
     const [feedType, setFeedType] = useState('for_you');
     const containerRef = useRef(null);
     const itemRefs = useRef([]);
+    const tabsRef = useRef(null);
+    const tabRefs = useRef({});
+    const TABS = [
+        ['for_you', 'For You'],
+        ['shop', 'Shop'],
+        ['following', 'Following'],
+        ['near_me', 'Near Me'],
+    ];
     // Track if this is the initial mount to avoid double-loading initialVideos
     const isFirstMount = useRef(true);
 
@@ -42,6 +50,12 @@ export default function FeedIndex({ initialVideos }) {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [showNearMeNote]);
+
+    // Keep the active tab in view inside the scrollable tab bar
+    useEffect(() => {
+        const el = tabRefs.current[feedType];
+        if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    }, [feedType]);
 
     // Switch feed type — reset everything and load fresh
     // Skip on first mount since initialVideos are already loaded
@@ -108,9 +122,9 @@ export default function FeedIndex({ initialVideos }) {
 
     return (
         <>
-            <Head title="For You" />
+            <Head title={feedType === 'shop' ? 'Shop' : 'For You'} />
 
-            {/* For You / Following tabs */}
+            {/* Feed tabs — scrolls sideways when there are more tabs than fit */}
             <div
                 style={{
                     position: 'absolute',
@@ -127,35 +141,57 @@ export default function FeedIndex({ initialVideos }) {
                 <div
                     style={{
                         pointerEvents: 'auto',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
+                        maxWidth: 'calc(100% - 24px)',
+                        minWidth: 0,
                         background: 'rgba(0,0,0,0.45)',
                         backdropFilter: 'blur(12px)',
                         borderRadius: 999,
-                        padding: '4px 6px',
                         border: '1px solid rgba(255,255,255,0.08)',
+                        overflow: 'hidden',
                     }}
                 >
-                        {['for_you', 'following', 'near_me'].map((type) => (
-                        <button
-                            key={type}
-                            onClick={() => handleTabClick(type)}
-                            style={{
-                                padding: '4px 18px',
-                                borderRadius: 999,
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                transition: 'all 0.2s',
-                                background: feedType === type ? '#fff' : 'transparent',
-                                color: feedType === type ? '#000' : 'rgba(255,255,255,0.6)',
-                            }}
-                        >
-                            {type === 'for_you' ? 'For You' : type === 'following' ? 'Following' : 'Near Me'}
-                        </button>
-                    ))}
+                    <div
+                        ref={tabsRef}
+                        className="feed-tabs"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 6px',
+                            overflowX: 'auto',
+                            scrollbarWidth: 'none',
+                            msOverflowStyle: 'none',
+                            WebkitOverflowScrolling: 'touch',
+                            overscrollBehaviorX: 'contain',
+                        }}
+                    >
+                        {TABS.map(([type, label]) => (
+                            <button
+                                key={type}
+                                ref={(el) => (tabRefs.current[type] = el)}
+                                onClick={() => handleTabClick(type)}
+                                style={{
+                                    flex: '0 0 auto',
+                                    whiteSpace: 'nowrap',
+                                    padding: '5px 16px',
+                                    borderRadius: 999,
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    background: feedType === type ? '#fff' : 'transparent',
+                                    color: feedType === type ? '#000' : 'rgba(255,255,255,0.6)',
+                                }}
+                            >
+                                {type === 'shop' && <RiShoppingBag3Line size={13} />}
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
@@ -175,6 +211,7 @@ export default function FeedIndex({ initialVideos }) {
             >
                 <style>{`
           .feed-scroll::-webkit-scrollbar { display: none; }
+          .feed-tabs::-webkit-scrollbar { display: none; }
           .feed-item-wrap {
   width: 100%;
   height: 100%;
@@ -273,6 +310,19 @@ export default function FeedIndex({ initialVideos }) {
                             >
                                 Discover Sellers
                             </a>
+                        </div>
+                    </div>
+                )}
+
+                {!loading && feedType === 'shop' && videos.length === 0 && (
+                    <div className="feed-item-wrap" style={{ alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ textAlign: 'center', padding: '0 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                            <RiShoppingBag3Line size={52} color="rgba(255,255,255,0.25)" />
+                            <p style={{ color: '#fff', fontWeight: 700, fontSize: 20, margin: 0 }}>No product videos yet</p>
+                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, margin: 0, lineHeight: 1.5 }}>
+                                Videos from sellers with products you can buy show up here.
+                            </p>
+                            <button onClick={() => handleTabClick('for_you')} style={{ padding: '12px 28px', background: '#FF6B35', border: 'none', borderRadius: 999, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Back to For You</button>
                         </div>
                     </div>
                 )}

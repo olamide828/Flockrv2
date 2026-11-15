@@ -61,8 +61,12 @@ Artisan::command('terminal:register-webhook', function() {
     $this->info(json_encode($response, JSON_PRETTY_PRINT));
 })->purpose('Register Flockr webhook with Terminal Africa');
 
-Schedule::command('events:award-champions')->hourly();
+// Ends events whose time is up, freezes seller results and crowns the champion. 5-minute cadence so results don't lag.
+Schedule::command('events:award-champions')->everyFiveMinutes()->withoutOverlapping();
 
 Schedule::command('events:activate-scheduled')->everyFiveMinutes();
 
 Schedule::command('videos:heal')->everyTenMinutes();
+
+// Keeps hashtag post-counts honest (the live counters can drift when videos/products are deleted)
+Schedule::command('hashtags:recount')->dailyAt('03:30');

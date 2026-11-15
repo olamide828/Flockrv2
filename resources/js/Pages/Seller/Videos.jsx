@@ -1,5 +1,5 @@
 import AppLayout from '@/Layouts/AppLayout'
-import { Head, Link, router } from '@inertiajs/react'
+import { Head, Link, router, usePage } from '@inertiajs/react'
 import axios from 'axios'
 import { useState } from 'react'
 import Toast, { useToast } from '@/Components/Toast'
@@ -94,14 +94,16 @@ function DeleteModal({ video, onConfirm, onCancel, deleting }) {
 }
 
 // ── Video row (management-list style, not a grid card) ────────────────────────
-function VideoRow({ video, onDeleteClick }) {
+function VideoRow({ video, onDeleteClick, username }) {
+    // Server sends watch_url; fall back to the logged-in seller's own handle (never "@undefined").
+    const watchUrl = video.watch_url ?? (video.ulid && username ? `/@${username}/video/${video.ulid}` : null)
     const label = STATUS_LABEL[video.status] ?? 'Inactive'
     const isLive = video.status === 'active'
     const isFailed = video.status === 'failed'
 
     return (
         <div className="vv-row">
-            <Link href={`/@${video.user?.username}/video/${video.ulid}`} className="vv-thumb">
+            <Link href={watchUrl ?? '#'} className="vv-thumb" onClick={e => { if (!watchUrl) e.preventDefault() }}>
                 {video.thumbnail_url_full
                     ? <img src={video.thumbnail_url_full} alt={video.title} />
                     : <div className="vv-thumb-empty"><RiPlayCircleLine size={20} color="rgba(255,255,255,0.25)" /></div>
@@ -137,6 +139,7 @@ function VideoRow({ video, onDeleteClick }) {
 }
 
 export default function SellerVideos({ videos: initialVideos = { data: [] } }) {
+    const { auth } = usePage().props
     const [pagination, setPagination] = useState(initialVideos)
     const videos = pagination.data ?? []
     const [deleteTarget,  setDeleteTarget]  = useState(null)
@@ -241,7 +244,7 @@ export default function SellerVideos({ videos: initialVideos = { data: [] } }) {
                     {filteredVideos.length > 0 && (
                         <div className="vv-list">
                             {filteredVideos.map(video => (
-                                <VideoRow key={video.id} video={video} onDeleteClick={setDeleteTarget} />
+                                <VideoRow key={video.id} video={video} onDeleteClick={setDeleteTarget} username={auth?.user?.username} />
                             ))}
                         </div>
                     )}

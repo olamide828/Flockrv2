@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
+import ConfirmModal from '@/Components/Community/ConfirmModal';
 import {
     RiArrowLeftLine,
     RiArrowRightLine,
@@ -290,6 +291,7 @@ export default function CheckoutModal({
     );
     const [showAddrForm,  setShowAddrForm]  = useState(initialAddresses.length === 0);
     const [editingAddr,   setEditingAddr]   = useState(null);
+    const [removeTarget,  setRemoveTarget]  = useState(null);
 
     const [rates,         setRates]         = useState([]);
     const [loadingRates,  setLoadingRates]  = useState(false);
@@ -439,7 +441,7 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
     };
 
     const handleDeleteAddr = async addr => {
-        if (!confirm('Remove this address?')) return;
+        setRemoveTarget(null);
         try {
             await axios.delete('/api/addresses/' + addr.id);
             const updated = addrList.filter(a => a.id !== addr.id);
@@ -457,6 +459,17 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
 
     return (
         <>
+            {removeTarget && (
+                <ConfirmModal
+                    title="Remove this address?"
+                    message={[removeTarget.label, removeTarget.street, removeTarget.city].filter(Boolean).join(' · ')}
+                    confirmLabel="Remove"
+                    danger
+                    onConfirm={() => handleDeleteAddr(removeTarget)}
+                    onClose={() => setRemoveTarget(null)}
+                />
+            )}
+
             {showAddrForm && (
                 <AddressFormModal
                     editing={editingAddr}
@@ -521,7 +534,7 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                                                 <button type="button" onClick={e => { e.stopPropagation(); setEditingAddr(addr); setShowAddrForm(true); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>✏️</button>
-                                                <button type="button" onClick={e => { e.stopPropagation(); handleDeleteAddr(addr); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}><RiDeleteBinLine size={13} /></button>
+                                                <button type="button" onClick={e => { e.stopPropagation(); setRemoveTarget(addr); }} style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}><RiDeleteBinLine size={13} /></button>
                                             </div>
                                         </div>
                                     </div>

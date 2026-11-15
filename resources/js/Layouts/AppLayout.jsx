@@ -8,6 +8,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import NewBadgeModal from '@/Components/NewBadgeModal';
 import MessageToast from '@/Components/MessageToast'
 import EventAnnounceModal from '@/Components/EventAnnounceModal'
+import RestockModal from '@/Components/RestockModal'
+import HuntProgress from '@/Components/Events/HuntProgress'
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
     RiHome5Line,
@@ -868,6 +870,8 @@ const replyToToast = (toast) => {
             )}
 
             {announceEvent && <EventAnnounceModal event={announceEvent} onClose={dismissEventAnnounce} />}
+            <RestockModal />
+            <HuntProgress />
 
             {showCreateSheet && (
     <CreateSheet onClose={() => setShowCreateSheet(false)} />

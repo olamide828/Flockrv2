@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import HashtagInput from '@/Components/HashtagInput'
 import { Head, router } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
@@ -7,8 +8,6 @@ import {
   RiRocketLine, RiVideoLine, RiListCheck2, RiAddLine,
   RiDeleteBinLine, RiSparklingLine, RiPriceTag3Line,
 } from 'react-icons/ri'
-
-const COMMISSION_RATE = 0.05
 
 function useImageEnhancement() {
   const pollRef = useRef(null)
@@ -30,7 +29,7 @@ function useImageEnhancement() {
   return { startPolling, stopPolling }
 }
 
-export default function ProductCreate({ categories = [] }) {
+export default function ProductCreate({ categories = [], commissionPercent = 5, isPro = false }) {
   const [form, setForm] = useState({
     name: '', description: '', price: '', compare_price: '',
     stock_quantity: 1, category_id: '', condition: 'new',
@@ -74,10 +73,13 @@ export default function ProductCreate({ categories = [] }) {
     setPreviews(prev => prev.filter((_, idx) => idx !== i))
   }
 
-  // Commission preview
-  const receives    = Number(form.price) || 0
-  const listedPrice = receives > 0 ? Math.ceil(receives / (1 - COMMISSION_RATE)) : 0
-  const flockrFee   = listedPrice - receives
+
+  // Commission is taken OUT of the listed price (buyers are never charged extra).
+  const price       = Number(form.price) || 0
+  const flockrFee   = Math.round(price * commissionPercent) / 100
+  const receives    = Math.max(0, price - flockrFee)
+  const [target, setTarget] = useState('')
+  const suggested   = Number(target) > 0 ? Math.ceil(Number(target) / (1 - commissionPercent / 100)) : 0
 
   const submit = async (e) => {
     e?.preventDefault()
@@ -88,7 +90,7 @@ export default function ProductCreate({ categories = [] }) {
       const { data: product } = await axios.post('/api/products', {
         name:             form.name,
         description:      form.description || null,
-        seller_price:     Number(form.price),
+        price:            Number(form.price),
         compare_price:    form.compare_price ? Number(form.compare_price) : null,
         stock_quantity:   Math.max(1, Number(form.stock_quantity)),
         category_id:      form.category_id || null,
@@ -282,7 +284,7 @@ export default function ProductCreate({ categories = [] }) {
           <Card>
             <SectionTitle icon={<RiPriceTag3Line size={15} />} title="Tags" />
             <Field label="Tags (comma separated)" error={errors.tags}>
-              <input value={tagsInput} onChange={e => setTagsInput(e.target.value)} placeholder="e.g. ankara, dress, fashion, women" style={inputSt} />
+              <HashtagInput value={tagsInput} onChange={setTagsInput} separator=", " kind="products" placeholder="e.g. ankara, dress, fashion, women" inputStyle={inputSt} />
             </Field>
             {parsedTags.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -321,32 +323,41 @@ export default function ProductCreate({ categories = [] }) {
             <SectionTitle title="Pricing & Stock" />
 
             {/* Commission calculator */}
-            {receives > 0 && (
-              <div style={{ padding: '12px 14px', background: 'rgba(255,92,0,0.06)', border: '1px solid rgba(255,92,0,0.18)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <RiPriceTag3Line size={14} color="#ff5c00" />
-                    <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Listed price in shop</span>
-                  </div>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>₦{listedPrice.toLocaleString()}</span>
-                </div>
-                <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <PriceRow label="You receive"      value={`₦${receives.toLocaleString()}`}    color="rgba(16,185,129,0.9)" />
-                  <PriceRow label="Flockr fee (5%)"  value={`−₦${flockrFee.toLocaleString()}`}  color="rgba(255,255,255,0.3)" />
-                </div>
-                <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, margin: 0, lineHeight: 1.5 }}>
-                  The 5% commission is added on top — you always receive what you enter below.
-                </p>
+            <div style={{ padding: '12px 14px', background: 'rgba(255,92,0,0.06)', border: '1px solid rgba(255,92,0,0.18)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RiPriceTag3Line size={14} color="#ff5c00" />
+                <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>How your price breaks down</span>
               </div>
-            )}
+              <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.55, margin: 0 }}>
+                Buyers pay exactly the price you list — we don't add anything on top. Flockr's <strong style={{ color: '#fff' }}>{commissionPercent}%</strong> commission is deducted from your price{isPro ? ' (Pro rate)' : ''}, so price your product with that in mind.
+              </p>
+              {price > 0 && (
+                <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <PriceRow label="Buyer pays"                           value={`₦${price.toLocaleString()}`}      color="#fff" />
+                  <PriceRow label={`Flockr commission (${commissionPercent}%)`} value={`−₦${flockrFee.toLocaleString()}`} color="rgba(255,255,255,0.45)" />
+                  <PriceRow label="You receive"                          value={`₦${receives.toLocaleString()}`}   color="rgba(16,185,129,0.95)" />
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 10 }}>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '0 0 6px' }}>Want to take home a specific amount?</p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="number" min="1" value={target} onChange={e => setTarget(e.target.value)} placeholder="I want to receive ₦…" style={{ ...inputSt, padding: '9px 12px', fontSize: 13 }} />
+                  {suggested > 0 && (
+                    <button type="button" onClick={() => { set('price', String(suggested)); setTarget('') }} style={{ flexShrink: 0, padding: '9px 12px', borderRadius: 10, background: '#ff5c00', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      List at ₦{suggested.toLocaleString()}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Field label="Your Price (₦) *" error={errors.seller_price}>
+              <Field label="Price (₦) *" error={errors.price}>
                 <div style={{ position: 'relative' }}>
                   <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', fontSize: 14, pointerEvents: 'none' }}>₦</span>
                   <input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="5,000" min="1" style={{ ...inputSt, paddingLeft: 28 }} required />
                 </div>
-                <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, margin: '5px 0 0' }}>Amount you want to receive</p>
+                <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, margin: '5px 0 0' }}>What buyers will pay</p>
               </Field>
               <Field label="Compare Price (₦)" error={errors.compare_price}>
                 <div style={{ position: 'relative' }}>

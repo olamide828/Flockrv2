@@ -1,4 +1,5 @@
 import AppLayout from '@/Layouts/AppLayout'
+import RestockButton from '@/Components/RestockSheet'
 import { Head } from '@inertiajs/react'
 import axios from 'axios'
 import { useRef, useState } from 'react'
@@ -8,8 +9,6 @@ import {
     RiPriceTag3Line,
 } from 'react-icons/ri'
 
-const COMMISSION_RATE = 0.05
-
 const CONDITIONS = [
     { value: 'new',         label: 'New',         desc: 'Brand new, never used' },
     { value: 'used',        label: 'Used',         desc: 'Previously owned' },
@@ -18,21 +17,15 @@ const CONDITIONS = [
 
 const VARIANT_PRESETS = ['Size', 'Color', 'Material', 'Weight', 'Style']
 
-export default function ProductEdit({ product, categories = [] }) {
+export default function ProductEdit({ product, categories = [], commissionPercent = 5, isPro = false }) {
 
-    // ── Derive seller_price from product ──────────────────────────────────────
-    // product.seller_price is what seller receives (stored after commission calc)
-    // If seller_price not yet on product (old listing), back-calculate from price
-    const initialSellerPrice = product.seller_price
-        ? String(Math.round(Number(product.seller_price)))
-        : product.price
-            ? String(Math.round(Number(product.price) * (1 - COMMISSION_RATE)))
-            : ''
+    // The listed price IS what the buyer pays. Commission is deducted from it.
+    const initialPrice = product.price ? String(Math.round(Number(product.price))) : ''
 
     // ── Form state ────────────────────────────────────────────────────────────
     const [name,            setName]            = useState(product.name ?? '')
     const [description,     setDescription]     = useState(product.description ?? '')
-    const [sellerPrice,     setSellerPrice]     = useState(initialSellerPrice)
+    const [sellerPrice,     setSellerPrice]     = useState(initialPrice)
     const [comparePrice,    setComparePrice]    = useState(product.compare_price ?? '')
     const [stockQty,        setStockQty]        = useState(product.stock_quantity ?? '')
     const [categoryId,      setCategoryId]      = useState(product.category_id ?? '')
@@ -69,6 +62,7 @@ export default function ProductEdit({ product, categories = [] }) {
 
     // ── Image state ───────────────────────────────────────────────────────────
     const [existingImages, setExistingImages] = useState(product.image_urls ?? [])
+    const initialImages = useRef(product.image_urls ?? [])
     const [newFiles,       setNewFiles]       = useState([])
     const [newPreviews,    setNewPreviews]    = useState([])
 
@@ -81,16 +75,18 @@ export default function ProductEdit({ product, categories = [] }) {
     const fileRef = useRef(null)
 
     // ── Commission preview ────────────────────────────────────────────────────
-    const receives    = Number(sellerPrice) || 0
-    const listedPrice = receives > 0 ? Math.ceil(receives / (1 - COMMISSION_RATE)) : 0
-    const flockrFee   = listedPrice - receives
+    // Commission is taken OUT of the listed price (buyers are never charged extra).
+    const price       = Number(sellerPrice) || 0
+    const flockrFee   = Math.round(price * commissionPercent) / 100
+    const receives    = Math.max(0, price - flockrFee)
+    const [target, setTarget] = useState('')
+    const suggested   = Number(target) > 0 ? Math.ceil(Number(target) / (1 - commissionPercent / 100)) : 0
 
     // ── Discount preview ──────────────────────────────────────────────────────
     const discountPct = (() => {
-        const l = listedPrice
         const c = parseFloat(comparePrice)
-        if (!l || !c || c <= l) return null
-        return Math.round(((c - l) / c) * 100)
+        if (!price || !c || c <= price) return null
+        return Math.round(((c - price) / c) * 100)
     })()
 
     // ── Image handlers ────────────────────────────────────────────────────────
@@ -106,6 +102,7 @@ export default function ProductEdit({ product, categories = [] }) {
     }
 
     const removeExistingImage = (idx) => setExistingImages(prev => prev.filter((_, i) => i !== idx))
+    const makeCover = (idx) => setExistingImages(prev => [prev[idx], ...prev.filter((_, i) => i !== idx)])
 
     const removeNewFile = (idx) => {
         URL.revokeObjectURL(newPreviews[idx])
@@ -119,12 +116,18 @@ export default function ProductEdit({ product, categories = [] }) {
         setErrors({})
         setSuccess(false)
 
+        if (existingImages.length + newFiles.length === 0) {
+            setErrors({ _general: 'Keep at least one product photo.' })
+            setSaving(false)
+            return
+        }
+
         try {
             // 1. Update product fields — send seller_price, backend computes listed price
             await axios.put(`/api/products/${product.id}`, {
                 name,
                 description:      description || null,
-                seller_price:     parseFloat(sellerPrice),
+                price:            parseFloat(sellerPrice),
                 compare_price:    comparePrice ? parseFloat(comparePrice) : null,
                 stock_quantity:   parseInt(stockQty, 10),
                 category_id:      categoryId || null,
@@ -135,7 +138,14 @@ export default function ProductEdit({ product, categories = [] }) {
                 attributes:       attributesObject,
             })
 
-            // 2. Upload new images if any
+            // 2a. Save removed / re-ordered existing photos (this is what was not persisting before)
+            if (JSON.stringify(existingImages) !== JSON.stringify(initialImages.current)) {
+                const { data: synced } = await axios.put(`/api/products/${product.id}/images`, { images: existingImages })
+                setExistingImages(synced.images ?? existingImages)
+                initialImages.current = synced.images ?? existingImages
+            }
+
+            // 2b. Upload new images if any
             if (newFiles.length > 0) {
                 setUploading(true)
                 const fd = new FormData()
@@ -146,6 +156,7 @@ export default function ProductEdit({ product, categories = [] }) {
                     { headers: { 'Content-Type': 'multipart/form-data' } }
                 )
                 setExistingImages(data.images ?? [])
+                initialImages.current = data.images ?? []
                 setNewFiles([])
                 newPreviews.forEach(url => URL.revokeObjectURL(url))
                 setNewPreviews([])
@@ -181,6 +192,7 @@ export default function ProductEdit({ product, categories = [] }) {
                             <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Edit Product</h1>
                             <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</p>
                         </div>
+                        <RestockButton compact product={{ ...product, stock_quantity: Number(product.stock_quantity ?? 0) }} onDone={(s) => setStockQty(String(s))} />
                         <SaveBtn saving={saving} success={success} uploading={uploading} onClick={handleSave} />
                     </div>
                 </div>
@@ -218,6 +230,9 @@ export default function ProductEdit({ product, categories = [] }) {
                                     <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     {i === 0 && (
                                         <span style={{ position: 'absolute', top: 6, left: 6, padding: '2px 7px', background: '#FF6B35', borderRadius: 999, fontSize: 9, fontWeight: 700, color: '#fff' }}>COVER</span>
+                                    )}
+                                    {i > 0 && (
+                                        <button onClick={() => makeCover(i)} style={{ position: 'absolute', bottom: 6, left: 6, padding: '3px 8px', background: 'rgba(0,0,0,0.75)', border: 'none', borderRadius: 999, fontSize: 9, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>Make cover</button>
                                     )}
                                     <button
                                         onClick={() => removeExistingImage(i)}
@@ -272,27 +287,36 @@ export default function ProductEdit({ product, categories = [] }) {
                     <Section title="Pricing & Stock">
 
                         {/* Commission calculator */}
-                        {receives > 0 && (
-                            <div style={{ padding: '12px 14px', background: 'rgba(255,92,0,0.06)', border: '1px solid rgba(255,92,0,0.18)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <RiPriceTag3Line size={13} color="#ff5c00" />
-                                        <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>Listed in shop for</span>
-                                    </div>
-                                    <span style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>₦{listedPrice.toLocaleString()}</span>
-                                </div>
-                                <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <PriceRow label="You receive"       value={`₦${receives.toLocaleString()}`}    color="#10B981" />
-                                    <PriceRow label="Flockr fee (5%)"   value={`−₦${flockrFee.toLocaleString()}`}  color="rgba(255,255,255,0.3)" />
-                                </div>
-                                <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10, margin: 0, lineHeight: 1.5 }}>
-                                    The 5% is added on top — you always receive what you enter below.
-                                </p>
-                            </div>
-                        )}
+            <div style={{ padding: '12px 14px', background: 'rgba(255,92,0,0.06)', border: '1px solid rgba(255,92,0,0.18)', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RiPriceTag3Line size={14} color="#ff5c00" />
+                <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>How your price breaks down</span>
+              </div>
+              <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.55, margin: 0 }}>
+                Buyers pay exactly the price you list — we don't add anything on top. Flockr's <strong style={{ color: '#fff' }}>{commissionPercent}%</strong> commission is deducted from your price{isPro ? ' (Pro rate)' : ''}, so price your product with that in mind.
+              </p>
+              {price > 0 && (
+                <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <PriceRow label="Buyer pays"                           value={`₦${price.toLocaleString()}`}      color="#fff" />
+                  <PriceRow label={`Flockr commission (${commissionPercent}%)`} value={`−₦${flockrFee.toLocaleString()}`} color="rgba(255,255,255,0.45)" />
+                  <PriceRow label="You receive"                          value={`₦${receives.toLocaleString()}`}   color="rgba(16,185,129,0.95)" />
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid rgba(255,92,0,0.12)', paddingTop: 10 }}>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '0 0 6px' }}>Want to take home a specific amount?</p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="number" min="1" value={target} onChange={e => setTarget(e.target.value)} placeholder="I want to receive ₦…" style={{ ...inp, padding: '9px 12px', fontSize: 13 }} />
+                  {suggested > 0 && (
+                    <button type="button" onClick={() => { setSellerPrice(String(suggested)); setTarget('') }} style={{ flexShrink: 0, padding: '9px 12px', borderRadius: 10, background: '#ff5c00', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      List at ₦{suggested.toLocaleString()}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                            <Field label="Your Price (₦)" error={errors.seller_price}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                            <Field label="Price (₦)" error={errors.price}>
                                 <div style={{ position: 'relative' }}>
                                     <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', fontSize: 14, pointerEvents: 'none' }}>₦</span>
                                     <input
@@ -304,7 +328,7 @@ export default function ProductEdit({ product, categories = [] }) {
                                         style={{ ...inp, paddingLeft: 28 }}
                                     />
                                 </div>
-                                <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, margin: '4px 0 0' }}>Amount you want to receive</p>
+                                <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10, margin: '4px 0 0' }}>What buyers will pay</p>
                             </Field>
                             <Field label="Compare Price (₦)" error={errors.compare_price}>
                                 <div style={{ position: 'relative' }}>
