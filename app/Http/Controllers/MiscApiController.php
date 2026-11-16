@@ -153,7 +153,7 @@ class MiscApiController extends Controller
         if (!empty($cached)) return response()->json(['states' => $cached]);
         Cache::forget('terminal_ng_states');
 
-        $states = app(App\Services\TerminalService::class)->getStates();
+        $states = app(\App\Services\TerminalService::class)->getStates();
         return response()->json(['states' => $states]);
     } catch (\Throwable $e) {
         return response()->json(['states' => [], 'error' => $e->getMessage()], 200);
@@ -170,7 +170,7 @@ class MiscApiController extends Controller
         $cached    = Cache::get($cacheKey);
         if (empty($cached)) Cache::forget($cacheKey);
 
-        $cities = app(App\Services\TerminalService::class)->getCities($stateCode);
+        $cities = app(\App\Services\TerminalService::class)->getCities($stateCode);
         return response()->json(['cities' => $cities]);
     } catch (\Throwable $e) {
         \Log::error('getCities route failed', ['error' => $e->getMessage()]);

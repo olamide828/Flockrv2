@@ -14,6 +14,7 @@ export default function FeedIndex({ initialVideos }) {
     const itemRefs = useRef([]);
     const tabsRef = useRef(null);
     const tabRefs = useRef({});
+    const TAB_W = 72;   // px per tab; the bar shows three at a time and the 4th scrolls in
     const TABS = [
         ['for_you', 'For You'],
         ['shop', 'Shop'],
@@ -51,10 +52,14 @@ export default function FeedIndex({ initialVideos }) {
         return () => window.removeEventListener('keydown', onKey);
     }, [showNearMeNote]);
 
-    // Keep the active tab in view inside the scrollable tab bar
+    // Keep the active tab visible by scrolling ONLY the tab strip. (scrollIntoView also scrolls every parent
+    // container, which is what was shifting/distorting the video cards.)
     useEffect(() => {
+        const strip = tabsRef.current;
         const el = tabRefs.current[feedType];
-        if (el && el.scrollIntoView) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+        if (!strip || !el) return;
+        const left = el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2;
+        strip.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
     }, [feedType]);
 
     // Switch feed type — reset everything and load fresh
@@ -141,7 +146,10 @@ export default function FeedIndex({ initialVideos }) {
                 <div
                     style={{
                         pointerEvents: 'auto',
-                        maxWidth: 'calc(100% - 24px)',
+                        // ~ the original 3-tab pill width, never wider than the space between the side icons
+                        width: `min(${TAB_W * 3 + 4 * 2 + 6 * 2}px, calc(100% - 120px))`,
+                        maxWidth: '100%',
+                        flex: '0 0 auto',
                         minWidth: 0,
                         background: 'rgba(0,0,0,0.45)',
                         backdropFilter: 'blur(12px)',
@@ -163,6 +171,10 @@ export default function FeedIndex({ initialVideos }) {
                             msOverflowStyle: 'none',
                             WebkitOverflowScrolling: 'touch',
                             overscrollBehaviorX: 'contain',
+                            touchAction: 'pan-x',
+                            scrollSnapType: 'x proximity',
+                            width: '100%',
+                            boxSizing: 'border-box',
                         }}
                     >
                         {TABS.map(([type, label]) => (
@@ -171,14 +183,19 @@ export default function FeedIndex({ initialVideos }) {
                                 ref={(el) => (tabRefs.current[type] = el)}
                                 onClick={() => handleTabClick(type)}
                                 style={{
-                                    flex: '0 0 auto',
+                                    flex: `0 0 ${TAB_W}px`,
+                                    width: TAB_W,
+                                    justifyContent: 'center',
+                                    scrollSnapAlign: 'center',
                                     whiteSpace: 'nowrap',
-                                    padding: '5px 16px',
+                                    padding: '6px 0',
                                     borderRadius: 999,
                                     border: 'none',
                                     cursor: 'pointer',
                                     fontSize: 12,
                                     fontWeight: 700,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
                                     transition: 'all 0.2s',
                                     display: 'flex',
                                     alignItems: 'center',
