@@ -22,6 +22,19 @@ export default function Payouts() {
     try { const r = await fn(); toast(r?.data?.message || ok); list.reload(); refreshBadges() } catch (e) { toast(errMsg(e), 'error') } finally { setBusyId(null) }
   }
 
+  const toggleLive = async () => {
+    const goingLive = !live
+    const ok = await confirm({
+      title: goingLive ? 'Go live with real transfers?' : 'Switch back to test mode?',
+      message: goingLive
+        ? 'From now on, approving a payout sends REAL money from your Paystack balance to the seller’s bank. Make sure your balance is funded and your Paystack LIVE key is set.'
+        : 'Approving a payout will only mark it paid. No real money moves.',
+      confirmLabel: goingLive ? 'Yes, go live' : 'Switch to test', danger: goingLive,
+    })
+    if (!ok) return
+    try { const r = await axios.post(`${API}/live`, { live: goingLive, confirm: true }); toast(r.data.message); list.reload() } catch (e) { toast(errMsg(e), 'error') }
+  }
+
   const approve = async (p) => {
     const bank = p.seller ? `${p.seller.bank_name ?? 'bank'} ····${p.seller.account_last4 ?? ''} (${p.seller.account_name ?? 'unnamed'})` : 'the seller’s bank'
     const ok = await confirm({
@@ -44,7 +57,10 @@ export default function Payouts() {
       <Head title="Payouts · Admin" />
       <PageHeader title="Payouts" sub="Sellers withdrawing their earnings. Money only ever goes from a seller’s wallet to that seller’s own bank account." />
 
-      {live === false && <div className="a-error" style={{ margin: '0 0 16px' }}><span><b>Test mode.</b> Approving marks a payout as paid without sending real money.</span></div>}
+      <div className="a-error" style={{ margin: '0 0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', ...(live ? { background: 'rgba(16,185,129,.1)', borderColor: 'rgba(16,185,129,.35)' } : {}) }}>
+        <span>{live ? <><b>LIVE.</b> Approving a payout sends real money to the seller’s bank.</> : <><b>Test mode.</b> Approving marks a payout as paid without sending real money.</>}</span>
+        {live !== undefined && <Btn onClick={toggleLive}>{live ? 'Switch to test mode' : 'Go live'}</Btn>}
+      </div>
 
       <StatGrid>
         <Stat label="Waiting for approval" value={stats ? num(stats.pending_count) : '—'} sub={stats ? naira(stats.pending_amount) : null} tone={stats?.pending_count ? 'warn' : undefined} onClick={() => list.setParam('status', 'pending')} />

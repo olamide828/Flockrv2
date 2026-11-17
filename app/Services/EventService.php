@@ -58,13 +58,14 @@ class EventService
                 ]);
             });
 
-            try {
-                $order->buyer->notify(new \App\Notifications\OrderStatusNotification(
-                    $order,
-                    "🎉 {$event->title} reward unlocked!",
-                    "You bought from {$event->scavenger_hunt_target} different sellers — check your coupons for a surprise reward."
-                ));
-            } catch (\Throwable) {}
+            $newCoupon = Coupon::where('buyer_id', $order->buyer_id)->latest('id')->first();
+            \App\Notifications\AccountNotice::send(
+                $order->buyer, 'hunt_reward', "🎉 {$event->title} reward unlocked!",
+                "You bought from {$event->scavenger_hunt_target} different sellers and won a coupon" . ($newCoupon ? " — code {$newCoupon->code}" : '') . '.',
+                '/dashboard?tab=coupons', 'See my coupon', 'shop',
+                ['event_id' => $event->id, 'coupon_code' => $newCoupon?->code],
+                $newCoupon ? ["Coupon code: {$newCoupon->code}", '₦' . number_format((float) $newCoupon->amount, 0) . ' off an order of ₦' . number_format((float) $newCoupon->min_order, 0) . ' or more', 'Valid until ' . $newCoupon->expires_at?->toFormattedDateString()] : []
+            );
         }
     }
 
@@ -144,24 +145,47 @@ public function notifyEventLive(Event $event): void
         $topSellerId = ($first && $first['revenue'] > 0) ? $first['seller_id'] : null;
 
         foreach ($standings as $row) {
+            // Only notify the first time (a failed earlier run must not re-send emails every 5 minutes)
+            $firstTime = empty($row['participant']->final_stats);
             $final = ['orders_count' => $row['orders_count'], 'revenue' => $row['revenue'], 'rank' => $row['rank'], 'total_sellers' => $row['total_sellers']];
             $row['participant']->update(['final_stats' => $final]);
 
-            try {
-                $row['seller']?->notify(new \App\Notifications\EventNotification(
-                    $event,
+            if ($firstTime) {
+                \App\Notifications\AccountNotice::send(
+                    $row['seller'],
+                    'event_ended',
                     "{$event->title} has ended",
-                    "You made {$final['orders_count']} sale(s) worth ₦" . number_format($final['revenue'], 0) . " — ranked #{$final['rank']} of {$final['total_sellers']} participating sellers. Open Seller Dashboard to see your results."
-                ));
-            } catch (\Throwable) {}
+                    "You made {$final['orders_count']} sale(s) worth ₦" . number_format($final['revenue'], 0) . " and ranked #{$final['rank']} of {$final['total_sellers']} sellers. Tap to see your full results.",
+                    "/seller/events/{$event->id}/results",
+                    'See my results',
+                    'event',
+                    ['event_id' => $event->id, 'rank' => $final['rank']],
+                );
+            }
         }
 
+        // Champion badge — wrapped so a badge problem can never stop the event from closing.
         if ($topSellerId) {
-            $badge = Badge::firstOrCreate(
-                ['key' => 'event_champion_' . $event->id],
-                ['label' => "{$event->title} Champion", 'description' => "Top seller during {$event->title}", 'image_path' => 'badges/event_champion.png']
-            );
-            UserBadge::firstOrCreate(['user_id' => $topSellerId, 'badge_id' => $badge->id], ['awarded_at' => now()]);
+            try {
+                $badge = Badge::where('key', 'event_champion_' . $event->id)->first();
+                if (!$badge) {
+                    $badge = new Badge();
+                    // forceFill: image_path/description are not in the model's $fillable, which is why the insert had no image_path
+                    $badge->forceFill([
+                        'key'         => 'event_champion_' . $event->id,
+                        'label'       => "{$event->title} Champion",
+                        'description' => "Top seller during {$event->title}",
+                        'image_path'  => 'badges/event_champion.png',
+                    ])->save();
+                }
+                $award = UserBadge::firstOrCreate(['user_id' => $topSellerId, 'badge_id' => $badge->id], ['awarded_at' => now()]);
+                if ($award->wasRecentlyCreated) {
+                    \App\Notifications\AccountNotice::send(
+                        \App\Models\User::find($topSellerId), 'event_champion', "🏆 You are the {$event->title} Champion!",
+                        "You were the top seller. The Champion badge is now on your profile.", "/seller/events/{$event->id}/results", 'See my results', 'event', ['event_id' => $event->id]
+                    );
+                }
+            } catch (\Throwable $e) { report($e); }
         }
 
         $event->update(['status' => 'ended']);
