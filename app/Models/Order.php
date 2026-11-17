@@ -205,9 +205,7 @@ class Order extends Model
             app(\App\Services\EventService::class)->checkScavengerHunt($this);
 
             // 7. Mark coupon as used now that payment is confirmed
-            Coupon::where('used_on_order_id', $this->id)
-                ->whereNull('used_at')
-                ->update(['used_at' => now()]);
+            app(\App\Services\CouponService::class)->markUsed($this);
         });
 
         // Notify seller (outside transaction — notification failure shouldn't roll back payment)

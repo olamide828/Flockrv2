@@ -316,8 +316,9 @@ class DisputeController extends Controller
         }
 
         try {
-            $dispute->buyer->notify(new \App\Notifications\OrderStatusNotification($order, 'Dispute resolved', $validated['resolution_note']));
-            $dispute->seller->notify(new \App\Notifications\OrderStatusNotification($order, 'Dispute resolved', $validated['resolution_note']));
+            $verdict = $validated['outcome'] === 'refund_buyer' ? 'Decision: the buyer is refunded.' : 'Decision: the payment is released to the seller.';
+            $dispute->buyer->notify(new \App\Notifications\OrderStatusNotification($order, 'Your dispute was resolved', $verdict . ' ' . $validated['resolution_note']));
+            $dispute->seller->notify(new \App\Notifications\OrderStatusNotification($order, 'A dispute was resolved', $verdict . ' ' . $validated['resolution_note']));
         } catch (\Throwable) {}
 
         return response()->json([

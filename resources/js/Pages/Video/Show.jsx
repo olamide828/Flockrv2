@@ -1,6 +1,8 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useHoldSpeed from '@/Components/Video/useHoldSpeed';
+import PhotoCarousel from '@/Components/Video/PhotoCarousel';
 import {
     RiArrowLeftLine,
     RiBookmarkFill,
@@ -389,6 +391,8 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const lastTap         = useRef(0);
     const userPausedRef   = useRef(false);
     const swipeStartRef = useRef(null);
+    const hold = useHoldSpeed(videoRef);
+    const isPhotos = video.media_type === 'photos';
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);
@@ -493,6 +497,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     // acting, so a following second tap cancels it and likes instead — this is
     // what stops play/pause and double-tap-like from fighting each other.
     const handleVideoTap = useCallback((e) => {
+        if (hold.consumeClick()) return;
         if (mobileSheet) return;
         markInteracted();
         const now = Date.now();
@@ -579,6 +584,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
             {/* VIDEO COLUMN */}
             <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden', minWidth: 0 }}>
+                {isPhotos ? <PhotoCarousel photos={video.photo_urls ?? []} onTap={handleVideoTap} /> : (
                                 <video ref={videoRef} poster={video.thumbnail_url_full} muted playsInline preload={isActive ? 'auto' : 'none'}
                     onCanPlay={() => setLoading(false)} onWaiting={() => setLoading(true)}
                     onPlaying={() => setLoading(false)}
@@ -591,6 +597,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         }
                     }}
                     onStalled={() => { if (isActive) ensurePlaying(videoRef.current) }}
+                    {...hold.handlers}
                     onClick={handleVideoTap}
                     onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
                     onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
@@ -601,8 +608,10 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                         if (dx > 90) (video.user?.username && router.visit(`/@${video.user.username}`));
                     }}
                     onLoadedMetadata={e => { setDuration(e.target.duration); setVideoSize({ w: e.target.videoWidth, h: e.target.videoHeight }) }}
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', filter: video.enhance ? ENHANCE_CSS : 'none' }}
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', filter: video.enhance ? ENHANCE_CSS : 'none' }}
                 />
+                )}
+                {hold.indicator}
                 <TextOverlays overlays={video.text_overlays} videoSize={videoSize} />
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.1) 45%, transparent 70%)', pointerEvents: 'none', zIndex: 1 }} />
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 25%)', pointerEvents: 'none', zIndex: 1 }} />
@@ -628,7 +637,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                     </div>
                 </div>
 
-                {loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
+                {loading && !isPhotos && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}><div style={{ width: 36, height: 36, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
                 {showPP && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
                         <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

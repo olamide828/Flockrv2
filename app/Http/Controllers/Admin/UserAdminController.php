@@ -140,6 +140,8 @@ class UserAdminController extends Controller
         $u = $this->find($userId);
         $u->update(['is_verified' => !$u->is_verified]);
         Audit::log($u->is_verified ? 'user.verify' : 'user.unverify', $u);
+        \App\Notifications\AccountNotice::send($u, 'verification', $u->is_verified ? 'You are now verified ✔' : 'Your verification was removed',
+            $u->is_verified ? 'Flockr has verified your account. A verified badge now shows on your profile.' : 'The verified badge was removed from your profile. Contact support if you think this is a mistake.', '/', 'Open Flockr');
         return response()->json(['message' => $u->is_verified ? 'Verified.' : 'Verification removed.', 'is_verified' => $u->is_verified]);
     }
 
@@ -151,6 +153,8 @@ class UserAdminController extends Controller
         $data = $request->validate(['reason' => 'required|string|max:500']);
         $u->update(['is_active' => false, 'suspension_reason' => $data['reason'], 'suspended_at' => now()]);
         Audit::log('user.suspend', $u, ['reason' => $data['reason']]);
+        \App\Notifications\AccountNotice::send($u, 'account_suspended', 'Your Flockr account has been suspended', 'Reason: ' . $data['reason'], '/', 'Appeal this decision', 'account', [],
+            ['If you believe this is a mistake you can submit an appeal when you try to sign in.']);
         return response()->json(['message' => 'User suspended.']);
     }
 
@@ -159,6 +163,7 @@ class UserAdminController extends Controller
         $u = $this->find($userId);
         $u->update(['is_active' => true, 'suspension_reason' => null, 'suspended_at' => null]);
         Audit::log('user.unsuspend', $u);
+        \App\Notifications\AccountNotice::send($u, 'account_reinstated', 'Your account is active again', 'Your Flockr account has been reinstated. Welcome back!', '/', 'Open Flockr');
         return response()->json(['message' => 'User reinstated.']);
     }
 
@@ -171,6 +176,11 @@ class UserAdminController extends Controller
         $from = $u->role;
         $u->update(['role' => $data['role']]);
         Audit::log('user.role', $u, ['from' => $from, 'to' => $data['role']]);
+        if ($data['role'] === 'seller' && $from !== 'seller') {
+            \App\Notifications\AccountNotice::send($u, 'role_seller', 'You can now sell on Flockr 🎉', 'Your account was upgraded to a seller account. Add products and upload videos to start selling.', '/seller/dashboard', 'Open seller dashboard');
+        } elseif ($data['role'] !== $from) {
+            \App\Notifications\AccountNotice::send($u, 'role_changed', 'Your account type changed', "Your account type is now: {$data['role']}.", '/', 'Open Flockr');
+        }
         return response()->json(['message' => "Role set to {$data['role']}."]);
     }
 
@@ -179,6 +189,7 @@ class UserAdminController extends Controller
         $u = $this->find($userId);
         $u->forceFill(['is_flagged_for_review' => false, 'flagged_at' => null])->save();
         Audit::log('user.clear_flag', $u);
+        \App\Notifications\AccountNotice::send($u, 'seller_cleared', 'Your seller account has been cleared ✅', 'We reviewed your account and removed the review flag. You can keep selling as normal — thank you for your patience.', '/seller/dashboard', 'Open seller dashboard', 'account');
         return response()->json(['message' => 'Flag cleared.']);
     }
 
@@ -190,6 +201,7 @@ class UserAdminController extends Controller
         $on = $u->terminal_sender_verified_at === null;
         $u->forceFill(['terminal_sender_verified_at' => $on ? now() : null])->save();
         Audit::log($on ? 'user.terminal_cleared' : 'user.terminal_uncleared', $u);
+        if ($on) \App\Notifications\AccountNotice::send($u, 'delivery_unlocked', 'More delivery options unlocked 🚚', 'Your sender details are verified, so every courier — including DHL and others — is now available to your buyers.', '/seller/dashboard', 'Open seller dashboard');
         return response()->json(['message' => $on ? 'Marked as cleared for NIN carriers.' : 'Clearance removed.', 'cleared' => $on]);
     }
 
@@ -211,6 +223,7 @@ class UserAdminController extends Controller
         $u->restore();
         $u->update(['is_active' => true]);
         Audit::log('user.restore', $u);
+        \App\Notifications\AccountNotice::send($u, 'account_restored', 'Your account was restored', 'Your Flockr account is back. Your videos and products will return once our team has re-checked them.', '/', 'Open Flockr');
         return response()->json(['message' => 'User restored. Their videos/products stay hidden until re-approved.']);
     }
 

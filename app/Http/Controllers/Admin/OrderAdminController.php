@@ -138,6 +138,12 @@ class OrderAdminController extends Controller
 
         $result = app(OrderController::class)->cancelAndRefund($order, 'Admin: ' . $data['reason']);
         Audit::log('order.cancel', $order, ['reason' => $data['reason']] + $result);
+        try {
+            $order->loadMissing(['buyer', 'seller']);
+            $why = 'Reason: ' . $data['reason'] . ($result['paid'] ? ($result['refund_ok'] ? ' Your payment is being refunded.' : ' We are processing your refund.') : '');
+            $order->buyer?->notify(new \App\Notifications\OrderStatusNotification($order, 'Your order was cancelled', $why));
+            $order->seller?->notify(new \App\Notifications\OrderStatusNotification($order, 'An order was cancelled', 'Reason: ' . $data['reason']));
+        } catch (\Throwable $e) { report($e); }
 
         $msg = 'Order cancelled.';
         if ($result['paid']) $msg = $result['refund_ok'] ? 'Order cancelled and the buyer was refunded.' : 'Order cancelled, but the Paystack refund failed. Use “Retry refund”.';
@@ -165,6 +171,7 @@ class OrderAdminController extends Controller
 
         $order->releaseEscrow('Released early by admin');
         Audit::log('order.release_escrow', $order, ['amount' => $order->sellerAmount()]);
+        try { $order->seller?->notify(new \App\Notifications\OrderStatusNotification($order, 'Payment released 💰', '₦' . number_format($order->sellerAmount(), 2) . ' for order ' . $order->reference . ' is now in your wallet.')); } catch (\Throwable $e) { report($e); }
         return response()->json(['message' => '₦' . number_format($order->sellerAmount(), 2) . ' released to the seller.']);
     }
 
@@ -176,6 +183,7 @@ class OrderAdminController extends Controller
 
         $order->update(['status' => 'delivered', 'delivered_at' => $order->delivered_at ?? now()]);
         Audit::log('order.mark_delivered', $order);
+        try { $order->buyer?->notify(new \App\Notifications\OrderStatusNotification($order, 'Your order was delivered 📦', 'Order ' . $order->reference . ' is marked as delivered. Please check it and leave a review!')); } catch (\Throwable $e) { report($e); }
         return response()->json(['message' => 'Marked delivered. Escrow auto-releases 3 days later.']);
     }
 

@@ -96,6 +96,7 @@ class SubscriptionAdminController extends Controller
         $sub = Subscription::findOrFail($subscriptionId);
         $sub->update(['status' => 'cancelled', 'expires_at' => now()]);
         Audit::log('subscription.cancel', $sub, ['user_id' => $sub->user_id]);
+        \App\Notifications\AccountNotice::send($sub->user, 'pro_cancelled', 'Your Flockr Pro has ended', 'Your Pro plan was cancelled, so the standard commission applies again. You can re-subscribe any time from your dashboard.', '/seller/dashboard', 'Open dashboard');
         return response()->json(['message' => 'Subscription cancelled. Any payment refund is handled in Paystack.']);
     }
 }

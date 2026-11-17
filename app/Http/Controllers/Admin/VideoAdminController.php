@@ -74,6 +74,13 @@ class VideoAdminController extends Controller
         };
 
         Audit::log('video.' . $data['action'], $video, ['title' => $video->title, 'reason' => $data['reason'] ?? null]);
+        $t = $video->title ?: 'your video';
+        match ($data['action']) {
+            'reject', 'hide'     => \App\Notifications\AccountNotice::send($video->user, 'video_removed', 'Your video was taken down', "“{$t}” was removed for breaking our guidelines.", '/', 'Read the guidelines', 'account', [], ['Reason: ' . ($data['reason'] ?? '—')]),
+            'approve', 'restore' => \App\Notifications\AccountNotice::send($video->user, 'video_approved', 'Your video is live ✅', "“{$t}” has been approved and is now live on Flockr.", $video->user ? "/@{$video->user->username}/video/{$video->ulid}" : '/', 'View video', 'account'),
+            'feature'            => \App\Notifications\AccountNotice::send($video->user, 'video_featured', '🌟 Your video is featured!', "“{$t}” was picked as a featured video on Flockr.", $video->user ? "/@{$video->user->username}/video/{$video->ulid}" : '/', 'View video', 'account'),
+            default              => null,
+        };
         return response()->json(['message' => 'Done.', 'status' => $video->status]);
     }
 
@@ -84,6 +91,7 @@ class VideoAdminController extends Controller
         $video = Video::findOrFail($id);
         $video->delete();
         Audit::log('video.delete', $video, ['title' => $video->title, 'reason' => $request->reason]);
+        \App\Notifications\AccountNotice::send($video->user, 'video_removed', 'Your video was deleted', '“' . ($video->title ?: 'Your video') . '” was removed by the Flockr team.', '/', 'Read the guidelines', 'account', [], ['Reason: ' . $request->reason]);
         return response()->json(['message' => 'Video deleted.']);
     }
 }

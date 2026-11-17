@@ -312,4 +312,17 @@ public function activeHunts(): JsonResponse
     return response()->json(['hunts' => $list]);
 }
 
+/** GET /api/events/my-ended — events this seller took part in that ended in the last 7 days (powers the "event ended" pop-up). */
+public function myEnded(): JsonResponse
+{
+    $rows = \App\Models\EventParticipant::where('seller_id', Auth::id())
+        ->whereNotNull('final_stats')
+        ->whereHas('event', fn ($q) => $q->where('status', 'ended')->where('ends_at', '>=', now()->subDays(7)))
+        ->with('event:id,title,ends_at,theme_color,banner_image')
+        ->latest('id')->limit(3)->get()
+        ->map(fn ($p) => ['event_id' => $p->event_id, 'title' => $p->event->title, 'ended_at' => $p->event->ends_at, 'color' => $p->event->theme_color, 'stats' => $p->final_stats]);
+
+    return response()->json(['events' => $rows]);
+}
+
 }

@@ -525,6 +525,73 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
         return $out;
     }
 
+    /**
+     * POST /api/videos/photos   (multipart: photos[] up to 30, title, description, hashtags, kind, rights)
+     * A photo post is stored as a Video row with media_type = 'photos' so feeds, likes, comments, saves,
+     * tagged products and profiles all keep working with no extra plumbing.
+     */
+    public function storePhotos(Request $request): JsonResponse
+    {
+        if (!Auth::check()) {
+            return response()->json(['message' => 'Sign in to post.'], 403);
+        }
+
+        $request->validate([
+            'photos'      => 'required|array|min:1|max:30',
+            'photos.*'    => 'file|mimes:jpg,jpeg,png,webp,gif|max:12288',
+            'title'       => 'nullable|string|max:200',
+            'description' => 'nullable|string|max:1000',
+            'hashtags'    => 'nullable|string',
+            'kind'        => 'nullable|in:entertainment,haul,review',
+            'rights'      => 'accepted',
+        ], [
+            'photos.max'      => 'You can add up to 30 photos per post.',
+            'photos.*.max'    => 'Each photo must be under 12MB.',
+            'photos.*.mimes'  => 'Photos must be JPG, PNG, WebP or GIF.',
+            'rights.accepted' => 'Please confirm you have the rights to everything in your post.',
+        ]);
+
+        $disk  = Storage::disk(config('filesystems.default', 'public'));
+        $paths = [];
+        try {
+            foreach ($request->file('photos') as $file) {
+                $ext   = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+                $name  = 'photos/' . now()->format('Y/m/d') . '/' . \Illuminate\Support\Str::uuid() . '.' . $ext;
+                $disk->putFileAs(dirname($name), $file, basename($name), 'public');
+                $paths[] = $name;
+            }
+        } catch (\Throwable $e) {
+            foreach ($paths as $p) { try { $disk->delete($p); } catch (\Throwable) {} }
+            \Illuminate\Support\Facades\Log::error('Photo post upload failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Could not save your photos. Please try again.'], 500);
+        }
+
+        $video = Video::create([
+            'user_id'      => Auth::id(),
+            'title'        => $request->input('title'),
+            'description'  => $request->input('description'),
+            'hashtags'     => \App\Services\HashtagService::normalize($request->input('hashtags')),
+            'content_type' => $request->input('kind', 'entertainment'),
+            'media_type'   => 'photos',
+            'photos'       => $paths,
+            'video_url'    => null,
+            'thumbnail_url' => $paths[0],
+            'status'       => 'active',
+            'published_at' => now(),
+        ]);
+
+        $videoId = $video->id; $sellerId = Auth::id();
+        dispatch(function () use ($videoId, $sellerId) {
+            $v = Video::find($videoId); $seller = \App\Models\User::find($sellerId);
+            if (!$v || !$seller) return;
+            $seller->followers()->chunk(100, function ($followers) use ($v) {
+                foreach ($followers as $f) $f->notify(new \App\Notifications\NewVideoNotification($v));
+            });
+        });
+
+        return response()->json(['message' => 'Posted.', 'video_id' => $video->id, 'video_ulid' => $video->ulid, 'status' => 'active', 'count' => count($paths)], 201);
+    }
+
     public function feed(Request $request): JsonResponse
     {
         $type      = $request->input('type', 'for_you');
@@ -757,7 +824,8 @@ return response()->json([
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        $this->storageService->delete($video->video_url);
+        if ($video->video_url) $this->storageService->delete($video->video_url);
+        foreach ((array) $video->photos as $ph) { try { Storage::disk(config('filesystems.default', 'public'))->delete($ph); } catch (\Throwable) {} }
         try {
             Storage::disk(config('filesystems.default', 'public'))->deleteDirectory('overlays/' . $video->ulid);
         } catch (\Throwable) {}

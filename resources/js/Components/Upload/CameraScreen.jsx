@@ -62,6 +62,9 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
     const [flashFx, setFlashFx] = useState(0)
     const [fit, setFit] = useState('cover')   // 'contain' when the camera hands us a wide picture, so the preview isn't a zoomed-in crop
 
+    const compRef = useRef({ raf: 0, canvas: null, audio: null, skipOpen: false })
+    const [flipping, setFlipping] = useState(false)
+
     const stopStream = () => {
         streamRef.current?.getTracks().forEach(t => t.stop())
         streamRef.current = null
@@ -70,6 +73,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
 
     // ── Open (or re-open on flip) the camera ──────────────────────────────────
     useEffect(() => {
+        if (compRef.current.skipOpen) { compRef.current.skipOpen = false; return }
         let cancelled = false
         setReady(false)
         setCamError(null)
@@ -165,6 +169,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             clearInterval(countRef.current)
             clearTimeout(gesture.current.timer)
             cancelAnimationFrame(zoomFrame.current)
+            cancelAnimationFrame(compRef.current.raf)
             if (recRef.current && recRef.current.state === 'recording') {
                 recRef.current.onstop = null
                 try { recRef.current.stop() } catch { /* already stopped */ }
@@ -241,8 +246,37 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         if (recRef.current && recRef.current.state === 'recording') recRef.current.stop()
     }
 
+    // Swap front/back camera without stopping the recording
+    const flipLive = async () => {
+        const comp = compRef.current
+        if (flipping) return
+        if (!comp.canvas) { setNotice('Switching cameras while recording is not supported on this device.'); return }
+        const next = facing === 'user' ? 'environment' : 'user'
+        setFlipping(true)
+        try {
+            let ns = null
+            for (const f of [{ exact: next }, { ideal: next }]) {
+                try { ns = await navigator.mediaDevices.getUserMedia({ video: { facingMode: f, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, audio: false }); break } catch { /* try next */ }
+            }
+            if (!ns) { setNotice('Could not switch cameras.'); return }
+            const old = streamRef.current
+            const nt = ns.getVideoTracks()[0]
+            const merged = new MediaStream([nt, ...(comp.audio ? [comp.audio] : [])])
+            if (videoRef.current) { videoRef.current.srcObject = merged; videoRef.current.play().catch(() => {}) }
+            old?.getVideoTracks().forEach(t => t.stop())      // keep the audio track alive
+            streamRef.current = merged
+            trackRef.current = nt
+            const c = nt.getCapabilities?.() ?? {}, st = nt.getSettings?.() ?? {}
+            setCaps({ torch: !!c.torch, zoom: c.zoom && (c.zoom.max ?? 1) > (c.zoom.min ?? 1) ? { min: c.zoom.min ?? 1, max: c.zoom.max ?? 1, step: c.zoom.step || 0.1 } : null })
+            setTorchOn(false); setZoom(1)
+            setSelfie(st.facingMode ? st.facingMode === 'user' : next === 'user')
+            comp.skipOpen = true            // the [facing] effect must not re-open the camera and kill the recording
+            setFacing(next)
+        } finally { setFlipping(false) }
+    }
+
     const startRecording = () => {
-        const stream = streamRef.current
+        let stream = streamRef.current
         if (!stream || typeof MediaRecorder === 'undefined') {
             setNotice('Recording is not supported in this browser. Pick a video from your gallery instead.')
             return
@@ -250,6 +284,35 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         const mime = pickMime()
         const s = trackRef.current?.getSettings?.() ?? {}
         const pixels = (s.width || 1080) * (s.height || 1920)
+
+        // Record from a canvas that mirrors the <video>: that lets the camera be swapped (front <-> back) mid-recording
+        // without the file breaking. The microphone track is kept as-is so audio never cuts out.
+        const comp = compRef.current
+        cancelAnimationFrame(comp.raf); comp.canvas = null; comp.audio = null
+        try {
+            const v = videoRef.current
+            const audioTrack = stream.getAudioTracks()[0] ?? null
+            if (v?.videoWidth && HTMLCanvasElement.prototype.captureStream) {
+                const portrait = v.videoHeight >= v.videoWidth
+                const cw = portrait ? 720 : 1280, ch = portrait ? 1280 : 720
+                const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch
+                const ctx = cv.getContext('2d', { alpha: false })
+                const draw = () => {
+                    const el = videoRef.current
+                    if (el && el.videoWidth && el.readyState >= 2) {
+                        const k = Math.max(cw / el.videoWidth, ch / el.videoHeight)   // cover
+                        const w = el.videoWidth * k, h = el.videoHeight * k
+                        ctx.drawImage(el, (cw - w) / 2, (ch - h) / 2, w, h)
+                    }
+                    comp.raf = requestAnimationFrame(draw)
+                }
+                draw()
+                const out = cv.captureStream(30)
+                if (audioTrack) out.addTrack(audioTrack)
+                comp.canvas = cv; comp.audio = audioTrack
+                stream = out
+            }
+        } catch { stream = streamRef.current; comp.canvas = null }
         const videoBitsPerSecond = pixels >= 1920 * 1080 * 0.9 ? 8_000_000 : 5_000_000   // lighter files = faster preview, upload and processing
 
         let rec
@@ -265,6 +328,7 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
         chunksRef.current = []
         rec.ondataavailable = e => { if (e.data?.size) chunksRef.current.push(e.data) }
         rec.onstop = () => {
+            cancelAnimationFrame(compRef.current.raf); compRef.current.canvas = null
             onRecordStop?.()
             clearInterval(timerRef.current)
             setRecording(false)
@@ -462,8 +526,9 @@ export default function CameraScreen({ onCaptured, onGallery, onNativeCapture, o
             </div>
 
             {/* Right tools */}
-            <div style={{ position: 'absolute', right: 12, top: 'calc(env(safe-area-inset-top) + 72px)', zIndex: 10, display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', opacity: toolOpacity, pointerEvents: recording ? 'none' : 'auto' }}>
-                <button onClick={() => setFacing(f => (f === 'user' ? 'environment' : 'user'))} disabled={!ready} aria-label="Flip camera" style={S.toolBtn}>
+            <div style={{ position: 'absolute', right: 12, top: 'calc(env(safe-area-inset-top) + 72px)', zIndex: 10, display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', pointerEvents: recording ? 'none' : 'auto' }} className={'cam-tools' + (recording ? ' rec' : '')}>
+                <style>{'.cam-tools.rec>button:not(.cam-flip){opacity:.3}'}</style>
+                <button className="cam-flip" onClick={() => (recording ? flipLive() : setFacing(f => (f === 'user' ? 'environment' : 'user')))} disabled={!ready || flipping} aria-label="Flip camera" style={{ ...S.toolBtn, pointerEvents: 'auto' }}>
                     <RiCameraSwitchLine size={24} /><span style={S.toolLabel}>Flip</span>
                 </button>
                 {flashAvailable && (

@@ -88,6 +88,12 @@ class ProductAdminController extends Controller
         }
 
         Audit::log('product.' . $data['action'], $p, ['name' => $p->name, 'reason' => $data['reason'] ?? null]);
+        match ($data['action']) {
+            'hide'      => \App\Notifications\AccountNotice::send($p->seller, 'product_removed', 'A product was hidden', "“{$p->name}” was hidden from the shop.", '/seller/products', 'See my products', 'account', [], ['Reason: ' . ($data['reason'] ?? '—')]),
+            'unhide', 'restore' => \App\Notifications\AccountNotice::send($p->seller, 'product_restored', 'Your product is back', "“{$p->name}” is visible in the shop again.", '/seller/products', 'See my products', 'account'),
+            'feature'   => \App\Notifications\AccountNotice::send($p->seller, 'product_featured', '🌟 Your product is featured!', "“{$p->name}” was picked as a featured product this week.", '/seller/products', 'See my products', 'account'),
+            default     => null,
+        };
         return response()->json(['message' => 'Done.']);
     }
 
@@ -98,6 +104,7 @@ class ProductAdminController extends Controller
         $p = Product::findOrFail($id);
         $p->delete();
         Audit::log('product.delete', $p, ['name' => $p->name, 'reason' => $request->reason]);
+        \App\Notifications\AccountNotice::send($p->seller, 'product_removed', 'A product was removed', "“{$p->name}” was removed by the Flockr team.", '/seller/products', 'See my products', 'account', [], ['Reason: ' . $request->reason]);
         return response()->json(['message' => 'Product deleted.']);
     }
 }

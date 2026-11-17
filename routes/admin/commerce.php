@@ -20,6 +20,7 @@ Route::post('/orders/{orderId}/note',          [OrderAdminController::class, 'no
 
 // Payouts (seller wallet → seller bank only)
 Route::get('/payouts',                         [PayoutAdminController::class, 'index']);
+Route::post('/payouts/live',                   [PayoutAdminController::class, 'setLive']);
 Route::post('/payouts/{payout}/approve',       [PayoutAdminController::class, 'approve']);
 Route::post('/payouts/{payout}/reject',        [PayoutAdminController::class, 'reject']);
 
@@ -34,5 +35,7 @@ Route::get('/ledger',                          [LedgerController::class, 'index'
 // Coupons
 Route::get('/coupons',                         [CouponAdminController::class, 'index']);
 Route::post('/coupons',                        [CouponAdminController::class, 'store']);
+Route::post('/coupons/promo',                  [CouponAdminController::class, 'storePromo']);
+Route::post('/coupons/{couponId}/toggle',      [CouponAdminController::class, 'toggle'])->whereNumber('couponId');
 Route::post('/coupons/{couponId}/void',        [CouponAdminController::class, 'void'])->whereNumber('couponId');
 Route::post('/coupons/{couponId}/extend',      [CouponAdminController::class, 'extend'])->whereNumber('couponId');

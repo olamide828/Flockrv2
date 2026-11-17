@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/upload-url', [VideoController::class, 'uploadUrl']);   // direct-to-storage upload link
     Route::post('/videos/upload', [VideoController::class, 'store']);
+    Route::post('/videos/photos', [VideoController::class, 'storePhotos'])->middleware('throttle:20,1');   // photo post, up to 30 pictures
     Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
     Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
     Route::get('/artist/submissions', [\App\Http\Controllers\ArtistSubmissionController::class, 'mine']);
@@ -226,6 +227,7 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     //Event
     Route::get('/events', [EventController::class, 'index']);
 Route::get('/events/hunts', [EventController::class, 'activeHunts']);
+Route::get('/events/my-ended', [EventController::class, 'myEnded']);
     Route::get('/events/{event}', [EventController::class, 'show']);
     Route::get('/events/{event}/my-results', [EventController::class, 'myResults']);
     Route::get('/events/{event}/hunt-progress', [EventController::class, 'huntProgress']);

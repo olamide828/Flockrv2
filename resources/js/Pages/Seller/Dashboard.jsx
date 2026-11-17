@@ -12,7 +12,7 @@ import {
     RiSettings4Line, RiShoppingBagLine, RiStoreLine, RiTimeLine,
     RiTruckLine, RiUploadCloud2Line, RiUserFollowLine, RiVideoLine,
     RiFireLine, RiLockLine, RiTrophyLine, RiSparklingLine,
-    RiBarChartBoxLine, RiCloseLine, RiLightbulbFlashLine,
+    RiBarChartBoxLine, RiCloseLine, RiLightbulbFlashLine, RiAwardLine, RiTicket2Line,
 } from 'react-icons/ri';
 import { MdOutlineStorefront } from 'react-icons/md';
 
@@ -337,10 +337,11 @@ function MoneyPanel({ stats }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function SellerDashboard({
     stats, recentOrders = [], topProducts = [], recentVideos = [],
-    orders = [], savedProducts = [], savedVideos = [], gamification = null, eventResults = [],
+    orders = [], savedProducts = [], savedVideos = [], gamification = null, eventResults = [], creatorRewards = null, coupons = [],
 }) {
     const [period, setPeriod] = useState('30d');
     const [tab, setTab] = useState('overview');
+    const [showRewards, setShowRewards] = useState(false);
     const { auth } = usePage().props;
     // const [showProModal, setShowProModal] = useState(false);
 
@@ -471,6 +472,17 @@ const pagerBtnStyle = (disabled) => ({
                                 </div>
                             );
                         })}
+                        {creatorRewards && (
+                            <button type="button" className="kpi-card" onClick={() => setShowRewards(true)} style={{ textAlign: 'left', cursor: 'pointer', color: 'inherit', font: 'inherit', borderColor: 'rgba(255,107,53,0.35)' }}>
+                                <div className="kpi-top">
+                                    <div className="kpi-icon" style={{ background: 'rgba(255,107,53,0.15)', color: '#FF6B35' }}><RiAwardLine size={20} /></div>
+                                    <div className="kpi-change up"><span>{creatorRewards.met}/{creatorRewards.total}</span></div>
+                                </div>
+                                <h3 className="highlight">{creatorRewards.overall}%</h3>
+                                <p>Creator Rewards{creatorRewards.eligible ? ' · eligible 🎉' : ' progress'}</p>
+                                <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,0.08)', marginTop: 10, overflow: 'hidden' }}><div style={{ width: `${creatorRewards.overall}%`, height: '100%', background: '#FF6B35' }} /></div>
+                            </button>
+                        )}
                     </section>
 
                     <MoneyPanel stats={stats} />
@@ -500,23 +512,41 @@ const pagerBtnStyle = (disabled) => ({
                     {/* ── OVERVIEW TAB ─────────────────────────────────────── */}
                     {tab === 'overview' && (
                         <>
+                            {(eventResults.length > 0 || coupons.length > 0) && (
+                                <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 16 }}>
+                                    {eventResults.length > 0 && (
+                                        <div className="dashboard-card">
+                                            <div className="card-header"><div className="card-title"><RiTrophyLine /><h3>Event results</h3></div></div>
+                                            {eventResults.map(e => (
+                                                <a key={e.event_id} href={`/seller/events/${e.event_id}/results`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
+                                                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+                                                    <span style={{ color: e.status === 'ended' ? '#FBBF24' : '#10B981', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                                                        {e.status === 'ended' ? (e.rank ? `#${e.rank} of ${e.total_sellers}` : 'Ended') : 'Live · view standings'}
+                                                    </span>
+                                                </a>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {coupons.length > 0 && (
+                                        <div className="dashboard-card">
+                                            <div className="card-header"><div className="card-title"><RiTicket2Line /><h3>My coupons</h3></div></div>
+                                            {coupons.map(c => (
+                                                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: 13 }}>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <b style={{ fontFamily: 'monospace', letterSpacing: 1 }}>{c.code}</b>
+                                                        <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{Number(c.min_order) > 0 ? `Min order ₦${Number(c.min_order).toLocaleString()}` : 'No minimum'}{c.expires_at ? ` · until ${new Date(c.expires_at).toLocaleDateString()}` : ''}</div>
+                                                    </div>
+                                                    <b style={{ color: '#10B981', flexShrink: 0 }}>₦{Number(c.amount).toLocaleString()} off</b>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </section>
+                            )}
                             <section className="main-grid">
                                 
                                 {/* RECENT ORDERS (seller's sales) */}
 <div className="dashboard-card">
-    {eventResults.length > 0 && (
-    <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-title"><RiTrophyLine /><h3>Event results</h3></div>
-        {eventResults.map(e => (
-            <a key={e.event_id} href={`/seller/events/${e.event_id}/results`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
-                <span>{e.title}</span>
-                <span style={{ color: e.status === 'ended' ? '#FBBF24' : '#10B981', fontWeight: 700, fontSize: 12 }}>
-                    {e.status === 'ended' ? (e.rank ? `#${e.rank} of ${e.total_sellers}` : 'Ended') : 'Live · view standings'}
-                </span>
-            </a>
-        ))}
-    </div>
-)}
 <div className="card-header">
         <div className="card-title"><RiShoppingBagLine /><h3>Recent Sales</h3></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -807,7 +837,31 @@ const pagerBtnStyle = (disabled) => ({
     );
 }
 
-SellerDashboard.layout = page => <AppLayout>{page}</AppLayout>;
+SellerDashboard.layout = page => <AppLayout>{page}            {showRewards && creatorRewards && (
+                <div role="dialog" aria-modal="true" onClick={() => setShowRewards(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                    <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: '#141414', border: '1px solid rgba(255,255,255,.08)', borderRadius: 24, padding: 24, color: '#fff', maxHeight: '88vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>Flockr Creator Rewards</h3>
+                            <button onClick={() => setShowRewards(false)} aria-label="Close" style={{ background: 'rgba(255,255,255,.06)', border: 'none', borderRadius: 999, width: 30, height: 30, color: '#fff', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
+                        </div>
+                        <p style={{ margin: '0 0 16px', fontSize: 13, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
+                            Creators whose videos get discovered and loved will earn rewards. Here is how close you are to qualifying.
+                            {!creatorRewards.live && ' Payouts open soon — keep building your numbers.'}
+                        </p>
+                        {creatorRewards.criteria.map(c => (
+                            <div key={c.key} style={{ marginBottom: 14 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                                    <span>{c.met ? '✅ ' : ''}{c.label}</span>
+                                    <b>{Number(c.value).toLocaleString()} / {Number(c.target).toLocaleString()}</b>
+                                </div>
+                                <div style={{ height: 7, borderRadius: 99, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}><div style={{ width: `${c.pct}%`, height: '100%', background: c.met ? '#10B981' : '#FF6B35' }} /></div>
+                            </div>
+                        ))}
+                        <Link href="/seller/upload" style={{ display: 'block', textAlign: 'center', marginTop: 8, padding: 13, borderRadius: 14, background: '#FF6B35', color: '#fff', fontWeight: 800, textDecoration: 'none' }}>Upload a video</Link>
+                    </div>
+                </div>
+            )}
+        </AppLayout>;
 
 function EmptyState({ Icon, title, sub, cta }) {
     return (

@@ -5,8 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
     RiAddLine, RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiHashtag, RiMagicLine, RiMusic2Fill,
     RiPriceTag3Line, RiShoppingBag3Line, RiUploadCloud2Line, RiVolumeMuteLine, RiVolumeUpLine,
+    RiImageLine,
 } from 'react-icons/ri'
 import CameraScreen from '../../Components/Upload/CameraScreen'
+import PhotoPostComposer from '../../Components/Upload/PhotoPostComposer'
 import OverlayLayer from '../../Components/Upload/OverlayLayer'
 import PreviewVideo from '../../Components/Upload/PreviewVideo'
 import ProductSheet from '../../Components/Upload/ProductSheet'
@@ -27,6 +29,7 @@ export default function Upload({ products: initialProducts = [] }) {
     const [kind, setKind] = useState('entertainment')   // entertainment | haul | review (sellers tagging a product become 'shopping' automatically)
     // 'camera' → 'edit' (preview, text, sound) → 'details' (then Post)
     const [stage, setStage] = useState('camera')
+    const [photoMode, setPhotoMode] = useState(false)
 
     // Products (local copy so a newly created one can be added and tagged)
     const [products, setProducts] = useState(initialProducts)
@@ -421,6 +424,12 @@ export default function Upload({ products: initialProducts = [] }) {
                     <div style={{ pointerEvents: 'auto', maxWidth: '100%' }}>{soundPill()}</div>
                 </div>
             )}
+            {stage === 'camera' && !photoMode && (
+                <button onClick={() => setPhotoMode(true)} style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top) + 66px)', left: 12, zIndex: 31, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 999, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                    <RiImageLine size={15} /> Photos
+                </button>
+            )}
+            {photoMode && <PhotoPostComposer onClose={() => setPhotoMode(false)} />}
             {stage === 'camera' && (
                 <CameraScreen
                     onCaptured={(file, secs, opts) => setVideo(file, secs, { silent: !!opts?.silent, poster: opts?.poster ?? null })}
@@ -575,6 +584,8 @@ export default function Upload({ products: initialProducts = [] }) {
                                 </SCard>
                             )}
 
+                            {/* zIndex lifts the suggestion list above the Sound card below it */}
+                            <div style={{ position: 'relative', zIndex: 30 }}>
                             <SCard title="Hashtags">
                                 <div style={{ position: 'relative' }}>
                                     <RiHashtag size={13} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
@@ -582,6 +593,7 @@ export default function Upload({ products: initialProducts = [] }) {
                                 </div>
                                 <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, margin: '4px 0 0' }}>Space-separated, no # needed</p>
                             </SCard>
+                            </div>
 
                             {/* Sound: what plays on the video + whether others can reuse your own audio */}
                             <SCard title="Sound" action={<button onClick={() => setSoundSheet(true)} disabled={uploading} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 999, padding: '5px 12px', color: '#FF6B35', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{sound ? 'Change' : 'Add'}</button>}>

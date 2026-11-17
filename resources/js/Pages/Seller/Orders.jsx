@@ -1,11 +1,11 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import { useMemo, useState } from 'react';
 import ConfirmModal from '@/Components/Community/ConfirmModal';
 import { useToast } from '@/Components/Toast';
 import {
-    RiBox3Line, RiCheckLine, RiCloseLine, RiExternalLinkLine, RiGiftLine, RiLoader4Line,
+    RiArrowLeftLine, RiBox3Line, RiCheckLine, RiCloseLine, RiExternalLinkLine, RiGiftLine, RiLoader4Line,
     RiMapPinLine, RiMotorbikeLine, RiSearchLine, RiShieldCheckLine, RiTimeLine, RiTruckLine, RiWallet3Line,
 } from 'react-icons/ri';
 
@@ -39,6 +39,18 @@ const naira = n => '₦' + Number(n ?? 0).toLocaleString('en-NG');
 const fmt = d => d ? new Date(d).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
 const parseAddr = raw => { if (!raw) return null; if (typeof raw === 'object') return raw; try { return JSON.parse(raw); } catch { return null; } };
 const earningOf = o => Number(o.seller_earning ?? Math.max(0, Number(o.subtotal ?? 0) - Number(o.platform_fee ?? 0)));
+
+// Itemised receipt: what the buyer paid -> what lands in the seller's wallet
+function receipt(o) {
+    const subtotal = Number(o.subtotal ?? 0);
+    const commission = Number(o.platform_fee ?? 0);
+    const earn = earningOf(o);
+    const couponShare = Math.max(0, +(subtotal - commission - earn).toFixed(2)); // coupon cost the seller carries
+    const discount = Number(o.discount_amount ?? 0);
+    const delivery = Number(o.shipping_fee ?? o.courier_fee ?? 0);
+    return { subtotal, commission, earn, couponShare, discount, delivery,
+        flockrCoupon: discount > 0 && couponShare === 0, buyerPaid: Number(o.payment_total ?? o.total ?? 0) };
+}
 
 // how far along the order is (0-4), -1 when it never got going
 function stepOf(o) {
@@ -85,7 +97,7 @@ function OrderCard({ order: init, ask, showToast }) {
     const cfg = S[order.status] ?? S.pending;
     const addr = parseAddr(order.shipping_address);
     const earn = earningOf(order);
-    const fee = Number(order.flockr_fee ?? order.platform_fee ?? 0);
+    const rc = receipt(order);
     const note = payoutNote(order);
     const needsPack = ['paid', 'confirmed'].includes(order.status);
     const pickupFailed = order.status === 'pickup_failed';
@@ -161,10 +173,15 @@ function OrderCard({ order: init, ask, showToast }) {
                         ))}
                     </div>
 
-                    <div className="so-money">
-                        <div><small>Item total</small><b>{naira(order.subtotal)}</b></div>
-                        <div><small>Flockr fee</small><b className="neg">-{naira(fee)}</b></div>
-                        <div><small>You earn</small><b className="pos">{naira(earn)}</b></div>
+                    <div className="so-receipt">
+                        <div className="so-rh">Order receipt</div>
+                        <div className="so-r"><span>Items ({items.reduce((a, i) => a + Number(i.quantity ?? 1), 0)})</span><b>{naira(rc.subtotal)}</b></div>
+                        <div className="so-r neg"><span>Flockr commission</span><b>-{naira(rc.commission)}</b></div>
+                        {rc.couponShare > 0 && <div className="so-r neg"><span>Coupon (your share)</span><b>-{naira(rc.couponShare)}</b></div>}
+                        {rc.flockrCoupon && <div className="so-r mute"><span>Coupon paid by Flockr</span><b>{naira(rc.discount)}</b></div>}
+                        <div className="so-r total"><span>{order.escrow_released_at ? 'You received' : 'You earn'}</span><b>{naira(rc.earn)}</b></div>
+                        {rc.delivery > 0 && <div className="so-r mute"><span>Delivery (paid by buyer, goes to courier)</span><b>{naira(rc.delivery)}</b></div>}
+                        {rc.buyerPaid > 0 && <div className="so-r mute"><span>Buyer paid in total</span><b>{naira(rc.buyerPaid)}</b></div>}
                     </div>
 
                     {(addr || order.courier_name) && (
@@ -213,7 +230,11 @@ export default function SellerOrders({ orders: raw = [], summary = {} }) {
             <div className="so-page scroll-hidden h-screen overflow-y-auto">
                 <div className="so-top">
                     <div className="so-wrap">
-                        <h1>Orders</h1>
+                        <div className="so-bar">
+                            <button className="so-back" aria-label="Back" onClick={() => (window.history.length > 1 ? window.history.back() : router.visit('/seller/dashboard'))}><RiArrowLeftLine size={20} /></button>
+                            <h1>Orders</h1>
+                            <span className="so-count">{orders.length}</span>
+                        </div>
                         <div className="so-sum">
                             <div className={counts.todo ? 'hl' : ''}><b>{counts.todo}</b><small>To do</small></div>
                             <div><b>{counts.transit}</b><small>On the way</small></div>
@@ -245,7 +266,7 @@ export default function SellerOrders({ orders: raw = [], summary = {} }) {
 
             {dlg && <ConfirmModal title={dlg.title} message={dlg.message} confirmLabel={dlg.confirmLabel} danger={dlg.danger} onConfirm={() => { const f = dlg.onConfirm; setDlg(null); f(); }} onClose={() => setDlg(null)} />}
             {ToastComponent}
-            <style>{css}</style>
+            <style>{css}{css2}</style>
         </>
     );
 }
@@ -256,9 +277,12 @@ const css = `
 .so-page{background:var(--flockr-black,#0a0a0a);color:#fff}
 .so-wrap{max-width:720px;margin:0 auto;padding:0 16px}
 .so-top{position:sticky;top:0;z-index:30;background:rgba(10,10,10,.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.07);padding-bottom:0}
-.so-top h1{margin:0;padding:16px 0 12px;font-size:22px;font-weight:800;font-family:var(--font-display,inherit)}
+.so-bar{display:flex;align-items:center;gap:12px;padding:12px 0 12px}
+.so-bar h1{margin:0;font-size:20px;font-weight:800;flex:1}
+.so-back{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.so-count{font-size:12px;font-weight:700;color:rgba(255,255,255,.5);background:rgba(255,255,255,.06);padding:4px 10px;border-radius:999px}
 .so-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
-.so-sum>div{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:9px 8px;text-align:center;min-width:0}
+.so-sum>div{background:linear-gradient(160deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:10px 8px;text-align:center;min-width:0}
 .so-sum>div.hl{border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.08)}
 .so-sum b{display:block;font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .so-sum b.amber{color:#F5B93B}.so-sum b.green{color:#10B981}
@@ -273,8 +297,8 @@ const css = `
 .so-list{padding-top:14px;padding-bottom:110px;display:flex;flex-direction:column;gap:10px}
 .so-escrow-tip{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;color:rgba(255,255,255,.5);background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:12px;padding:10px 12px}
 .so-escrow-tip svg{color:#10B981;flex-shrink:0;margin-top:2px}
-.so-card{background:#111;border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden}
-.so-card.hot{border-color:rgba(59,130,246,.35)}.so-card.bad{border-color:rgba(239,68,68,.3)}
+.so-card{position:relative;background:#111;border:1px solid rgba(255,255,255,.07);border-left:4px solid rgba(255,255,255,.12);border-radius:6px 18px 18px 6px;overflow:hidden}
+.so-card.hot{border-color:rgba(59,130,246,.35);border-left-color:#3B82F6}.so-card.bad{border-color:rgba(239,68,68,.3);border-left-color:#EF4444}
 .so-head{all:unset;box-sizing:border-box;width:100%;display:flex;gap:12px;align-items:center;padding:14px;cursor:pointer}
 .so-thumb{position:relative;width:52px;height:52px;border-radius:12px;background:#1a1a1a;border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:visible}
 .so-thumb img{width:100%;height:100%;object-fit:cover;border-radius:12px}
@@ -322,4 +346,15 @@ const css = `
 .so-links a{display:flex;gap:6px;align-items:center;justify-content:center;padding:11px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.7);font-size:12.5px;font-weight:600;text-decoration:none}
 .so-empty{text-align:center;padding:70px 0;color:rgba(255,255,255,.25)}.so-empty b{display:block;margin-top:10px;color:rgba(255,255,255,.5);font-size:15px}.so-empty p{margin:4px 0 0;font-size:13px}
 .spin{animation:sospin .8s linear infinite}@keyframes sospin{to{transform:rotate(360deg)}}@keyframes soblink{50%{opacity:.3}}
+`;
+
+const css2 = `
+.so-receipt{background:#0c0c0c;border:1px dashed rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.so-rh{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:2px}
+.so-r{display:flex;justify-content:space-between;gap:12px;font-size:13px;align-items:baseline}
+.so-r span{color:rgba(255,255,255,.6)}
+.so-r.neg b{color:#ef7a7a}
+.so-r.mute span,.so-r.mute b{color:rgba(255,255,255,.35);font-size:11.5px;font-weight:500}
+.so-r.total{margin-top:2px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.16)}
+.so-r.total span{color:#fff;font-weight:700}.so-r.total b{color:#10B981;font-size:18px;font-weight:800}
 `;

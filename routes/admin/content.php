@@ -20,3 +20,5 @@ Route::delete('/products/{id}',                [ProductAdminController::class, '
 // Reports
 Route::get('/reports',                         [ReportAdminController::class, 'index']);
 Route::post('/reports/{id}/resolve',           [ReportAdminController::class, 'resolve'])->whereNumber('id');
+Route::get('/reports/{id}/content',            [ReportAdminController::class, 'content'])->whereNumber('id');
+Route::delete('/reports/{id}/messages/{messageId}', [ReportAdminController::class, 'deleteMessage'])->whereNumber('id')->whereNumber('messageId');

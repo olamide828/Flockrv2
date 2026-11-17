@@ -10,6 +10,7 @@ import MessageToast from '@/Components/MessageToast'
 import EventAnnounceModal from '@/Components/EventAnnounceModal'
 import RestockModal from '@/Components/RestockModal'
 import HuntProgress from '@/Components/Events/HuntProgress'
+import EventEndedModal from '@/Components/Events/EventEndedModal'
 import { IoChatboxEllipsesOutline } from 'react-icons/io5';
 import {
     RiHome5Line,
@@ -237,15 +238,16 @@ const replyToToast = (toast) => {
     }, [auth?.user]);
 
     const isSeller = auth?.user?.role === 'seller';
+    const canUpload = !!auth?.user;   // everyone signed in can post a video (sellers also tag products)
 
     useEffect(() => {
-    if (isSeller && typeof router.prefetch === 'function') {
+    if (canUpload && typeof router.prefetch === 'function') {
         try {
-            router.prefetch('/seller/upload', { method: 'get' }, { cacheFor: 30000 });
-            router.prefetch('/seller/products/create', { method: 'get' }, { cacheFor: 30000 });
+            router.prefetch('/upload', { method: 'get' }, { cacheFor: 30000 });
+            if (isSeller) router.prefetch('/seller/products/create', { method: 'get' }, { cacheFor: 30000 });
         } catch {}
     }
-}, [isSeller]);
+}, [canUpload, isSeller]);
 
 
     // ── Mobile Bottom Navigation Arrays based on User Role ───────────────────
@@ -390,12 +392,12 @@ const replyToToast = (toast) => {
                 </div>
 
                 {/* Upload Button for Desktop */}
-                {isSeller && (
+                {canUpload && (
                     <div style={{ padding: '0 12px 12px' }}>
                         <Link
-                            href="/seller/upload"
-                            onMouseEnter={() => handlePrefetch('/seller/upload')}
-                            onClick={() => handleNavClick('/seller/upload')}
+                            href="/upload"
+                            onMouseEnter={() => handlePrefetch('/upload')}
+                            onClick={() => handleNavClick('/upload')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -699,7 +701,7 @@ const replyToToast = (toast) => {
                             />
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            {isSeller && (
+                            {canUpload && (
                                 <Link
                                     href="/explore"
                                     onTouchStart={() => handlePrefetch('/explore')}
@@ -820,6 +822,20 @@ const replyToToast = (toast) => {
         </button>
         {sellerRightItems.map(renderNavLink)}
     </>
+) : canUpload ? (
+    <>
+        {sellerLeftItems.map(renderNavLink)}
+        <button
+            onClick={() => router.visit('/upload')}
+            aria-label="Upload video"
+            style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'none', border: 'none', padding: 0 }}
+        >
+            <div className="upload-fab rounded-[15px]">
+                <RiAddLine size={24} color="#fff" />
+            </div>
+        </button>
+        {sellerRightItems.map(renderNavLink)}
+    </>
 ) : (
     defaultMobileItems.map(renderNavLink)
 )}
@@ -872,6 +888,7 @@ const replyToToast = (toast) => {
             {announceEvent && <EventAnnounceModal event={announceEvent} onClose={dismissEventAnnounce} />}
             <RestockModal />
             <HuntProgress />
+            <EventEndedModal />
 
             {showCreateSheet && (
     <CreateSheet onClose={() => setShowCreateSheet(false)} />

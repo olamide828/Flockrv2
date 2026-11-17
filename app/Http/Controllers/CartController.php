@@ -119,14 +119,8 @@ class CartController extends Controller
         'subtotal' => 'nullable|numeric|min:0',
     ]);
 
-    $coupon = Coupon::where('code', strtoupper(trim($validated['code'])))
-        ->where('buyer_id', Auth::id())
-        ->whereNull('used_at')
-        ->where(function ($q) {
-            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-        })
-        ->first();
-
+    $cs     = app(\App\Services\CouponService::class);
+    $coupon = $cs->find($validated['code']);
     if (!$coupon) {
         return response()->json(['message' => 'Invalid or expired coupon code.'], 422);
     }
@@ -141,17 +135,19 @@ class CartController extends Controller
         $subtotal = $items->sum(fn($i) => $i->product->price * $i->quantity);
     }
 
-    if ($subtotal < $coupon->min_order) {
-        return response()->json([
-            'message' => "This coupon requires a minimum order of ₦" . number_format($coupon->min_order, 0) . ".",
-        ], 422);
+    if ($why = $cs->problem($coupon, (int) Auth::id(), (float) $subtotal)) {
+        return response()->json(['message' => $why], 422);
     }
+
+    $discount = $cs->discount($coupon, (float) $subtotal);
 
     return response()->json([
         'coupon' => [
             'id'         => $coupon->id,
             'code'       => $coupon->code,
-            'amount'     => $coupon->amount,
+            'amount'     => $discount,   // the ₦ actually taken off (works for % codes too, so the checkout UI needs no change)
+            'kind'       => $coupon->kind,
+            'percent'    => $coupon->percent,
             'min_order'  => $coupon->min_order,
             'expires_at' => $coupon->expires_at?->toDateString(),
         ],
@@ -247,20 +243,12 @@ class CartController extends Controller
         $couponDiscount = 0;
 
         if (!empty($validated['coupon_code'])) {
-            $coupon = Coupon::where('code', strtoupper(trim($validated['coupon_code'])))
-                ->where('buyer_id', Auth::id())
-                ->whereNull('used_at')
-                ->where(function ($q) {
-                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                })
-                ->first();
-
-            if ($coupon) {
-                $subtotalCheck = $items->sum(fn($i) => $i->product->price * $i->quantity);
-                if ($subtotalCheck >= $coupon->min_order) {
-                    $couponDiscount = (float) $coupon->amount;
-                }
-            }
+            $cs     = app(\App\Services\CouponService::class);
+            $coupon = $cs->find($validated['coupon_code']);
+            $subtotalCheck = (float) $items->sum(fn($i) => $i->product->price * $i->quantity);
+            $why = $coupon ? $cs->problem($coupon, (int) Auth::id(), $subtotalCheck) : 'Invalid or expired coupon code.';
+            if ($why) return response()->json(['message' => $why], 422);
+            $couponDiscount = $cs->discount($coupon, $subtotalCheck);
         }
 
         $orders     = [];
@@ -291,19 +279,33 @@ class CartController extends Controller
                 }
                 return $unitPrice * $i->quantity;
                 });
-                $platformFee = round($subtotal * config('flockr.platform_fee_percent', 5) / 100, 2);
+                // Same fee rule as single-product checkout: event rate, else Pro 3%, else 5% (cart used to charge Pro sellers 5%)
+                $sellerUser = \App\Models\User::find($sellerId);
+                $feePercent = $sellerActiveEvent?->event_fee_percent
+                    ?? ($sellerUser && $sellerUser->hasActiveSubscription()
+                        ? config('flockr.pro_platform_fee_percent', 3)
+                        : config('flockr.platform_fee_percent', 5));
+                $platformFee = round($subtotal * $feePercent / 100, 2);
+                $feeBeforeCoupon = $platformFee;
 
                 // Flockr's own delivery-management fee still only applies once
                 // per checkout — that part genuinely is shared, unlike courier cost.
                 $thisDeliveryPlatformFee = $isFirstOrder ? ($validated['delivery_platform_fee'] ?? 200) : 0;
 
                 $discount = min($remainingDiscount, $subtotal);
+                $flockrPaysAll = $coupon && $coupon->funded_by === 'flockr';
                 if ($discount > 0) {
-                    $sellerShare = round($discount / 2, 2);
-                    $flockrShare = $discount - $sellerShare;
-                    $platformFee = max(0, $platformFee - $flockrShare);
+                    if (!$flockrPaysAll) {
+                        $sellerShare = round($discount / 2, 2);
+                        $flockrShare = $discount - $sellerShare;
+                        $platformFee = max(0, $platformFee - $flockrShare);
+                    }
                     $remainingDiscount -= $discount;
                 }
+                // What the seller is really owed (was left empty here, so a coupon accidentally paid the seller extra)
+                $sellerEarning = $flockrPaysAll
+                    ? max(0, round($subtotal - $platformFee, 2))
+                    : max(0, round($subtotal - $discount - $platformFee, 2));
 
                 $total = $subtotal + $courierFee + $thisDeliveryPlatformFee - $discount;
                 $grandTotal += $total;
@@ -314,6 +316,10 @@ class CartController extends Controller
                     'subtotal'            => $subtotal,
                     'shipping_fee'        => $courierFee,
                     'platform_fee'        => $platformFee,
+                    'seller_earning'      => $sellerEarning,
+                    'flockr_fee'          => $thisDeliveryPlatformFee,
+                    'discount_amount'     => $discount,
+                    'payment_total'       => max(0, $total),
                     'total'               => max(0, $total),
                     'shipping_address'    => $address->toTerminalFormat(),
                     'delivery_address_id' => $address->id,
@@ -344,7 +350,7 @@ class CartController extends Controller
                 }
 
                 if ($coupon && $isFirstOrder) {
-                    $coupon->update(['used_on_order_id' => $order->id]);
+                    app(\App\Services\CouponService::class)->attach($coupon, $order, (int) Auth::id(), (float) $couponDiscount);
                 }
 
                 $orders[]     = $order;
@@ -365,8 +371,8 @@ class CartController extends Controller
                 $primaryOrder->load(['buyer', 'seller'])
             );
         } catch (\Throwable $e) {
+            foreach ($orders as $o) app(\App\Services\CouponService::class)->release($o);
             foreach ($orders as $order) $order->forceDelete();
-            if ($coupon) $coupon->update(['used_on_order_id' => null]);
             Log::error('Cart checkout Paystack failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Payment initialization failed. Please try again.'], 503);
         }

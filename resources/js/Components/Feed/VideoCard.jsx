@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, router, usePage } from '@inertiajs/react'
+import useHoldSpeed from '@/Components/Video/useHoldSpeed'
+import PhotoCarousel from '@/Components/Video/PhotoCarousel'
 import axios from 'axios'
 import {
   RiHeartLine, RiHeartFill, RiChat1Line,
@@ -226,6 +228,8 @@ export default function VideoCard({ video, isActive }) {
   const likeBtnRef      = useRef(null)
   const userPausedRef = useRef(false)
   const swipeStartRef = useRef(null)
+  const hold = useHoldSpeed(videoRef)
+  const isPhotos = video.media_type === 'photos'
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)
@@ -376,6 +380,7 @@ export default function VideoCard({ video, isActive }) {
   // a double-tap (like, wherever on the frame you tapped); if not, THEN the
   // play/pause fires. This is what stops the two gestures from fighting.
   const handleVideoTap = useCallback((e) => {
+    if (hold.consumeClick()) return
     if (showComments || showProducts || showShare) return
     markInteracted()
     const now = Date.now()
@@ -444,6 +449,7 @@ export default function VideoCard({ video, isActive }) {
       )}
       {showReportVideo && <ReportVideoModal video={video} onClose={() => setShowReportVideo(false)} />}
 
+        {isPhotos ? <PhotoCarousel photos={video.photo_urls ?? []} onTap={handleVideoTap} /> : (
         <video
         ref={videoRef} poster={video.thumbnail_url_full ?? undefined}
         muted playsInline preload={isActive ? 'auto' : 'none'}
@@ -463,8 +469,10 @@ export default function VideoCard({ video, isActive }) {
         onEnded={() => { const el = videoRef.current; if (el) { el.currentTime = 0; el.play().catch(() => {}) } }}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', filter: video.enhance ? ENHANCE_CSS : 'none' }}
       />
+        )}
 
-        <div
+        {!isPhotos && <div
+        {...hold.handlers}
         onClick={handleVideoTap}
         onTouchStart={e => { swipeStartRef.current = e.touches[0].clientX }}
         onTouchEnd={e => {
@@ -473,8 +481,9 @@ export default function VideoCard({ video, isActive }) {
           swipeStartRef.current = null
           if (dx > 90) (video.user?.username && router.visit(`/@${video.user.username}`))
         }}
-        style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer' }}
-      />
+        style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+      />}
+      {hold.indicator}
 
       <TextOverlays overlays={video.text_overlays} videoSize={videoSize} />
 
@@ -496,7 +505,7 @@ export default function VideoCard({ video, isActive }) {
         </button>
       </div>
 
-      {loading && (
+      {loading && !isPhotos && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
           <div style={{ width: 36, height: 36, border: '2.5px solid rgba(255,255,255,0.15)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'vc-spin 0.8s linear infinite' }} />
         </div>

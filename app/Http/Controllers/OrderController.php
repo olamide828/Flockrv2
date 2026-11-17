@@ -134,35 +134,43 @@ class OrderController extends Controller
     $platformFee = round($subtotal * $feePercent / 100, 2);
     $total       = $subtotal + $courierFee + $deliveryPlatformFee;
 
+    $cs             = app(\App\Services\CouponService::class);
     $coupon         = null;
     $couponDiscount = 0;
+    $flockrPaysAll  = false;
 
-    $applicableCoupon = Coupon::where('buyer_id', Auth::id())
-        ->whereNull('used_at')
-        ->where(function ($q) {
-            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-        })
-        ->where('min_order', '<=', $total)
-        ->orderByDesc('amount')
-        ->first();
-
-    if ($applicableCoupon) {
-        $coupon         = $applicableCoupon;
-        $couponDiscount = min((float) $coupon->amount, $total);
-        $couponDiscount = round($couponDiscount, 2);
-        $sellerShare    = round($couponDiscount / 2, 2);
-        $flockrShare    = $couponDiscount - $sellerShare;
-        $platformFee    = max(0, $platformFee - $flockrShare);
-        $total          = max(0, $total - $couponDiscount);
+    if (!empty($validated['coupon_code'])) {
+        // A code the buyer typed (private coupon OR a public promo/influencer code) — must pass every rule.
+        $typed = $cs->find($validated['coupon_code']);
+        $why   = $typed ? $cs->problem($typed, Auth::id(), (float) $subtotal) : 'Invalid or expired coupon code.';
+        if ($why) return response()->json(['message' => $why], 422);
+        $coupon = $typed;
+    } else {
+        $coupon = $cs->bestPrivate(Auth::id(), (float) $total);   // no code typed: use their best personal coupon, as before
     }
 
-    $sellerEarning = max(0, round($subtotal - $couponDiscount - $platformFee, 2));
+    if ($coupon) {
+        $couponDiscount = round(min($cs->discount($coupon, (float) $subtotal), (float) $total), 2);
+        $flockrPaysAll  = $coupon->funded_by === 'flockr';
+        if (!$flockrPaysAll) {
+            // goodwill/review/hunt coupons: cost is split 50/50 between the seller and Flockr (as before)
+            $sellerShare = round($couponDiscount / 2, 2);
+            $flockrShare = $couponDiscount - $sellerShare;
+            $platformFee = max(0, $platformFee - $flockrShare);
+        }
+        $total = max(0, $total - $couponDiscount);
+    }
+
+    // Flockr-funded promo codes (e.g. influencer codes) never reduce what the seller earns.
+    $sellerEarning = $flockrPaysAll
+        ? max(0, round($subtotal - $platformFee, 2))
+        : max(0, round($subtotal - $couponDiscount - $platformFee, 2));
 
     try {
     $order = DB::transaction(function () use (
         $product, $qty, $subtotal, $platformFee, $unitPrice,
         $activeEvent, $eventDiscountAmount,
-        $total, $coupon, $validated, $sellerEarning, $couponDiscount, $deliveryPlatformFee
+        $total, $coupon, $validated, $sellerEarning, $couponDiscount, $deliveryPlatformFee, $cs
     ) {
         $order = Order::create([
             'buyer_id'              => Auth::id(),
@@ -198,7 +206,7 @@ class OrderController extends Controller
         ]);
 
         if ($coupon) {
-            $coupon->update(['used_on_order_id' => $order->id]);
+            $cs->attach($coupon, $order, (int) Auth::id(), $couponDiscount);
         }
 
         // Hold the stock for 30 minutes (locks the product row; throws if someone else got the last unit)
@@ -213,8 +221,8 @@ class OrderController extends Controller
     try {
         $payment = $this->paystack->initializeTransaction($order->load(['buyer', 'seller']));
     } catch (\Throwable $e) {
+        if ($coupon) $cs->release($order);
         $order->forceDelete();
-        if ($coupon) $coupon->update(['used_on_order_id' => null]);
         Log::error('Paystack initialization failed', ['error' => $e->getMessage()]);
         return response()->json([
             'message' => 'Payment initialization failed. Please check your connection and try again.',
@@ -402,9 +410,7 @@ public function cancelAndRefund(Order $order, string $reason): array
         }
     });
 
-    Coupon::where('used_on_order_id', $order->id)
-        ->whereNull('used_at')
-        ->update(['used_on_order_id' => null]);
+    app(\App\Services\CouponService::class)->release($order);
 
     $refundOk = true;
     if ($wasPaid) {

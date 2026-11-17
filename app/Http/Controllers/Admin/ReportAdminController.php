@@ -100,6 +100,75 @@ class ReportAdminController extends Controller
         }
 
         Audit::log('report.' . $data['status'], $report, ['note' => $data['note'] ?? null, 'reported_id' => $report->reported_id]);
+
+        if ($data['status'] !== 'pending') {
+            $isAppeal = str_starts_with((string) $report->reason, '[Suspension Appeal]');
+            if ($isAppeal && $report->reported_id) {
+                \App\Notifications\AccountNotice::send(User::find($report->reported_id), 'appeal_outcome',
+                    $data['status'] === 'actioned' ? 'Your account has been reinstated' : 'Your appeal was reviewed',
+                    $data['status'] === 'actioned' ? 'Good news — we reviewed your appeal and your account is active again.' : 'We reviewed your appeal and the suspension stays in place.' . (($data['note'] ?? null) ? ' ' . $data['note'] : ''),
+                    '/', 'Open Flockr');
+            } elseif ($report->reporter_id) {
+                \App\Notifications\AccountNotice::send(User::find($report->reporter_id), 'report_update', 'Update on your report',
+                    $data['status'] === 'actioned' ? 'Thanks for reporting — we reviewed it and took action.' : 'Thanks for reporting — we reviewed it and found no violation this time.',
+                    '/', 'Open Flockr');
+            }
+        }
         return response()->json(['message' => 'Report ' . $data['status'] . '.']);
+    }
+
+    /**
+     * GET /api/admin/reports/{id}/content — WHAT was reported: the video, the product, or the whole conversation.
+     */
+    public function content(int $id): JsonResponse
+    {
+        $r = Report::findOrFail($id);
+        $reason = (string) $r->reason;
+        $out = ['kind' => 'user', 'report_id' => $r->id];
+
+        if (preg_match('/^\[Video:\s*([^\]]+)\]/', $reason, $m)) {
+            $v = \App\Models\Video::withTrashed()->with('user:id,name,username,avatar')->where('ulid', trim($m[1]))->orWhere('id', ctype_digit(trim($m[1])) ? (int) trim($m[1]) : 0)->first();
+            $out['kind'] = 'video';
+            $out['video'] = $v ? [
+                'id' => $v->id, 'ulid' => $v->ulid, 'title' => $v->title, 'caption' => $v->caption ?? $v->description ?? null,
+                'status' => $v->status, 'deleted' => $v->trashed(), 'video_url' => $v->video_stream_url ?? $v->video_url,
+                'thumbnail' => $v->thumbnail_url_full ?? $v->thumbnail_url, 'owner' => $v->user,
+                'link' => $v->user ? "/@{$v->user->username}/video/{$v->ulid}" : null,
+            ] : null;
+        } elseif (preg_match('/^\[Product:\s*([^\]]+)\]/', $reason, $m)) {
+            $p = \App\Models\Product::withTrashed()->with('seller:id,name,username,avatar')->where('slug', trim($m[1]))->first();
+            $out['kind'] = 'product';
+            $out['product'] = $p ? [
+                'id' => $p->id, 'name' => $p->name, 'price' => $p->price, 'status' => $p->status, 'deleted' => $p->trashed(),
+                'description' => $p->description, 'images' => $p->image_urls, 'seller' => $p->seller,
+                'link' => $p->seller ? "/@{$p->seller->username}/products/{$p->slug}" : null,
+            ] : null;
+        } elseif ($r->conversation_id) {
+            $conv = \App\Models\Conversation::find($r->conversation_id);
+            $out['kind'] = 'chat';
+            $out['messages'] = $conv ? $conv->messages()->with('sender:id,name,username,avatar')->orderBy('created_at')->limit(500)->get()->map(fn ($m) => [
+                'id' => $m->id, 'sender' => $m->sender, 'sender_id' => $m->sender_id, 'body' => $m->body,
+                'media_url' => $m->media_path ? app(\App\Services\StorageService::class)->url($m->media_path) : null,
+                'created_at' => $m->created_at, 'deleted' => method_exists($m, 'trashed') ? $m->trashed() : false,
+            ])->values() : [];
+            $ids = collect($out['messages'])->pluck('sender_id')->push($r->reporter_id, $r->reported_id)->filter()->unique()->values();
+            $out['participants'] = \App\Models\User::whereIn('id', $ids)->get(['id', 'name', 'username', 'avatar']);
+        } elseif ($r->order_id) {
+            $out['kind'] = 'order';
+            $out['order_id'] = $r->order_id;
+        }
+        return response()->json($out);
+    }
+
+    /** DELETE /api/admin/reports/{id}/messages/{messageId} — remove one message from a reported conversation */
+    public function deleteMessage(Request $request, int $id, int $messageId): JsonResponse
+    {
+        $request->validate(['reason' => 'nullable|string|max:300']);
+        $r = Report::findOrFail($id);
+        abort_unless($r->conversation_id, 422, 'This report is not about a conversation.');
+        $m = \App\Models\Message::where('conversation_id', $r->conversation_id)->findOrFail($messageId);
+        $m->delete();
+        Audit::log('report.message_delete', $r, ['message_id' => $messageId, 'reason' => $request->reason]);
+        return response()->json(['message' => 'Message removed.']);
     }
 }

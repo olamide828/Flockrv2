@@ -38,6 +38,8 @@ class Video extends Model
         'published_at',
         'text_overlays',
         'ai_category_id',
+        'media_type',
+        'photos',
     ];
 
     protected $casts = [
@@ -47,12 +49,14 @@ class Video extends Model
         'is_for_sale' => 'boolean',
         'published_at' => 'datetime',
         'text_overlays' => 'array',
+        'photos' => 'array',
     ];
 
     protected $appends = [
         'video_stream_url',
         'thumbnail_url_full',
         'is_processing',
+        'photo_urls',
     ];
 
     protected static function boot(): void
@@ -179,6 +183,16 @@ class Video extends Model
             return $this->buildUrl($this->thumbnail_url);
         } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
             return null;
+        }
+    }
+
+    /** Full URLs of a photo post's pictures (empty for normal videos). */
+    public function getPhotoUrlsAttribute(): array
+    {
+        try {
+            return collect($this->photos ?? [])->map(fn ($p) => $this->buildUrl($p))->filter()->values()->all();
+        } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
+            return [];
         }
     }
 

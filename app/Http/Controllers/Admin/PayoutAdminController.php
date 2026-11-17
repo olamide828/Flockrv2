@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppSetting;
 use App\Models\Payout;
 use App\Services\PaystackService;
 use App\Services\WalletService;
@@ -44,7 +45,29 @@ class PayoutAdminController extends Controller
 
     private function live(): bool
     {
-        return (bool) config('services.paystack.live_transfers', false);
+        // The admin switch wins; the env var is only the starting default.
+        return (bool) AppSetting::get('payouts.live', config('services.paystack.live_transfers', false));
+    }
+
+    /** POST /api/admin/payouts/live  { live: bool } — the "Go live" switch. */
+    public function setLive(Request $request): JsonResponse
+    {
+        $data = $request->validate(['live' => 'required|boolean']);
+        $key = (string) (config('services.paystack.secret') ?: config('services.paystack.secret_key') ?: '');
+
+        if ($data['live']) {
+            if (!str_starts_with($key, 'sk_live_')) {
+                return response()->json(['message' => 'Real transfers need your Paystack LIVE secret key (sk_live_…) in the environment. It is currently ' . ($key === '' ? 'missing' : 'a test key') . '.'], 422);
+            }
+            if (!$request->boolean('confirm')) {
+                return response()->json(['message' => 'Please confirm you want real money to move.'], 422);
+            }
+        }
+
+        AppSetting::set('payouts.live', (bool) $data['live']);
+        Audit::log('payout.mode', null, ['live' => (bool) $data['live']]);
+
+        return response()->json(['live' => (bool) $data['live'], 'message' => $data['live'] ? 'Payouts are LIVE. Approving now sends real money.' : 'Back to test mode. No real money will move.']);
     }
 
     /** POST /api/admin/payouts/{payout}/approve */

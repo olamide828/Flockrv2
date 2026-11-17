@@ -168,9 +168,15 @@ $eventResults = \App\Models\EventParticipant::where('seller_id', $seller->id)
         'total_sellers' => $p->final_stats['total_sellers'] ?? null,
     ])->values();
 
+// Creator Rewards KPI + this seller's own coupons (e.g. scavenger-hunt prizes they won as a buyer)
+$creatorRewards = app(\App\Services\CreatorRewardsService::class)->progress($seller);
+$coupons = \App\Models\Coupon::where('buyer_id', $seller->id)->whereNull('used_at')
+    ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+    ->latest()->limit(10)->get(['id', 'code', 'amount', 'min_order', 'expires_at']);
+
 return Inertia::render('Seller/Dashboard', compact(
     'stats', 'recentOrders', 'topProducts', 'recentVideos',
-    'orders', 'savedProducts', 'savedVideos', 'gamification', 'eventResults'
+    'orders', 'savedProducts', 'savedVideos', 'gamification', 'eventResults', 'creatorRewards', 'coupons'
 ));
 
 }

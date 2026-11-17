@@ -69,7 +69,7 @@ export default function HashtagInput({ value, onChange, separator = ' ', kind = 
                 style={inputStyle}
             />
             {open && shown.length > 0 && (
-                <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 6, zIndex: 60, background: '#1a1a1d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 16px 40px rgba(0,0,0,0.55)', maxHeight: 260, overflowY: 'auto' }}>
+                <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 6, zIndex: 500, background: '#1a1a1d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 16px 40px rgba(0,0,0,0.55)', maxHeight: 260, overflowY: 'auto' }}>
                     <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>
                         {current ? 'Matching tags' : 'Trending now'}
                     </div>

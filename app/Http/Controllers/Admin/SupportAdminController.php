@@ -54,6 +54,10 @@ class SupportAdminController extends Controller
             if ($ticket->type === 'verification_request') $ticket->user->update(['is_verified' => true]);
         }
         Audit::log('ticket.' . $data['outcome'], $ticket, ['type' => $ticket->type, 'note' => $data['note'] ?? null]);
+        $label = str_replace('_', ' ', (string) $ticket->type);
+        \App\Notifications\AccountNotice::send($ticket->user, 'support_update', $data['outcome'] === 'approve' ? "Your {$label} was approved ✅" : "Update on your {$label}",
+            $data['outcome'] === 'approve' ? "Good news — your {$label} was approved." : "We reviewed your {$label} and could not approve it this time.",
+            '/', 'Open Flockr', 'account', ['ticket_id' => $ticket->id], ($data['note'] ?? null) ? ['Message from the Flockr team: ' . $data['note']] : []);
         return response()->json(['message' => $data['outcome'] === 'approve' ? 'Approved and applied.' : 'Closed without changes.']);
     }
 

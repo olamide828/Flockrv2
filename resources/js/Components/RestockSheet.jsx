@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RiAddLine, RiBellLine, RiCloseLine, RiHeartLine, RiLoader4Line, RiStore2Line, RiUserFollowLine } from 'react-icons/ri';
 import { useToast } from '@/Components/Toast';
 
@@ -32,8 +33,9 @@ export function RestockSheet({ product, onClose, onDone }) {
         }
     };
 
-    return (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+    // Rendered into <body> so no parent (e.g. the ProductEdit page) can trap it underneath the bottom nav
+    const sheet = (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
             <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(8px)' }} />
             <div style={{ position: 'relative', width: '100%', maxWidth: 480, background: '#111', borderRadius: '24px 24px 0 0', padding: '14px 20px 28px', zIndex: 1 }}>
                 <div style={{ width: 44, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.15)', margin: '0 auto 14px' }} />
@@ -91,6 +93,7 @@ export function RestockSheet({ product, onClose, onDone }) {
             <style>{'@keyframes rsspin{to{transform:rotate(360deg)}}'}</style>
         </div>
     );
+    return typeof document !== 'undefined' ? createPortal(sheet, document.body) : sheet;
 }
 
 /** Drop-in button: <RestockButton product={p} onDone={(stock)=>…} /> */

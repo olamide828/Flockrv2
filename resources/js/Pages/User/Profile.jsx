@@ -7,7 +7,8 @@ import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
 import MutualFriendsRow from '@/Components/MutualFriendsRow'
 import ShareProfileSheet from '@/Components/ShareProfileSheet'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { FiLink } from 'react-icons/fi';
 import {
     RiAlertLine,
@@ -44,6 +45,7 @@ import {
     RiBookmarkFill,
     RiMusic2Line,
     RiThumbUpLine,
+    RiSortDesc,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -710,6 +712,19 @@ const loadPrivateTab = async (key) => {
     finally { setPrivateTabLoading(false) }
 }
 
+    const [sortKey, setSortKey] = useState('recent')
+    const [showSort, setShowSort] = useState(false)
+    const sortedVideos = useMemo(() => {
+        const list = [...(videos ?? [])]
+        const t = v => new Date(v.created_at ?? 0).getTime()
+        if (sortKey === 'oldest') list.sort((a, b) => t(a) - t(b))
+        else if (sortKey === 'liked') list.sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0) || t(b) - t(a))
+        else if (sortKey === 'viewed') list.sort((a, b) => (b.views_count ?? 0) - (a.views_count ?? 0) || t(b) - t(a))
+        else list.sort((a, b) => t(b) - t(a))
+        return list
+    }, [videos, sortKey])
+    const SORTS = [['recent', 'Recent'], ['oldest', 'Oldest'], ['liked', 'Most liked'], ['viewed', 'Most viewed']]
+
     const tabs = [
         { key: 'videos', label: 'Videos', Icon: RiVideoLine, count: videos?.length ?? 0 },
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
@@ -736,6 +751,21 @@ const loadPrivateTab = async (key) => {
 return (
     <>
         <Head title={accountState === 'deleted' ? 'Deleted account' : `${profileUser.name} (@${profileUser.username})`} />
+
+        {showSort && typeof document !== 'undefined' && createPortal(
+            <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                <div onClick={() => setShowSort(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.7)', backdropFilter: 'blur(6px)' }} />
+                <div style={{ position: 'relative', width: '100%', maxWidth: 480, background: '#111', borderRadius: '24px 24px 0 0', padding: '14px 18px 26px' }}>
+                    <div style={{ width: 44, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.15)', margin: '0 auto 14px' }} />
+                    <h3 style={{ margin: '0 0 10px', color: '#fff', fontSize: 16, fontWeight: 800 }}>Sort videos</h3>
+                    {SORTS.map(([k, label]) => (
+                        <button key={k} type="button" onClick={() => { setSortKey(k); setShowSort(false) }}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 4px', background: 'none', border: 0, borderBottom: '1px solid rgba(255,255,255,.06)', color: sortKey === k ? '#FF6B35' : '#fff', fontSize: 15, fontWeight: sortKey === k ? 700 : 500, cursor: 'pointer' }}>
+                            {label}{sortKey === k && <RiCheckLine size={18} />}
+                        </button>
+                    ))}
+                </div>
+            </div>, document.body)}
 
         {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
@@ -1292,8 +1322,8 @@ return (
         {tabs.map(({ key, label, Icon }) => {
             const active = activeTab === key;
             return (
+                <span key={key} style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
-                    key={key}
                     onClick={() => handleTabClick(key)}
                     style={{
                         display: 'flex',
@@ -1316,6 +1346,17 @@ return (
                 >
                     <Icon size={17} /> {label}
                 </button>
+                {key === 'videos' && (videos?.length ?? 0) > 1 && (
+                    <button
+                        type="button"
+                        aria-label="Sort videos"
+                        onClick={() => setShowSort(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 14, marginLeft: -4, padding: '5px 7px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: sortKey === 'recent' ? 'rgba(255,255,255,0.05)' : 'rgba(255,107,53,0.14)', color: sortKey === 'recent' ? 'rgba(255,255,255,0.6)' : '#FF6B35', cursor: 'pointer' }}
+                    >
+                        <RiSortDesc size={14} /><RiArrowDownSLine size={14} />
+                    </button>
+                )}
+                </span>
             );
         })}
     </div>
@@ -1326,7 +1367,7 @@ return (
             {activeTab === 'videos' &&
                 (videos?.length > 0 ? (
                     <div className="vgrid">
-                        {videos.map((video) => (
+                        {sortedVideos.map((video) => (
                             <Link
                                 key={video.id}
                                 href={`/@${video.user?.username}/video/${video.ulid}`}
