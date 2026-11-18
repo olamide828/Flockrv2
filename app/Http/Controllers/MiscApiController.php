@@ -178,128 +178,170 @@ class MiscApiController extends Controller
     }
 }
 
+    // ── Chirp (AI stylist / "ask about this") ─────────────────────────────────
+
+    /** Ask Gemini. Returns ['description' => string, 'terms' => string[]] or null when the call failed (never cached). */
+    private function chirpGemini(array $parts): ?array
+    {
+        $key = config('services.gemini.key') ?: env('GEMINI_API_KEY');
+        if (!$key) {
+            \Illuminate\Support\Facades\Log::warning('Chirp: GEMINI_API_KEY is not set, so no AI text can be written.');
+            return null;
+        }
+        try {
+            $r = \Illuminate\Support\Facades\Http::timeout(40)->post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . $key,
+                ['contents' => [['parts' => $parts]]]
+            );
+            if (!$r->successful()) {
+                \Illuminate\Support\Facades\Log::warning('Chirp: Gemini returned HTTP ' . $r->status() . ' ' . substr($r->body(), 0, 300));
+                return null;
+            }
+            $raw    = (string) data_get($r->json(), 'candidates.0.content.parts.0.text', '');
+            $parsed = json_decode(trim(preg_replace('/```json|```/', '', $raw)), true);
+            if (is_array($parsed)) {
+                $desc = trim((string) ($parsed['message'] ?? ''));
+                if ($desc === '') return null;
+                return ['description' => $desc, 'terms' => array_values(array_filter((array) ($parsed['search_terms'] ?? []), 'is_string'))];
+            }
+            // The model answered in plain text instead of JSON: still useful as the reply
+            return trim($raw) !== '' ? ['description' => trim($raw), 'terms' => []] : null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Chirp: Gemini call failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /** Read a stored file (relative path or full URL) as bytes, or null. */
+    private function chirpRead(?string $path, int $maxBytes): ?string
+    {
+        if (!$path) return null;
+        try {
+            $disk = config('filesystems.default');
+            $url  = (string) config("filesystems.disks.$disk.url");
+            $key  = ltrim($url !== '' ? str_replace($url, '', $path) : $path, '/');
+            $bytes = \Illuminate\Support\Facades\Storage::disk($disk)->get($key);
+            return ($bytes && strlen($bytes) <= $maxBytes) ? $bytes : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /** Words to search the catalogue with when the AI gave none (or failed). */
+    private function chirpFallbackTerms(string $text): array
+    {
+        $stop = ['the','and','for','with','new','this','that','from','your','you','are','was','but'];
+        return collect(preg_split('/[^\pL\pN]+/u', mb_strtolower($text)))
+            ->filter(fn($w) => mb_strlen($w) > 2 && !in_array($w, $stop, true))->unique()->take(6)->values()->all();
+    }
+
+    /** Products shaped for <ProductCard>: it needs the seller, so without it the card renders nothing. */
+    private function chirpFind(array $terms, array $excludeIds, int $limit = 8)
+    {
+        $words = collect($terms)->flatMap(fn($t) => preg_split('/\s+/', trim($t)))
+            ->map(fn($w) => trim($w))->filter(fn($w) => mb_strlen($w) > 2)->unique()->take(12);
+        if ($words->isEmpty()) return collect();
+
+        $products = Product::where('status', 'active')
+            ->whereNotIn('id', array_filter($excludeIds))
+            ->where(function ($q) use ($words) {
+                foreach ($words as $w) {
+                    $q->orWhere('name', 'ilike', "%{$w}%")->orWhere('description', 'ilike', "%{$w}%");
+                }
+            })
+            ->with(['seller' => fn($q) => $q->select('id', 'name', 'username', 'avatar', 'is_verified')->withActiveSubscriptionFlag()])
+            ->limit($limit)->get()
+            ->filter(fn($p) => $p->seller?->username)->values();
+
+        $saved = Auth::id()
+            ? DB::table('product_saves')->where('user_id', Auth::id())->whereIn('product_id', $products->pluck('id'))->pluck('product_id')->flip()->all()
+            : [];
+        $products->each(fn($p) => $p->is_saved = isset($saved[$p->id]));
+        return $products;
+    }
+
+    private function chirpReply(array $result, $products, bool $isStyle, string $fallbackText): \Illuminate\Http\JsonResponse
+    {
+        $text = $result['description'] !== ''
+            ? $result['description']
+            : ($isStyle
+                ? "I couldn't reach my styling brain just now, but here are pieces that could go with this."
+                : "I couldn't take a proper look just now, but here is what's similar.");
+        $tail = $products->isNotEmpty()
+            ? ' ' . ($isStyle ? 'Matching pieces' : 'Similar products') . ' are below.'
+            : " I couldn't find close matches on Flockr right now.";
+        return response()->json(['message' => $text . $tail, 'products' => $products, 'ai' => $result['description'] !== '']);
+    }
+
     /** /chirp/video-insight */
     public function hChirpVideoInsight6(Request $request)
     {
-    $request->validate(['video_id' => 'required|exists:videos,id', 'mode' => 'required|in:ask,style']);
-    $video = \App\Models\Video::with('products')->findOrFail($request->video_id);
-    $isStyle = $request->mode === 'style';
+        $request->validate(['video_id' => 'required|exists:videos,id', 'mode' => 'required|in:ask,style']);
+        $video   = \App\Models\Video::with('products')->findOrFail($request->video_id);
+        $isStyle = $request->mode === 'style';
+        $cacheKey = "chirp_insight:v2:{$video->id}:{$request->mode}";
 
+        $result = Cache::get($cacheKey);
+        if (!$result) {
+            $what = ($video->media_type ?? 'video') === 'photos' ? 'photo post' : 'product video';
+            $instruction = $isStyle
+                ? "You are Chirp, acting as a real personal stylist. Look at this {$what} titled \"{$video->title}\" ({$video->description}). Give genuine, detailed styling advice: specific pairing suggestions (exact item types, colors, textures), occasions it suits, and one or two concrete outfit combinations, in 5-7 warm, conversational sentences. Be specific, not generic."
+                : "You are Chirp. Look at this {$what} titled \"{$video->title}\" ({$video->description}) and answer as if you genuinely watched it, in 2-4 natural sentences.";
+            $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr, that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3", "term4", "term5"]}. Give 5 search_terms: ' . ($isStyle ? 'complementary items that style well with this piece (never the item itself), mixing broad words like "shoes" with descriptive ones like "brown leather"' : 'items similar to this product, mixing broad and descriptive words') . '.']];
 
-    $cacheKey = "chirp_insight:{$video->id}:{$request->mode}";
-
-    $result = Cache::remember($cacheKey, now()->addDays(7), function () use ($video, $isStyle) {
-        $instruction = $isStyle
-            ? "You are Chirp, acting as a real personal stylist. Watch this product video titled \"{$video->title}\" ({$video->description}). Give genuine, detailed styling advice — specific pairing suggestions (exact item types, colors, textures), occasions it suits, and one or two concrete outfit combinations — in 5-7 warm, conversational sentences. Be specific, not generic."
-            : "You are Chirp. Watch this product video titled \"{$video->title}\" ({$video->description}) and answer as if you genuinely watched it, in 2-4 natural sentences.";
-
-        $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr — that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3"]}. search_terms should be ' . ($isStyle ? 'complementary items that style well with this piece (never the item itself)' : 'items similar to this product') . '.']];
-
-        try {
-            $key = ltrim(str_replace(config('filesystems.disks.' . config('filesystems.default') . '.url'), '', $video->video_url ?? ''), '/');
-            $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($key);
-            if ($bytes && strlen($bytes) < 15 * 1024 * 1024) {
-                $parts[] = ['inline_data' => ['mime_type' => 'video/mp4', 'data' => base64_encode($bytes)]];
+            if (($video->media_type ?? 'video') === 'photos') {
+                $img = $this->chirpRead($video->photos[0] ?? null, 8 * 1024 * 1024);
+                if ($img) $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($img)]];
+            } else {
+                $bytes = $this->chirpRead($video->video_url, 15 * 1024 * 1024);
+                if ($bytes) {
+                    $parts[] = ['inline_data' => ['mime_type' => 'video/mp4', 'data' => base64_encode($bytes)]];
+                } else {
+                    // Too big to send? the thumbnail is still a good look at the item
+                    $thumb = $this->chirpRead($video->thumbnail_url, 8 * 1024 * 1024);
+                    if ($thumb) $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($thumb)]];
+                }
             }
-        } catch (\Throwable $e) {}
 
-        $response = \Illuminate\Support\Facades\Http::timeout(30)->post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . config('services.gemini.key'),
-            ['contents' => [['parts' => $parts]]]
-        );
+            $result = $this->chirpGemini($parts);
+            if ($result) Cache::put($cacheKey, $result, now()->addDays(7));   // failures are never cached
+        }
+        $result ??= ['description' => '', 'terms' => []];
 
-        $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
-        $clean = trim(preg_replace('/```json|```/', '', $raw));
-        $parsed = json_decode($clean, true);
+        $terms = $result['terms'] ?: $this->chirpFallbackTerms(trim(($video->title ?? '') . ' ' . ($video->hashtags ?? '') . ' ' . $video->products->pluck('name')->implode(' ')));
+        $products = $this->chirpFind($terms, [$video->products->first()?->id]);
 
-        return [
-            'description' => is_array($parsed) ? ($parsed['message'] ?? '') : '',
-            'terms' => is_array($parsed) ? ($parsed['search_terms'] ?? []) : [],
-        ];
-    });
-
-    // Product search runs fresh EVERY request, never cached — so if new matching
-    // products get listed after the analysis was cached, buyers still see them.
-    $products = collect($result['terms'])->flatMap(fn($term) =>
-        Product::where('status', 'active')
-            ->where(fn($q) => $q->where('name', 'ilike', "%{$term}%")->orWhere('description', 'ilike', "%{$term}%"))
-            ->where('id', '!=', $video->products->first()?->id)
-            ->limit(4)->get()
-    )->unique('id')->take(8)->values();
-
-    $description = $result['description'] ?: ($isStyle ? "Here's how I'd style this." : "Here's what I found.");
-    $message = $products->isNotEmpty()
-        ? "{$description} I found {$products->count()} " . ($isStyle ? 'matching pieces' : 'similar products') . " for you below!"
-        : "{$description} I couldn't find close matches on Flockr right now.";
-
-    return response()->json(['message' => $message, 'products' => $products]);
-}
+        return $this->chirpReply($result, $products, $isStyle, '');
+    }
 
     /** /chirp/product-insight */
     public function hChirpProductInsight7(\Illuminate\Http\Request $request)
     {
-    $request->validate(['product_id' => 'required|exists:products,id', 'mode' => 'required|in:ask,style']);
-    $product = \App\Models\Product::findOrFail($request->product_id);
-    $isStyle = $request->mode === 'style';
-    $cacheKey = "chirp_product_insight:{$product->id}:{$request->mode}";
+        $request->validate(['product_id' => 'required|exists:products,id', 'mode' => 'required|in:ask,style']);
+        $product = \App\Models\Product::findOrFail($request->product_id);
+        $isStyle = $request->mode === 'style';
+        $cacheKey = "chirp_product_insight:v2:{$product->id}:{$request->mode}";
 
-    $result = \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDays(7), function () use ($product, $isStyle) {
-        $instruction = $isStyle
-            ? "You are Chirp, acting as a real personal stylist. Look at this product photo: \"{$product->name}\" ({$product->description}). Give genuine, detailed styling advice — specific pairing suggestions, occasions it suits, one or two concrete outfit combinations — in 5-7 warm, conversational sentences. Be specific, not generic."
-            : "You are Chirp. Look at this product photo: \"{$product->name}\" ({$product->description}) and answer naturally in 2-4 sentences.";
+        $result = Cache::get($cacheKey);
+        if (!$result) {
+            $instruction = $isStyle
+                ? "You are Chirp, acting as a real personal stylist. Look at this product photo: \"{$product->name}\" ({$product->description}). Give genuine, detailed styling advice: specific pairing suggestions, occasions it suits, one or two concrete outfit combinations, in 5-7 warm, conversational sentences. Be specific, not generic."
+                : "You are Chirp. Look at this product photo: \"{$product->name}\" ({$product->description}) and tell the shopper what stands out about it (look, material, who it suits, how to wear or use it) in 2-4 natural sentences.";
+            $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr, that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3", "term4", "term5"]}. Give 5 search_terms: mix broad category words (e.g. "shoes", "bag") AND specific descriptive words (e.g. "brown", "leather").']];
 
-        $parts = [['text' => $instruction . ' Do NOT claim whether similar products were found on Flockr — that is reported separately. Respond with ONLY compact JSON, no markdown: {"message": "your reply", "search_terms": ["term1", "term2", "term3", "term4", "term5"]}. Give 5 search_terms: mix broad category words (e.g. "shoes", "bag") AND specific descriptive words (e.g. "brown", "leather") so matching has the best chance of finding something real.']];
+            $img = $this->chirpRead(($product->images[0] ?? null) ?: $product->primary_image, 8 * 1024 * 1024);
+            if ($img) $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($img)]];
 
-        try {
-            $key = ltrim(str_replace(
-                config('filesystems.disks.' . config('filesystems.default') . '.url'), '',
-                $product->primary_image ?? ''
-            ), '/');
-            $bytes = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))->get($key);
-            if ($bytes) {
-                $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode($bytes)]];
-            }
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning("Chirp product-insight: couldn't read image for product {$product->id}: " . $e->getMessage());
+            $result = $this->chirpGemini($parts);
+            if ($result) Cache::put($cacheKey, $result, now()->addDays(7));
         }
+        $result ??= ['description' => '', 'terms' => []];
 
-        $response = \Illuminate\Support\Facades\Http::timeout(25)->post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . config('services.gemini.key'),
-            ['contents' => [['parts' => $parts]]]
-        );
+        $terms = $result['terms'] ?: $this->chirpFallbackTerms(trim($product->name . ' ' . implode(' ', (array) $product->tags)));
+        $products = $this->chirpFind($terms, [$product->id]);
 
-        $raw = data_get($response->json(), 'candidates.0.content.parts.0.text', '');
-        \Illuminate\Support\Facades\Log::info("Chirp product-insight raw response for product {$product->id}: " . $raw);
-
-        $clean = trim(preg_replace('/```json|```/', '', $raw));
-        $parsed = json_decode($clean, true);
-
-        return ['description' => is_array($parsed) ? ($parsed['message'] ?? '') : '', 'terms' => is_array($parsed) ? ($parsed['search_terms'] ?? []) : []];
-    });
-
-
-    $words = collect($result['terms'])->flatMap(fn($t) => explode(' ', $t))->map(fn($w) => trim($w))->filter(fn($w) => strlen($w) > 2)->unique();
-
-    \Illuminate\Support\Facades\Log::info("Chirp product-insight search words for product {$product->id}: " . $words->implode(', '));
-
-    $products = \App\Models\Product::where('status', 'active')
-        ->where('id', '!=', $product->id)
-        ->where(function ($q) use ($words) {
-            foreach ($words as $w) {
-                $q->orWhere('name', 'ilike', "%{$w}%")->orWhere('description', 'ilike', "%{$w}%");
-            }
-        })
-        ->limit(8)->get();
-
-    \Illuminate\Support\Facades\Log::info("Chirp product-insight matched " . $products->count() . " products for product {$product->id}");
-
-    $description = $result['description'] ?: ($isStyle ? "Here's how I'd style this." : "Here's what I see.");
-    $message = $products->isNotEmpty()
-        ? "{$description} I found {$products->count()} " . ($isStyle ? 'matching pieces' : 'similar products') . " for you below!"
-        : "{$description} I couldn't find close matches on Flockr right now.";
-
-    return response()->json(['message' => $message, 'products' => $products]);
-}
+        return $this->chirpReply($result, $products, $isStyle, '');
+    }
 
     /** auth */
     public function hAuth8()

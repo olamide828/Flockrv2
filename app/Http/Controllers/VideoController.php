@@ -304,6 +304,7 @@ class VideoController extends Controller
             'duration_seconds'   => 'nullable|integer|min:1',
             'overlay_images'     => 'nullable|array|max:20',      // one PNG per v2 text overlay, in order
             'overlay_images.*'   => 'file|mimes:png|max:4096',
+            'cover_image'        => 'nullable|file|mimes:jpg,jpeg,png,webp|max:4096',   // poster frame WITH the creator's text drawn on it
             'sound_id'           => 'nullable|integer|exists:sounds,id',
             'sound_start'        => 'nullable|integer|min:0|max:86400',
             'sound_end'          => 'nullable|numeric|min:0|max:86400',
@@ -382,6 +383,18 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
                     $pngCount = max($pngCount, ((int) $i) + 1);
                 }
                 $video->update(['text_overlays' => $this->cleanOverlays($decoded, $pngCount)]);
+            }
+        }
+
+        // Thumbnail that shows the creator's text (the automatic one is just a frame of the video).
+        // Kept under thumbnails/covers/ so ProcessVideoJob knows not to replace it.
+        if ($request->hasFile('cover_image')) {
+            try {
+                $coverKey = 'thumbnails/covers/' . now()->format('Y/m/d') . '/' . \Illuminate\Support\Str::uuid() . '.jpg';
+                Storage::disk(config('filesystems.default', 'public'))->putFileAs(dirname($coverKey), $request->file('cover_image'), basename($coverKey), 'public');
+                $video->update(['thumbnail_url' => $coverKey]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Cover image save failed: ' . $e->getMessage());
             }
         }
 
@@ -544,6 +557,12 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             'hashtags'    => 'nullable|string',
             'kind'        => 'nullable|in:entertainment,haul,review',
             'rights'      => 'accepted',
+            'product_ids' => 'nullable|string',
+            'sound_id'    => 'nullable|integer|exists:sounds,id',
+            'sound_start' => 'nullable|integer|min:0|max:86400',
+            'sound_end'   => 'nullable|numeric|min:0|max:86400',
+            'music_volume' => 'nullable|numeric|min:0|max:1',
+            'allow_sound_reuse' => 'nullable|boolean',
         ], [
             'photos.max'      => 'You can add up to 30 photos per post.',
             'photos.*.max'    => 'Each photo must be under 12MB.',
@@ -578,7 +597,28 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             'thumbnail_url' => $paths[0],
             'status'       => 'active',
             'published_at' => now(),
+            'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
         ]);
+
+        // Optional sound that plays while the photos are on screen
+        $sound = $request->filled('sound_id') ? Sound::active()->find($request->integer('sound_id')) : null;
+        if ($sound) {
+            $sound->increment('uses_count');
+            $sStart = (int) $request->input('sound_start', 0);
+            $sEnd   = $request->filled('sound_end') ? min((float) $request->input('sound_end'), $sStart + 150) : null;
+            if ($sEnd !== null && $sEnd <= $sStart) $sEnd = null;
+            $video->update(['sound_id' => $sound->id, 'photo_sound' => ['start' => $sStart, 'end' => $sEnd, 'volume' => (float) $request->input('music_volume', 0.7)]]);
+        }
+
+        // Tag the seller's own products (anything else is ignored)
+        if ($request->filled('product_ids')) {
+            $decoded = json_decode($request->input('product_ids'), true);
+            $ids = $this->ownedProductIds(is_array($decoded) ? $decoded : []);
+            if (!empty($ids)) {
+                $video->products()->syncWithoutDetaching(collect($ids)->mapWithKeys(fn($id) => [$id => ['sort_order' => 0]])->toArray());
+                $video->update(['is_for_sale' => true, 'content_type' => 'shopping']);
+            }
+        }
 
         $videoId = $video->id; $sellerId = Auth::id();
         dispatch(function () use ($videoId, $sellerId) {

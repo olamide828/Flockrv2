@@ -7,7 +7,7 @@ import { errMsg, fmtDate, naira, num, useAdminFetch } from '@/Components/Admin/l
 
 const TONE = { draft: 'mute', scheduled: 'info', active: 'good', ended: 'mute' }
 const LABEL = { draft: 'Draft', scheduled: 'Scheduled', active: 'Live', ended: 'Ended' }
-const EMPTY = { title: '', description: '', theme_color: '#FF6B35', banner_image: '', starts_at: '', ends_at: '', discount_tiers: '5,10,15', max_sellers: '', scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '' }
+const EMPTY = { title: '', description: '', theme_color: '#FF6B35', banner_image: '', badge_image: '', starts_at: '', ends_at: '', discount_tiers: '5,10,15', max_sellers: '', scavenger_hunt_target: '', scavenger_hunt_coupon_amount: '', event_fee_percent: '' }
 const local = (d) => (d ? new Date(new Date(d).getTime() - new Date(d).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '')
 
 function EventForm({ initial, onDone, onClose }) {
@@ -16,10 +16,10 @@ function EventForm({ initial, onDone, onClose }) {
   const [busy, setBusy] = useState(false)
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
 
-  const upload = async (e) => {
+  const upload = (field = 'banner_image') => async (e) => {
     const file = e.target.files?.[0]; if (!file) return
     const fd = new FormData(); fd.append('image', file)
-    try { const r = await axios.post('/api/admin/events/upload-banner', fd); set('banner_image', r.data.url) } catch (er) { toast(errMsg(er), 'error') }
+    try { const r = await axios.post('/api/admin/events/upload-banner', fd); set(field, r.data.url) } catch (er) { toast(errMsg(er), 'error') }
   }
   const save = async () => {
     setBusy(true)
@@ -41,7 +41,11 @@ function EventForm({ initial, onDone, onClose }) {
       <Field label="Description"><Textarea value={f.description || ''} onChange={(e) => set('description', e.target.value)} /></Field>
       <Field label="Banner image">
         {f.banner_image && <img src={f.banner_image} alt="" style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 10, marginBottom: 6 }} />}
-        <input type="file" accept="image/*" onChange={upload} />
+        <input type="file" accept="image/*" onChange={upload('banner_image')} />
+      </Field>
+      <Field label="Champion badge image" hint="The picture the winner gets on their profile. Leave empty to use the default badge.">
+        {f.badge_image && <img src={f.badge_image} alt="" style={{ width: 72, height: 72, objectFit: 'contain', borderRadius: 12, marginBottom: 6, background: 'rgba(255,255,255,.05)' }} />}
+        <input type="file" accept="image/*" onChange={upload('badge_image')} />
       </Field>
       <Field label="Theme colour"><Input type="color" value={f.theme_color || '#FF6B35'} onChange={(e) => set('theme_color', e.target.value)} /></Field>
       <Field label="Starts at"><Input type="datetime-local" value={f.starts_at} onChange={(e) => set('starts_at', e.target.value)} /></Field>

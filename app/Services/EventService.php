@@ -175,7 +175,8 @@ public function notifyEventLive(Event $event): void
                         'key'         => 'event_champion_' . $event->id,
                         'label'       => "{$event->title} Champion",
                         'description' => "Top seller during {$event->title}",
-                        'image_path'  => 'badges/event_champion.png',
+                        // Admin can upload a different picture per event; /badge-image/{id} redirects to it (default if none)
+                        'image_path'  => 'badge-image/' . $event->id,
                     ])->save();
                 }
                 $award = UserBadge::firstOrCreate(['user_id' => $topSellerId, 'badge_id' => $badge->id], ['awarded_at' => now()]);

@@ -32,7 +32,7 @@ export function Dots({ count, active }) {
     )
 }
 
-export default function PhotoCarousel({ photos = [], onIndex, onTap, style, fit = 'contain' }) {
+export default function PhotoCarousel({ photos = [], onIndex, onTap, style, fit = 'contain', targetIndex = null, dotsBottom = 6, showCounter = true }) {
     const ref = useRef(null)
     const [idx, setIdx] = useState(0)
     const raf = useRef(0)
@@ -47,6 +47,11 @@ export default function PhotoCarousel({ photos = [], onIndex, onTap, style, fit 
         })
     }
     useEffect(() => { onIndex?.(idx) }, [idx])
+    // lets a parent jump to a photo (the editor's thumbnail strip)
+    useEffect(() => {
+        const el = ref.current
+        if (targetIndex && el) el.scrollTo({ left: targetIndex.i * el.clientWidth, behavior: targetIndex.instant ? 'auto' : 'smooth' })
+    }, [targetIndex])
     useEffect(() => () => cancelAnimationFrame(raf.current), [])
 
     return (
@@ -67,8 +72,8 @@ export default function PhotoCarousel({ photos = [], onIndex, onTap, style, fit 
             </div>
             {photos.length > 1 && (
                 <>
-                    <div style={{ position: 'absolute', top: 62, right: 14, zIndex: 8, padding: '3px 9px', borderRadius: 999, background: 'rgba(0,0,0,.5)', color: '#fff', fontSize: 11.5, fontWeight: 700, pointerEvents: 'none' }}>{idx + 1}/{photos.length}</div>
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 6, zIndex: 8, pointerEvents: 'none' }}>
+                    {showCounter && <div style={{ position: 'absolute', top: 62, right: 14, zIndex: 8, padding: '3px 9px', borderRadius: 999, background: 'rgba(0,0,0,.5)', color: '#fff', fontSize: 11.5, fontWeight: 700, pointerEvents: 'none' }}>{idx + 1}/{photos.length}</div>}
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: dotsBottom, zIndex: 8, pointerEvents: 'none' }}>
                         <Dots count={photos.length} active={idx} />
                     </div>
                 </>

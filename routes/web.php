@@ -151,3 +151,5 @@ require __DIR__.'/admin_web.php';
 // composer dump-autoload
 // php artisan optimize:clear
 // php artisan route:list
+// Champion badge picture of an event (redirects to the admin-uploaded image, or the default badge)
+Route::get('/badge-image/{event}', [\App\Http\Controllers\EventController::class, 'badgeImage']);

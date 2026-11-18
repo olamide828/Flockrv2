@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, router, usePage } from '@inertiajs/react'
 import useHoldSpeed from '@/Components/Video/useHoldSpeed'
 import PhotoCarousel from '@/Components/Video/PhotoCarousel'
+import usePhotoSound from '@/Components/Video/usePhotoSound'
 import axios from 'axios'
 import {
   RiHeartLine, RiHeartFill, RiChat1Line,
@@ -230,6 +231,7 @@ export default function VideoCard({ video, isActive }) {
   const swipeStartRef = useRef(null)
   const hold = useHoldSpeed(videoRef)
   const isPhotos = video.media_type === 'photos'
+  usePhotoSound(video, !!isActive)
 
   const [playing,       setPlaying]       = useState(false)
   const [muted,         setMuted]         = useState(true)

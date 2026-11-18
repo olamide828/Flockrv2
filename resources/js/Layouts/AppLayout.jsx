@@ -826,8 +826,8 @@ const replyToToast = (toast) => {
     <>
         {sellerLeftItems.map(renderNavLink)}
         <button
-            onClick={() => router.visit('/upload')}
-            aria-label="Upload video"
+            onClick={() => setShowCreateSheet(true)}
+            aria-label="Create post"
             style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'none', border: 'none', padding: 0 }}
         >
             <div className="upload-fab rounded-[15px]">

@@ -40,6 +40,7 @@ class Video extends Model
         'ai_category_id',
         'media_type',
         'photos',
+        'photo_sound',
     ];
 
     protected $casts = [
@@ -50,6 +51,7 @@ class Video extends Model
         'published_at' => 'datetime',
         'text_overlays' => 'array',
         'photos' => 'array',
+        'photo_sound' => 'array',
     ];
 
     protected $appends = [
@@ -57,6 +59,7 @@ class Video extends Model
         'thumbnail_url_full',
         'is_processing',
         'photo_urls',
+        'photo_sound_info',
     ];
 
     protected static function boot(): void
@@ -193,6 +196,27 @@ class Video extends Model
             return collect($this->photos ?? [])->map(fn ($p) => $this->buildUrl($p))->filter()->values()->all();
         } catch (\Illuminate\Database\Eloquent\MissingAttributeException) {
             return [];
+        }
+    }
+
+    /** Sound that plays over a photo post: { url, title, start, end, volume } or null. */
+    public function getPhotoSoundInfoAttribute(): ?array
+    {
+        try {
+            if ($this->media_type !== 'photos' || !$this->sound_id) return null;
+            $sound = \App\Models\Sound::find($this->sound_id);
+            if (!$sound) return null;
+            $m = $this->photo_sound ?? [];
+            return [
+                'url'    => \App\Models\Sound::urlFor($sound->file_path),
+                'title'  => $sound->title,
+                'artist' => $sound->artist,
+                'start'  => (float) ($m['start'] ?? 0),
+                'end'    => isset($m['end']) ? (float) $m['end'] : null,
+                'volume' => (float) ($m['volume'] ?? 0.7),
+            ];
+        } catch (\Throwable) {
+            return null;
         }
     }
 

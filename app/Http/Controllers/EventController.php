@@ -198,6 +198,7 @@ public function adminStore(Request $request): JsonResponse
         'description'                  => 'nullable|string|max:1000',
         'theme_color'                  => 'nullable|string|max:7',
         'banner_image'                 => 'nullable|string',
+        'badge_image'                  => 'nullable|string|max:500',
         'starts_at'                    => 'required|date',
         'ends_at'                      => 'required|date|after:starts_at',
         'discount_tiers'               => 'required|array|min:1',
@@ -219,6 +220,7 @@ public function adminUpdate(Request $request, Event $event): JsonResponse
         'description'                  => 'nullable|string|max:1000',
         'theme_color'                  => 'nullable|string|max:7',
         'banner_image'                 => 'nullable|string',
+        'badge_image'                  => 'nullable|string|max:500',
         'starts_at'                    => 'sometimes|date',
         'ends_at'                      => 'sometimes|date|after:starts_at',
         'discount_tiers'               => 'sometimes|array|min:1',
@@ -254,6 +256,12 @@ public function adminUploadBanner(Request $request): JsonResponse
     $storage = app(\App\Services\StorageService::class);
     $key = $storage->uploadImage($request->file('image'), 'events');
     return response()->json(['url' => $storage->url($key)]);
+}
+
+/** GET /badge-image/{event} — the champion badge picture of an event (admin-uploaded, else the default). */
+public function badgeImage(Event $event)
+{
+    return redirect($event->badge_image ?: '/badges/event_champion.png', 302);
 }
 
 public function adminEnd(Event $event): JsonResponse

@@ -833,11 +833,7 @@ const pagerBtnStyle = (disabled) => ({
                 @media (max-width: 900px) { .hero-section { flex-direction: column; align-items: flex-start; gap: 18px; } .quick-grid { grid-template-columns: repeat(2,1fr); } }
                 @media (max-width: 640px) { .dashboard-header-inner { padding: 0 16px; } .dashboard-content { padding: 20px 16px 100px; } .period-switcher { display: none; } .hero-section h2 { font-size: 30px; } .quick-grid { grid-template-columns: 1fr; } .video-grid { grid-template-columns: repeat(2,1fr); } }
             `}</style>
-        </>
-    );
-}
-
-SellerDashboard.layout = page => <AppLayout>{page}            {showRewards && creatorRewards && (
+            {showRewards && creatorRewards && (
                 <div role="dialog" aria-modal="true" onClick={() => setShowRewards(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
                     <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: '#141414', border: '1px solid rgba(255,255,255,.08)', borderRadius: 24, padding: 24, color: '#fff', maxHeight: '88vh', overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -861,7 +857,11 @@ SellerDashboard.layout = page => <AppLayout>{page}            {showRewards && cr
                     </div>
                 </div>
             )}
-        </AppLayout>;
+        </>
+    );
+}
+
+SellerDashboard.layout = page => <AppLayout>{page}</AppLayout>;
 
 function EmptyState({ Icon, title, sub, cta }) {
     return (

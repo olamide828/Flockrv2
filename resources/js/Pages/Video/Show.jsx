@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import useHoldSpeed from '@/Components/Video/useHoldSpeed';
 import PhotoCarousel from '@/Components/Video/PhotoCarousel';
+import usePhotoSound from '@/Components/Video/usePhotoSound';
 import {
     RiArrowLeftLine,
     RiBookmarkFill,
@@ -393,6 +394,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const swipeStartRef = useRef(null);
     const hold = useHoldSpeed(videoRef);
     const isPhotos = video.media_type === 'photos';
+    usePhotoSound(video, !!isActive);
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);

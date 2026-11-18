@@ -8,7 +8,8 @@ import {
     RiImageLine,
 } from 'react-icons/ri'
 import CameraScreen from '../../Components/Upload/CameraScreen'
-import PhotoPostComposer from '../../Components/Upload/PhotoPostComposer'
+import PhotoCarousel from '../../Components/Video/PhotoCarousel'
+import { composePhotoFile, composeVideoCover } from '../../lib/photoCompose'
 import OverlayLayer from '../../Components/Upload/OverlayLayer'
 import PreviewVideo from '../../Components/Upload/PreviewVideo'
 import ProductSheet from '../../Components/Upload/ProductSheet'
@@ -29,7 +30,6 @@ export default function Upload({ products: initialProducts = [] }) {
     const [kind, setKind] = useState('entertainment')   // entertainment | haul | review (sellers tagging a product become 'shopping' automatically)
     // 'camera' → 'edit' (preview, text, sound) → 'details' (then Post)
     const [stage, setStage] = useState('camera')
-    const [photoMode, setPhotoMode] = useState(false)
 
     // Products (local copy so a newly created one can be added and tagged)
     const [products, setProducts] = useState(initialProducts)
@@ -50,7 +50,24 @@ export default function Upload({ products: initialProducts = [] }) {
     const [previewState, setPreviewState] = useState('loading')
 
     // Text overlays
-    const [overlays, setOverlays] = useState([])
+    const [videoOverlays, setVideoOverlays] = useState([])
+    // Photo posts: up to 30 photos, each with its own text
+    const [photos, setPhotos] = useState([])                 // [{ id, file, url }]
+    const [photoIdx, setPhotoIdx] = useState(0)
+    const [photoTarget, setPhotoTarget] = useState(null)     // asks the pager to jump to a photo
+    const [photoOverlays, setPhotoOverlays] = useState({})   // photo id -> overlays
+    const photoMode = photos.length > 0
+    const photoModeRef = useRef(false)
+    const photoIdRef = useRef(null)
+    photoModeRef.current = photoMode
+    photoIdRef.current = photos[photoIdx]?.id ?? null
+    const overlays = photoMode ? (photoOverlays[photos[photoIdx]?.id] ?? []) : videoOverlays
+    const setOverlays = useCallback(u => {
+        if (photoModeRef.current) {
+            const id = photoIdRef.current
+            setPhotoOverlays(m => ({ ...m, [id]: typeof u === 'function' ? u(m[id] ?? []) : u }))
+        } else setVideoOverlays(u)
+    }, [])
     const [editor, setEditor] = useState(null)             // { initial } while the text editor is open
     const [textDefaults, setTextDefaults] = useState(null)
     const [gesturing, setGesturing] = useState(false)
@@ -165,6 +182,20 @@ export default function Upload({ products: initialProducts = [] }) {
         }
     }, [sound, stage, videoUrl, previewState])
 
+    // Photo posts: the sound simply loops from the part you picked
+    useEffect(() => {
+        const a = musicRef.current
+        if (!a || !photoMode || stage !== 'edit' || !sound) return undefined
+        a.src = sound.sound.url
+        a.volume = sound.musicVolume
+        const restart = () => { try { a.currentTime = sound.start || 0 } catch { /* not seekable yet */ } }
+        restart()
+        const onTime = () => { if (sound.end && a.currentTime >= sound.end) restart() }
+        a.addEventListener('timeupdate', onTime)
+        a.play().catch(() => {})
+        return () => { a.removeEventListener('timeupdate', onTime); a.pause() }
+    }, [sound, stage, photoMode])
+
     // Arrived from a sound page: /seller/upload?sound=ID
     useEffect(() => {
         const id = new URLSearchParams(window.location.search).get('sound')
@@ -193,26 +224,51 @@ export default function Upload({ products: initialProducts = [] }) {
         setMuted(silent)
         setOriginalVolume(1)
         setOverlays([])
+        setPhotos([]); setPhotoOverlays({})
         setErrors({})
         setPreviewState('loading')
         setStage('edit')
     }, [])
 
+    // Photos always become a photo post (swipeable, up to 30), previewed and edited like a video
+    const addPhotos = useCallback((fileList) => {
+        const imgs = Array.from(fileList ?? []).filter(f => f.type.startsWith('image/'))
+        if (!imgs.length) return
+        setPhotos(prev => {
+            const room = 30 - prev.length
+            if (imgs.length > room) setToast('You can add up to 30 photos per post.')
+            const next = imgs.slice(0, Math.max(0, room)).map(f => ({ id: Math.random().toString(36).slice(2), file: f, url: URL.createObjectURL(f) }))
+            return [...prev, ...next]
+        })
+        setVideoUrl(null); setVideoFile(null)
+        setVideoDuration(15); setVideoDims(null)
+        setHasOwnAudio(false); setMuted(false); setOriginalVolume(1)
+        setErrors({})
+        setStage('edit')
+    }, [])
+
+    const removePhoto = (id) => {
+        setPhotos(prev => {
+            const i = prev.findIndex(p => p.id === id)
+            const next = prev.filter(p => p.id !== id)
+            if (i >= 0) { try { URL.revokeObjectURL(prev[i].url) } catch {} }
+            if (!next.length) { setStage('camera'); setSound(preSound.current) }
+            setPhotoIdx(x => Math.min(x, Math.max(0, next.length - 1)))
+            return next
+        })
+        setPhotoOverlays(m => { const c = { ...m }; delete c[id]; return c })
+    }
+
+    const handleFiles = useCallback(async (files) => {
+        const list = Array.from(files ?? [])
+        if (!list.length) return
+        if (list.some(f => f.type.startsWith('image/'))) { addPhotos(list); return }
+        await handleFile(list[0])
+    }, [addPhotos])   // eslint-disable-line react-hooks/exhaustive-deps
+
     const handleFile = useCallback(async (file, { silent = false } = {}) => {
         if (!file) return
-        try {
-            if (file.type.startsWith('image/')) {
-                setPreparing(true)
-                const asVideo = await photoToVideoFile(file)
-                setVideo(asVideo, PHOTO_SECONDS, { silent: true })
-                return
-            }
-        } catch {
-            setToast('Photos are not supported in this browser yet. Pick a video instead.')
-            return
-        } finally {
-            setPreparing(false)
-        }
+        if (file.type.startsWith('image/')) { addPhotos([file]); return }
         const type = file.type || ''
         if (type && !GALLERY_VIDEO_TYPES.includes(type) && !type.startsWith('video/')) { setToast('Use an MP4, WebM, MOV or AVI video.'); return }
         if (file.size > 512 * 1024 * 1024) { setToast('Max video size is 512MB.'); return }
@@ -221,7 +277,7 @@ export default function Upload({ products: initialProducts = [] }) {
         URL.revokeObjectURL(url)
         // meta === null means this browser can't decode it. We still let it through: the server can.
         setVideo(file, meta?.duration ?? null, { silent, dims: meta?.width ? { width: meta.width, height: meta.height } : null })
-    }, [setVideo])
+    }, [setVideo, addPhotos])
 
     const openNative = (mode) => {
         const el = nativeInputRef.current
@@ -234,7 +290,9 @@ export default function Upload({ products: initialProducts = [] }) {
     const discardVideo = () => {
         if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null }
         setVideoUrl(null); setVideoFile(null); setVideoDuration(null); setVideoDims(null); setPosterUrl(null)
-        setOverlays([]); setSound(preSound.current)
+        setVideoOverlays([]); setSound(preSound.current)
+        photos.forEach(p => { try { URL.revokeObjectURL(p.url) } catch {} })
+        setPhotos([]); setPhotoOverlays({}); setPhotoIdx(0)
     }
 
     const closeUploader = () => {
@@ -285,7 +343,47 @@ export default function Upload({ products: initialProducts = [] }) {
     }
 
     // ── Upload ────────────────────────────────────────────────────────────────
+    const handlePhotoUpload = async () => {
+        if (!title.trim()) { setErrors({ title: 'Please add a title' }); return }
+        if (!rights) { setErrors({ rights: 'Please confirm you have the rights to these photos.' }); return }
+        setUploading(true); setErrors({}); setProgress(0); setUploadLabel('Preparing photos…')
+        try {
+            const frame = frameSize.current
+            const fd = new FormData()
+            for (const p of photos) {
+                const f = await composePhotoFile(p.file, photoOverlays[p.id] ?? [], frame)
+                fd.append('photos[]', f)
+            }
+            fd.append('title', title.trim())
+            fd.append('description', description.trim())
+            fd.append('hashtags', hashtags.trim())
+            fd.append('kind', kind)
+            fd.append('product_ids', JSON.stringify(taggedIds))
+            fd.append('allow_sound_reuse', allowReuse ? '1' : '0')
+            fd.append('rights', rights ? '1' : '0')
+            if (sound) {
+                fd.append('sound_id', String(sound.sound.id))
+                fd.append('sound_start', String(Math.round(sound.start)))
+                if (sound.end) fd.append('sound_end', String(Math.round(sound.end * 10) / 10))
+                fd.append('music_volume', String(sound.musicVolume))
+            }
+            setUploadLabel('Uploading…')
+            await axios.post('/api/videos/photos', fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: e => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
+            })
+            setDone(true)
+            setTimeout(() => router.visit('/'), 1800)
+        } catch (err) {
+            const d = err.response?.data
+            setErrors(d?.errors ?? { _general: d?.message ?? err.message ?? 'Upload failed.' })
+        } finally {
+            setUploading(false); setUploadLabel('')
+        }
+    }
+
     const handleUpload = async () => {
+        if (photoMode) return handlePhotoUpload()
         if (!videoFile) { setErrors({ video: 'No video selected' }); setStage('camera'); return }
         if (!title.trim()) { setErrors({ title: 'Please add a title' }); return }
         setUploading(true); setErrors({}); setProgress(0)
@@ -304,6 +402,13 @@ export default function Upload({ products: initialProducts = [] }) {
                 if (!r.blob) throw new Error('Could not prepare your text. Try removing it and adding it again.')
                 fd.append('overlay_images[]', r.blob, `overlay-${meta.length}.png`)
                 meta.push({ ...o, frame_w: Math.round(fw), frame_h: Math.round(fh), png_index: meta.length, png_scale: r.scale, png_w: r.width, png_h: r.height })
+            }
+
+            // Thumbnail that shows the creator's text (the server's automatic one is just a bare frame)
+            if (overlays.length) {
+                setUploadLabel('Making your cover…')
+                const cover = await composeVideoCover(videoUrl, videoOverlays.map(o => ({ ...o })), { w: fw, h: fh }, videoDuration)
+                if (cover) fd.append('cover_image', cover, 'cover.jpg')
             }
 
             fd.append('title', title.trim())
@@ -389,7 +494,7 @@ export default function Upload({ products: initialProducts = [] }) {
                     <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'rgba(16,185,129,0.12)', border: '2px solid rgba(16,185,129,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pop 0.5s cubic-bezier(0.34,1.56,0.64,1)' }}>
                         <RiCheckLine size={36} color="#10B981" />
                     </div>
-                    <p style={{ color: '#fff', fontWeight: 800, fontSize: 22, margin: 0 }}>Video uploaded!</p>
+                    <p style={{ color: '#fff', fontWeight: 800, fontSize: 22, margin: 0 }}>{photoMode ? 'Posted!' : 'Video uploaded!'}</p>
                     <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, margin: 0, textAlign: 'center', padding: '0 24px' }}>
                         {sound || overlays.length ? 'We are adding your sound and text. It goes live in a moment.' : 'Redirecting to your dashboard…'}
                     </p>
@@ -424,12 +529,6 @@ export default function Upload({ products: initialProducts = [] }) {
                     <div style={{ pointerEvents: 'auto', maxWidth: '100%' }}>{soundPill()}</div>
                 </div>
             )}
-            {stage === 'camera' && !photoMode && (
-                <button onClick={() => setPhotoMode(true)} style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top) + 66px)', left: 12, zIndex: 31, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 999, border: '1px solid rgba(255,255,255,.18)', background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
-                    <RiImageLine size={15} /> Photos
-                </button>
-            )}
-            {photoMode && <PhotoPostComposer onClose={() => setPhotoMode(false)} />}
             {stage === 'camera' && (
                 <CameraScreen
                     onCaptured={(file, secs, opts) => setVideo(file, secs, { silent: !!opts?.silent, poster: opts?.poster ?? null })}
@@ -449,6 +548,12 @@ export default function Upload({ products: initialProducts = [] }) {
             {/* ════ EDIT (preview + text + sound) ═══════════════════════ */}
             {stage === 'edit' && (
                 <div ref={frameRef} style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
+                    {photoMode ? (
+                        <>
+                            <PhotoCarousel photos={photos.map(p => p.url)} onIndex={setPhotoIdx} targetIndex={photoTarget} dotsBottom={150} showCounter={false} />
+                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.35), transparent 22%, transparent 70%, rgba(0,0,0,0.55))', pointerEvents: 'none' }} />
+                        </>
+                    ) : (
                     <PreviewVideo
                         ref={videoRef}
                         src={videoUrl}
@@ -462,6 +567,7 @@ export default function Upload({ products: initialProducts = [] }) {
                     >
                         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.35), transparent 22%, transparent 70%, rgba(0,0,0,0.55))', pointerEvents: 'none' }} />
                     </PreviewVideo>
+                    )}
 
                     <OverlayLayer
                         overlays={overlays}
@@ -494,10 +600,10 @@ export default function Upload({ products: initialProducts = [] }) {
                                 <RiMusic2Fill size={20} />
                                 <span style={S.toolLabel}>Sound</span>
                             </button>
-                            <button onClick={toggleEnhance} aria-label="Enhance" aria-pressed={enhance} style={{ ...S.toolBtn, color: enhance ? '#FF6B35' : '#fff' }}>
+                            {!photoMode && <button onClick={toggleEnhance} aria-label="Enhance" aria-pressed={enhance} style={{ ...S.toolBtn, color: enhance ? '#FF6B35' : '#fff' }}>
                                 <RiMagicLine size={20} />
                                 <span style={S.toolLabel}>Enhance</span>
-                            </button>
+                            </button>}
                             {hasOwnAudio && (
                                 <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Unmute video' : 'Mute video'} style={S.toolBtn}>
                                     {muted ? <RiVolumeMuteLine size={20} /> : <RiVolumeUpLine size={20} />}
@@ -506,7 +612,27 @@ export default function Upload({ products: initialProducts = [] }) {
                             )}
                         </div>
 
-                        {overlays.length === 0 && (
+                        {photoMode && (
+                            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 'calc(env(safe-area-inset-bottom) + 84px)', zIndex: 20, display: 'flex', gap: 8, padding: '0 16px', overflowX: 'auto', scrollbarWidth: 'none', alignItems: 'center' }}>
+                                {photos.map((p, i) => (
+                                    <div key={p.id} style={{ position: 'relative', flex: '0 0 auto' }}>
+                                        <button onClick={() => { setPhotoIdx(i); setPhotoTarget({ i, t: Date.now() }) }} aria-label={`Photo ${i + 1}`}
+                                            style={{ width: 44, height: 56, borderRadius: 10, padding: 0, overflow: 'hidden', cursor: 'pointer', background: '#111', border: i === photoIdx ? '2px solid #FF6B35' : '2px solid rgba(255,255,255,0.25)' }}>
+                                            <img src={p.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                        </button>
+                                        {i === photoIdx && (
+                                            <button onClick={() => removePhoto(p.id)} aria-label="Remove photo" style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', border: 0, background: '#EF4444', color: '#fff', fontSize: 13, lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
+                                        )}
+                                    </div>
+                                ))}
+                                {photos.length < 30 && (
+                                    <button onClick={() => fileInputRef.current?.click()} aria-label="Add more photos" style={{ flex: '0 0 auto', width: 44, height: 56, borderRadius: 10, border: '2px dashed rgba(255,255,255,0.35)', background: 'rgba(0,0,0,0.4)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiAddLine size={20} /></button>
+                                )}
+                                <span style={{ flex: '0 0 auto', color: 'rgba(255,255,255,0.7)', fontSize: 11.5, fontWeight: 700, paddingLeft: 4 }}>{photoIdx + 1}/{photos.length}</span>
+                            </div>
+                        )}
+
+                        {overlays.length === 0 && !photoMode && (
                             <p style={{ position: 'absolute', left: 0, right: 0, bottom: 'calc(env(safe-area-inset-bottom) + 96px)', textAlign: 'center', margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12, zIndex: 15, pointerEvents: 'none' }}>
                                 Tap <strong style={{ color: '#fff' }}>Aa</strong> to add text, <strong style={{ color: '#fff' }}>Sound</strong> for music, or just tap Next
                             </p>
@@ -547,10 +673,12 @@ export default function Upload({ products: initialProducts = [] }) {
                         {/* Video summary */}
                         <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 10, marginBottom: 16 }}>
                             <div style={{ width: 54, aspectRatio: '9/16', borderRadius: 10, overflow: 'hidden', background: '#000', flexShrink: 0 }}>
-                                <video src={videoUrl ? `${videoUrl}#t=0.1` : undefined} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                {photoMode
+                                    ? <img src={photos[0]?.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    : <video src={videoUrl ? `${videoUrl}#t=0.1` : undefined} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Your video{videoDuration ? ` · ${fmtTime(videoDuration)}` : ''}</p>
+                                <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{photoMode ? `Your photo post · ${photos.length} photo${photos.length === 1 ? '' : 's'}` : `Your video${videoDuration ? ` · ${fmtTime(videoDuration)}` : ''}`}</p>
                                 <p style={{ margin: '3px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
                                     {[overlays.length > 0 ? `${overlays.length} text${overlays.length !== 1 ? 's' : ''}` : null, sound ? `♪ ${sound.sound.title}` : null].filter(Boolean).join(' · ') || 'No text or sound added'}
                                 </p>
@@ -749,7 +877,7 @@ export default function Upload({ products: initialProducts = [] }) {
             )}
 
             <audio ref={musicRef} loop preload="auto" />
-            <input ref={fileInputRef} type="file" accept="video/*,image/*" onChange={e => { handleFile(e.target.files?.[0]); e.target.value = '' }} style={{ display: 'none' }} />
+            <input ref={fileInputRef} type="file" accept="video/*,image/*" multiple onChange={e => { handleFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
             <input ref={nativeInputRef} type="file" onChange={e => { handleFile(e.target.files?.[0]); e.target.value = '' }} style={{ display: 'none' }} />
             <style>{KEYFRAMES}</style>
         </>

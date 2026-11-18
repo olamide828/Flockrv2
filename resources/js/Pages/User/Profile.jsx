@@ -1346,7 +1346,7 @@ return (
                 >
                     <Icon size={17} /> {label}
                 </button>
-                {key === 'videos' && (videos?.length ?? 0) > 1 && (
+                {key === 'videos' && (videos?.length ?? 0) > 0 && (
                     <button
                         type="button"
                         aria-label="Sort videos"

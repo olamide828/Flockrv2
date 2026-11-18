@@ -1,13 +1,19 @@
 import { createPortal } from 'react-dom';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import { RiVideoAddLine, RiStore2Line, RiCloseLine, RiArrowRightSLine } from 'react-icons/ri';
 
-const OPTIONS = [
+const SELLER_OPTIONS = [
     { path: '/seller/products/create', label: 'List Product', hint: 'Add an item to sell',      Icon: RiStore2Line },
-    { path: '/seller/upload',          label: 'Upload Video', hint: 'Post a shoppable video',   Icon: RiVideoAddLine },
+    { path: '/upload',                 label: 'Upload Video', hint: 'Post a shoppable video or photos', Icon: RiVideoAddLine },
+];
+// Buyers can post too, but they have nothing to list
+const BUYER_OPTIONS = [
+    { path: '/upload', label: 'Upload Video', hint: 'Post a video or photos', Icon: RiVideoAddLine },
 ];
 
 export default function CreateSheet({ onClose }) {
+    const { auth } = usePage().props;
+    const OPTIONS = auth?.user?.role === 'seller' ? SELLER_OPTIONS : BUYER_OPTIONS;
     const handleNavigate = (path) => {
         onClose();
         router.visit(path);

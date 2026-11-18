@@ -64,7 +64,9 @@ class ProcessVideoJob implements ShouldQueue
             // ── Thumbnail + duration, then PUBLISH straight away ───────────────
             // The original upload already plays, so the video goes live now; the optimised MP4 and the HLS
             // stream below are upgrades that get swapped in when they are ready.
-            $thumbnailKey = $this->generateThumbnail($videoSource, $disk);
+            // A cover the creator's text was drawn on (uploaded with the video) wins over an automatic frame
+            $existingThumb = (string) $this->video->thumbnail_url;
+            $thumbnailKey  = str_contains($existingThumb, '/covers/') ? $existingThumb : $this->generateThumbnail($videoSource, $disk);
             $duration     = $this->getDuration($videoSource);
             Log::info("ProcessVideoJob #{$this->video->id}: thumbnail ready", ['seconds' => round(microtime(true) - $t0, 1)]);
 
