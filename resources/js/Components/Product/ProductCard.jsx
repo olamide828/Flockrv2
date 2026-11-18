@@ -100,26 +100,20 @@ export default function ProductCard({ product, layout = 'grid' }) {
                     <Placeholder />
                 )}
 
-                {/* Discount badge */}
-                   {product.discount_percent && (
-                    <span className="badge badge-orange absolute top-2 left-2">-{product.discount_percent}%</span>
-                )}
-
-                 <>
-                 {product.discount_percent ? (
-                                 <span className="badge badge-orange absolute top-2 left-2">
-                                 -{product.discount_percent}% OFF
-                                 </span>
-                                ) : product.event_discount_percent ? (
-                                 <span className="badge badge-orange absolute top-2 left-2">
-                                 -{product.event_discount_percent}% OFF 
-                                 </span>
-                                ) : null}
-                           </>
-
-                {product.just_restocked && product.is_in_stock && (
-                    <span style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, background: '#10B981', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999, letterSpacing: '0.04em' }}>RESTOCKED</span>
-                )}
+                {/* Badges: discount and "back in stock" sit side by side (small pills), never on top of each other */}
+                {(() => {
+                    const pct = product.discount_percent || product.event_discount_percent
+                    const restocked = product.just_restocked && product.is_in_stock
+                    if (!pct && !restocked) return null
+                    return (
+                        <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, pointerEvents: 'none' }}>
+                            {pct ? <span className="badge badge-orange" style={{ position: 'static' }}>-{pct}%</span> : null}
+                            {restocked && (
+                                <span style={{ background: '#10B981', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999, letterSpacing: '0.04em' }}>RESTOCKED</span>
+                            )}
+                        </div>
+                    )
+                })()}
 
                 {/* Sold out overlay */}
                 {!product.is_in_stock && (
