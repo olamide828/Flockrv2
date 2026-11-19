@@ -181,6 +181,8 @@ class CartController extends Controller
             'rate_id'                => 'nullable|string',
             'carrier'                => 'nullable|string|max:100',
             'courier_fee'            => 'nullable|numeric|min:0',
+            'eta_date'               => 'nullable|string|max:40',
+            'eta_text'               => 'nullable|string|max:80',
             'rates'                  => 'nullable|array',
             'delivery_platform_fee'  => 'nullable|numeric|min:0',
             'coupon_code'            => 'nullable|string',
@@ -227,6 +229,8 @@ class CartController extends Controller
                     'rate_id' => $validated['rate_id'] ?? null,
                     'carrier' => $validated['carrier'] ?? null,
                     'amount'  => $validated['courier_fee'] ?? 0,
+                    'eta_date' => $validated['eta_date'] ?? null,
+                    'eta_text' => $validated['eta_text'] ?? null,
                 ],
             ];
         }
@@ -330,7 +334,7 @@ class CartController extends Controller
                     // independently-arranged shipment.
                     'courier_fee'         => $courierFee,
                     'terminal_rate_id'    => $sellerRate['rate_id'] ?? null,
-                    'estimated_delivery'  => $validated['delivery_date'] ?? null,
+                    ...\App\Support\Eta::from($sellerRate['eta_date'] ?? null, $sellerRate['eta_text'] ?? null),
                     'event_id'              => $sellerActiveEvent?->id,
                     'event_discount_amount' => $eventDiscountAmount > 0 ? $eventDiscountAmount : null,
                 ]);

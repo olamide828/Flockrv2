@@ -75,6 +75,7 @@ class OrderTrackingService
             if ($order->paid_at)      $rows[] = ['order.paid', 'Payment confirmed', 'Your seller has been notified.', $order->paid_at, 'flockr'];
             if ($order->shipped_at)   $rows[] = ['shipment.picked_up', 'Picked up by courier', null, $order->shipped_at, 'flockr'];
             if ($order->delivered_at) $rows[] = ['shipment.delivered', 'Delivered', null, $order->delivered_at, 'flockr'];
+            if ($order->status === 'cancelled') $rows[] = ['order.cancelled', 'Order cancelled', $order->cancellation_reason, $order->updated_at ?? now(), 'flockr'];
             return array_map(fn ($r) => ['event' => $r[0], 'title' => $r[1], 'description' => $r[2], 'location' => null, 'at' => $r[3]->toIso8601String(), 'source' => $r[4]], $rows);
         }
 
@@ -84,6 +85,9 @@ class OrderTrackingService
         }
         foreach ($events as $e) {
             $out[] = ['event' => $e->event, 'title' => $e->title, 'description' => $e->description, 'location' => $e->location, 'at' => $e->occurred_at->toIso8601String(), 'source' => $e->source];
+        }
+        if ($order->status === 'cancelled' && !$events->contains('event', 'order.cancelled')) {
+            $out[] = ['event' => 'order.cancelled', 'title' => 'Order cancelled', 'description' => $order->cancellation_reason, 'location' => null, 'at' => ($order->updated_at ?? now())->toIso8601String(), 'source' => 'flockr'];
         }
         return $out;
     }

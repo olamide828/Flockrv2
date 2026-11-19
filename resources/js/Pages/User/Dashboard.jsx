@@ -1,5 +1,6 @@
 import ProductCard from '@/Components/Product/ProductCard'
 import VerifiedBadge from '@/Components/VerifiedBadge'
+import { etaLabel } from '@/Components/Order/OrderSummary'
 import AppLayout from '@/Layouts/AppLayout'
 import { Head, Link, usePage } from '@inertiajs/react'
 import { useEffect, useMemo, useState } from 'react'
@@ -75,6 +76,7 @@ function OrderCard({ order }) {
                 </div>
                 <div className="ud-order-amt"><b>{naira(order.total)}</b><small>{items.length} item{items.length !== 1 ? 's' : ''}</small></div>
             </div>
+            {ACTIVE.includes(order.status) && etaLabel(order) && <div style={{ margin: '8px 2px 0', fontSize: 12, color: 'rgba(255,255,255,0.55)', display: 'flex', alignItems: 'center', gap: 6 }}><RiTruckLine size={13} color="#10B981" />Expected <b style={{ color: '#10B981' }}>{etaLabel(order)}</b></div>}
             {confirmable && <div className="ud-nudge"><RiCheckboxCircleLine size={14} />Got it? Confirm delivery, or tell us if something’s wrong.</div>}
             {ACTIVE.includes(order.status) && <Progress status={order.status} />}
         </Link>
@@ -138,7 +140,7 @@ function RewardsModal({ onClose }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function UserDashboard({ orders = [], savedProducts = [], savedVideos = [], coupons = [], stats = {} }) {
     const { auth } = usePage().props
-    const [tab, setTab] = useState('orders')
+    const [tab, setTab] = useState(() => { try { return new URLSearchParams(window.location.search).get('tab') || 'orders' } catch { return 'orders' } })
     const [filter, setFilter] = useState('all')
     const [rewards, setRewards] = useState(false)
 

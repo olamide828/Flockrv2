@@ -101,6 +101,8 @@ class OrderController extends Controller
         'rate_id'               => 'nullable|string',
         'carrier'               => 'nullable|string|max:100',
         'courier_fee'           => 'nullable|numeric|min:0',
+        'eta_date'              => 'nullable|string|max:40',
+        'eta_text'              => 'nullable|string|max:80',
         'delivery_platform_fee' => 'nullable|numeric|min:0',
         'coupon_code'           => 'nullable|string',
     ]);
@@ -193,7 +195,7 @@ class OrderController extends Controller
             'shipping_address'      => $validated['address_id']
                 ? \App\Models\UserAddress::find($validated['address_id'])?->toTerminalFormat()
                 : ($validated['shipping_address'] ?? null),
-            'estimated_delivery'    => $validated['delivery_date'] ?? null,
+            ...\App\Support\Eta::from($validated['eta_date'] ?? null, $validated['eta_text'] ?? null),
         ]);
 
         OrderItem::create([
@@ -397,8 +399,15 @@ public function cancelAndRefund(Order $order, string $reason): array
 {
     $wasPaid = (bool) $order->paid_at;
 
-    DB::transaction(function () use ($order, $reason) {
-        $order->update(['status' => 'cancelled', 'cancellation_reason' => $reason]);
+    // Claim the cancellation atomically. If a second request (double tap, seller + buyer at once, admin)
+    // gets here after the first, 0 rows change and it stops: no double refund, no stock added twice.
+    $claimed = DB::transaction(function () use ($order, $reason) {
+        $rows = Order::where('id', $order->id)
+            ->whereNotIn('status', ['cancelled', 'refunded', 'delivered', 'disputed'])
+            ->update(['status' => 'cancelled', 'cancellation_reason' => $reason, 'updated_at' => now()]);
+        if ($rows === 0) return false;
+
+        $order->refresh();
         $order->reverseSellerCredit("Order {$order->reference} cancelled");
 
         // Put the stock back for orders that had already been paid for.
@@ -408,13 +417,25 @@ public function cancelAndRefund(Order $order, string $reason): array
                     ->update(['stock_quantity' => DB::raw('stock_quantity + ' . (int) $item->quantity)]);
             }
         }
+        return true;
     });
+
+    if (!$claimed) {
+        return ['paid' => $wasPaid, 'refund_ok' => true, 'already' => true];
+    }
+
+    $tracking = app(\App\Services\OrderTrackingService::class);
+    $tracking->log($order, 'order.cancelled', 'flockr', now(), ['title' => 'Order cancelled', 'description' => $reason]);
 
     app(\App\Services\CouponService::class)->release($order);
 
     $refundOk = true;
     if ($wasPaid) {
         $refundOk = app(\App\Services\RefundService::class)->refund($order->fresh())['ok'];
+        $tracking->log($order, 'order.refund', 'flockr', now()->addSecond(), [
+            'title'       => $refundOk ? 'Refund sent' : 'Refund being processed',
+            'description' => $refundOk ? 'Your money is on its way back to you.' : 'Our team is finishing your refund.',
+        ]);
     }
 
     return ['paid' => $wasPaid, 'refund_ok' => $refundOk];
@@ -488,6 +509,19 @@ private function settlePaidBatch(Order $order, string $reference, array $data): 
     }
 
 
+    // Claim the move first (atomic). While we talk to the courier the order is already 'processing',
+    // so the buyer can no longer cancel underneath us, and a cancel that landed earlier stops us here.
+    $from = $validated['status'] === 'shipped'
+        ? ['processing']
+        : (['paid', 'confirmed'] + ($order->terminal_shipment_id ? [] : [2 => 'processing']));
+    $previous = $order->status;
+    $claimed = Order::where('id', $order->id)->whereIn('status', $from)
+        ->update(['status' => $validated['status'], 'updated_at' => now()]);
+    if ($claimed === 0) {
+        return response()->json(['message' => 'This order changed in the meantime (it may have been cancelled). Please refresh.'], 409);
+    }
+    $order->refresh();
+
     if ($validated['status'] === 'processing' && !$order->terminal_shipment_id) {
         try {
             $terminal = app(\App\Services\TerminalService::class);
@@ -495,6 +529,7 @@ private function settlePaidBatch(Order $order, string $reference, array $data): 
             $address  = \App\Models\UserAddress::find($order->delivery_address_id);
 
             if (!$order->terminal_rate_id || !$seller->pickup_street || !$address) {
+                Order::where('id', $order->id)->where('status', 'processing')->update(['status' => $previous]);
                 return response()->json([
                     'message' => 'Missing shipping details for this order — cannot book courier yet.',
                 ], 422);
@@ -528,20 +563,14 @@ private function settlePaidBatch(Order $order, string $reference, array $data): 
             ]);
         } catch (\Throwable $e) {
             Log::error('Courier booking failed on mark-ready', ['order' => $order->reference, 'error' => $e->getMessage()]);
+            Order::where('id', $order->id)->where('status', 'processing')->update(['status' => $previous]);   // hand the order back
             return response()->json([
                 'message' => 'Could not book a courier for this order right now. Please try again.',
             ], 503);
         }
     }
 
-    $updates = ['status' => $validated['status']];
-
-    if ($validated['status'] === 'delivered' && !$order->delivered_at) {
-        $updates['delivered_at'] = now();
-    }
-
-    $order->update($updates);
-    return response()->json(['status' => $order->status]);
+    return response()->json(['status' => $order->fresh()->status]);
 }
 
     /**

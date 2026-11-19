@@ -1,5 +1,6 @@
 // Admin UI kit: layout primitives, table that becomes cards on mobile, drawer, dialogs.
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import ConfirmModal from '@/Components/Community/ConfirmModal'
 import { useToast } from '@/Components/Toast'
 import { STATUS_TONE, num } from './lib'
@@ -28,31 +29,70 @@ function Dialog({ cfg, onDone }) {
   const fields = cfg.fields || []
   const [vals, setVals] = useState(() => Object.fromEntries(fields.map((f) => [f.key, f.value ?? ''])))
   const missing = fields.some((f) => f.required && !String(vals[f.key] ?? '').trim())
-  return (
-    <ConfirmModal
-      title={cfg.title} message={cfg.message || ''} confirmLabel={cfg.confirmLabel || 'Confirm'}
-      danger={cfg.danger !== false}
-      onConfirm={() => { if (missing) return; onDone(vals) }} onClose={() => onDone(null)}
-    >
-      {fields.length > 0 && (
-        <div className="a-stack">
+  const set = (k, v) => setVals((x) => ({ ...x, [k]: v }))
+
+  useEffect(() => {
+    if (fields.length === 0) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const esc = (e) => e.key === 'Escape' && onDone(null)
+    window.addEventListener('keydown', esc)
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', esc) }
+  }, [])
+
+  // Plain confirm (no inputs): keep the small centred modal.
+  if (fields.length === 0) {
+    return (
+      <ConfirmModal
+        title={cfg.title} message={cfg.message || ''} confirmLabel={cfg.confirmLabel || 'Confirm'}
+        danger={cfg.danger !== false}
+        onConfirm={() => onDone(vals)} onClose={() => onDone(null)}
+      />
+    )
+  }
+
+  // Forms: a real bottom sheet. Header and buttons stay put, ONLY the middle scrolls.
+  const vars = { '--surf': '#14161c', '--surf2': '#1a1d25', '--line': 'rgba(255,255,255,.08)', '--ink': 'rgba(255,255,255,.9)', '--mute': 'rgba(255,255,255,.5)', '--acc': '#FF6B35', '--bad': '#ef6a6a' }
+  return createPortal(
+    <div onClick={() => onDone(null)} style={{ ...vars, position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div
+        role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 560, maxHeight: '88dvh', display: 'flex', flexDirection: 'column', background: '#14161c', color: 'var(--ink)', borderRadius: '20px 20px 0 0', border: '1px solid var(--line)', boxShadow: '0 -12px 40px rgba(0,0,0,.5)' }}
+      >
+        <div style={{ padding: '10px 18px 0', flexShrink: 0 }}>
+          <div style={{ width: 38, height: 4, borderRadius: 4, background: 'rgba(255,255,255,.2)', margin: '0 auto 12px' }} />
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>{cfg.title}</h3>
+          {cfg.message ? <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--mute)', lineHeight: 1.5 }}>{cfg.message}</p> : null}
+        </div>
+
+        <div className="a-stack" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '14px 18px', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}>
           {fields.map((f) => (
             <label key={f.key} className="a-field">
               <span>{f.label}{f.required && ' *'}</span>
               {f.options ? (
-                <select value={vals[f.key]} onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))}>
+                <select value={vals[f.key]} onChange={(e) => set(f.key, e.target.value)}>
                   {f.options.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
                 </select>
               ) : f.multiline ? (
-                <textarea rows={3} value={vals[f.key]} onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))} />
+                <textarea rows={3} value={vals[f.key]} onChange={(e) => set(f.key, e.target.value)} />
               ) : (
-                <input type={f.type || 'text'} value={vals[f.key]} onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))} />
+                <input type={f.type || 'text'} value={vals[f.key]} onChange={(e) => set(f.key, e.target.value)} style={{ fontSize: 16 }} />
               )}
             </label>
           ))}
         </div>
-      )}
-    </ConfirmModal>
+
+        <div style={{ display: 'flex', gap: 10, padding: '12px 18px calc(14px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+          <button type="button" className="a-btn" style={{ flex: 1 }} onClick={() => onDone(null)}>Cancel</button>
+          <button
+            type="button" disabled={missing}
+            className={`a-btn ${cfg.danger === false ? 'primary' : 'danger'}`} style={{ flex: 1, opacity: missing ? 0.5 : 1 }}
+            onClick={() => { if (!missing) onDone(vals) }}
+          >{cfg.confirmLabel || 'Confirm'}</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

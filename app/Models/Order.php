@@ -26,9 +26,11 @@ class Order extends Model
     'terminal_shipment_id', 'escrow_released_at', 'checkout_batch_id', 'event_id', 'event_discount_amount',
     'seller_earning', 'flockr_fee', 'discount_amount', 'payment_total',
     'refund_status', 'refund_error', 'refunded_at',
+    'estimated_delivery', 'eta_text',
 ];
 
     protected $casts = [
+        'estimated_delivery'      => 'datetime',
         'subtotal'                => 'decimal:2',
         'shipping_fee'            => 'decimal:2',
         'platform_fee'            => 'decimal:2',

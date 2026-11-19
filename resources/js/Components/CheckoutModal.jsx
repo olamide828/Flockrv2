@@ -391,6 +391,8 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
                     rate_id: ratesBySeller[id].rate_id,
                     carrier: ratesBySeller[id].carrier,
                     amount:  ratesBySeller[id].amount,
+                    eta_date: ratesBySeller[id].delivery_date ?? null,
+                    eta_text: ratesBySeller[id].estimated_days ?? null,
                 }])),
                 delivery_platform_fee: DELIVERY_PLATFORM_FEE,
                 coupon_code: couponApplied?.code ?? null,
@@ -400,6 +402,8 @@ const platformFee = (isMultiSeller ? !missingSellerRate : !!selectedRate) ? DELI
                 rate_id: selectedRate.rate_id,
                 carrier: selectedRate.carrier,
                 courier_fee: selectedRate.amount,
+                eta_date: selectedRate.delivery_date ?? null,
+                eta_text: selectedRate.estimated_days ?? null,
                 delivery_platform_fee: DELIVERY_PLATFORM_FEE,
                 coupon_code: couponApplied?.code ?? null,
               };

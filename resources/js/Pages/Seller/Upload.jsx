@@ -186,14 +186,28 @@ export default function Upload({ products: initialProducts = [] }) {
     useEffect(() => {
         const a = musicRef.current
         if (!a || !photoMode || stage !== 'edit' || !sound) return undefined
+        a.loop = false
         a.src = sound.sound.url
         a.volume = sound.musicVolume
         const restart = () => { try { a.currentTime = sound.start || 0 } catch { /* not seekable yet */ } }
-        restart()
+        const onMeta = () => { restart(); a.play().catch(() => {}) }   // seeking before metadata is ignored, so wait for it
         const onTime = () => { if (sound.end && a.currentTime >= sound.end) restart() }
+        const onEnded = () => { restart(); a.play().catch(() => {}) }
+        a.addEventListener('loadedmetadata', onMeta, { once: true })
         a.addEventListener('timeupdate', onTime)
+        a.addEventListener('ended', onEnded)
+        a.load()
         a.play().catch(() => {})
-        return () => { a.removeEventListener('timeupdate', onTime); a.pause() }
+        // if the browser blocked autoplay, the next touch starts it
+        const unlock = () => { if (a.paused) a.play().catch(() => {}) }
+        window.addEventListener('pointerdown', unlock, { once: true })
+        return () => {
+            window.removeEventListener('pointerdown', unlock)
+            a.removeEventListener('loadedmetadata', onMeta)
+            a.removeEventListener('timeupdate', onTime)
+            a.removeEventListener('ended', onEnded)
+            a.pause()
+        }
     }, [sound, stage, photoMode])
 
     // Arrived from a sound page: /seller/upload?sound=ID

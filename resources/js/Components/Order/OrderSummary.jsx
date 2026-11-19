@@ -101,9 +101,18 @@ export function SellerCard({ order }) {
     );
 }
 
+const ETA_DONE = ['delivered', 'cancelled', 'refunded', 'returned'];
+export function etaLabel(order) {
+    if (!order || ETA_DONE.includes(order.status) || !order.estimated_delivery) return null;
+    const d = new Date(order.estimated_delivery);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 export function CourierCard({ order }) {
     const [copied, setCopied] = useState(false);
-    if (!order.courier_name && !order.tracking_number) return null;
+    const eta = etaLabel(order);
+    if (!order.courier_name && !order.tracking_number && !eta) return null;
     const showNum = order.tracking_number && !['pending', 'paid'].includes(order.status);
     const copy = async () => { try { await navigator.clipboard.writeText(order.tracking_number); } catch {} setCopied(true); setTimeout(() => setCopied(false), 1800); };
     return (
@@ -113,6 +122,12 @@ export function CourierCard({ order }) {
                 {order.courier_name && <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700 }}>{order.courier_name}</p>}
                 <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: showNum ? 'monospace' : 'inherit' }}>{showNum ? order.tracking_number : 'Tracking number appears once the courier picks up'}</p>
             </div>
+            {eta && (
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Expected</p>
+                    <p style={{ margin: '2px 0 0', color: '#10B981', fontSize: 14, fontWeight: 800 }}>{eta}</p>
+                </div>
+            )}
             {showNum && <button onClick={copy} style={{ width: 34, height: 34, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: copied ? '#10B981' : 'rgba(255,255,255,0.45)' }}>{copied ? <RiCheckLine size={15} /> : <RiFileCopyLine size={15} />}</button>}
         </div>
     );

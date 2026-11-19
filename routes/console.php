@@ -47,7 +47,7 @@ Artisan::command('terminal:register-webhook', function() {
         'Authorization' => 'Bearer ' . config('services.terminal.secret_key'),
         'Content-Type'  => 'application/json',
     ])->post('https://sandbox.terminal.africa/v1/webhooks', [
-        'url'    => url('/api/webhooks/terminal'),
+        'url'    => url('/api/webhooks/terminal') . (config('flockr_shipping.webhook_token') ? '?token=' . config('flockr_shipping.webhook_token') : ''),
         'live'   => false,
         'name'   => 'Flockr Shipment Updates',
         'events' => ['shipment.created','shipment.picked_up','shipment.in_transit','shipment.out_for_delivery','shipment.delivered','shipment.pickup_failed','shipment.delivery_failed','shipment.returned'],

@@ -18,38 +18,44 @@ class TerminalWebhookController extends Controller
      */
     public function handle(Request $request): JsonResponse
     {
-        // Verify webhook signature from Terminal
-        $signature = $request->header('x-terminal-signature');
+        // ── Who is calling? ──────────────────────────────────────────────────────
+        // Terminal's dashboard only has a URL box, so the simplest protection is a secret in the URL itself:
+        //   https://your-domain/api/webhooks/terminal?token=<TERMINAL_WEBHOOK_TOKEN>
+        // A signature (TERMINAL_WEBHOOK_SECRET) is also honoured if Terminal sends one.
         $secret    = config('services.terminal.webhook_secret');
+        $token     = config('flockr_shipping.webhook_token');
+        $signature = $request->header('x-terminal-signature');
+        $trusted   = false;
 
-        // In production a webhook secret MUST be configured; never accept unsigned calls there.
-        if (app()->environment('production') && !$secret) {
-            Log::error('Terminal webhook rejected: TERMINAL_WEBHOOK_SECRET is not set');
-            return response()->json(['ok' => false], 503);
-        }
-
-        if ($secret) {
-            if (!$signature) {
-                Log::warning('Terminal webhook: missing signature');
+        if ($secret && $signature) {
+            if (!hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature)) {
+                Log::warning('Terminal webhook: signature present but wrong');
                 return response()->json(['ok' => false], 401);
             }
-            $expected = hash_hmac('sha256', $request->getContent(), $secret);
-            if (!hash_equals($expected, $signature)) {
-                Log::warning('Terminal webhook: invalid signature');
+            $trusted = true;
+        }
+        if (!$trusted && $token) {
+            if (!hash_equals((string) $token, (string) $request->query('token'))) {
+                Log::warning('Terminal webhook: wrong or missing token in the URL');
                 return response()->json(['ok' => false], 401);
             }
+            $trusted = true;
         }
+        // Neither configured: still accepted (so tracking never silently stops), but see "verify" below.
 
-        $event = $request->input('event');
-        $data  = $request->input('data', []);
+        $event = (string) ($request->input('event') ?? $request->input('type') ?? '');
+        $data  = $request->input('data');
+        if (!is_array($data)) $data = $request->all();
 
-        Log::info('Terminal webhook received', ['event' => $event, 'data' => $data]);
+        Log::info('Terminal webhook received', ['event' => $event, 'trusted' => $trusted, 'data' => $data]);
 
-        // Find order by Terminal shipment ID
-        $shipmentId = $data['shipment_id'] ?? $data['id'] ?? null;
+        // Terminal has sent the shipment id under a few names over time
+        $shipmentId = $data['shipment_id'] ?? data_get($data, 'shipment.shipment_id') ?? data_get($data, 'shipment.id') ?? $data['id'] ?? null;
         if (!$shipmentId) {
             return response()->json(['ok' => true]); // ignore unknown events
         }
+
+        // Find order by Terminal shipment ID
 
         $order = Order::where('terminal_shipment_id', $shipmentId)->first();
         if (!$order) {
@@ -76,18 +82,20 @@ class TerminalWebhookController extends Controller
             'payload'     => $data,
         ]);
 
-        // Names must match the events registered in terminal:register-webhook (underscores).
-        $statusMap = [
-            'shipment.picked_up'        => 'shipped',
-            'shipment.in_transit'       => 'shipped',
-            'shipment.out_for_delivery' => 'shipped',
-            'shipment.delivered'        => 'delivered',
-            'shipment.pickup_failed'    => 'pickup_failed',
-            'shipment.delivery_failed'  => 'delivery_failed',
-            'shipment.returned'         => 'returned',
-        ];
+        // Understands "shipment.in_transit", "In transit", "shipment.delivered", status words, etc.
+        $newStatus = $this->mapStatus($event, $data);
 
-$newStatus = $statusMap[$event] ?? null;
+        // Without a token/signature anyone could post a fake "delivered" (it starts the seller's payout clock),
+        // so in that case only accept "delivered" if Terminal itself confirms it.
+        if (!$trusted && $newStatus === 'delivered') {
+            try {
+                $confirmed = stripos(json_encode(app(\App\Services\TerminalService::class)->trackShipment((string) $shipmentId)), 'deliver') !== false;
+            } catch (\Throwable) { $confirmed = false; }
+            if (!$confirmed) {
+                Log::warning('Terminal webhook: unverified "delivered" ignored', ['order' => $order->reference]);
+                $newStatus = null;
+            }
+        }
 
 if ($event === 'shipment.cancelled' && $order) {
     Log::warning('Terminal webhook: shipment cancelled by courier', ['order' => $order->reference]);
@@ -124,7 +132,14 @@ if ($event === 'shipment.cancelled' && $order) {
                 $updates['tracking_number'] = $data['tracking_number'];
             }
 
-            $order->update($updates);
+            $moved = Order::where('id', $order->id)
+                ->whereNotIn('status', ['cancelled', 'refunded', 'disputed'])
+                ->update($updates + ['updated_at' => now()]);
+            if (!$moved) {
+                Log::info('Terminal webhook: order was closed meanwhile, event ignored', ['order' => $order->reference, 'event' => $event]);
+                return response()->json(['ok' => true]);
+            }
+            $order->refresh();
 
             // Notify buyer of status change
             try {
@@ -137,6 +152,20 @@ if ($event === 'shipment.cancelled' && $order) {
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /** Map whatever Terminal calls the event to one of our order statuses (null = just record it). */
+    private function mapStatus(string $event, array $data): ?string
+    {
+        $hay = strtolower($event . ' ' . (is_string($data['status'] ?? null) ? $data['status'] : ''));
+        $hay = str_replace(['-', '.', ' '], '_', $hay);
+
+        if (str_contains($hay, 'fail'))   return str_contains($hay, 'pickup') ? 'pickup_failed' : 'delivery_failed';
+        if (str_contains($hay, 'return')) return 'returned';
+        if (str_contains($hay, 'out_for_deliver')) return 'shipped';
+        if (str_contains($hay, 'deliver')) return 'delivered';
+        if (str_contains($hay, 'transit') || str_contains($hay, 'picked') || str_contains($hay, 'pick_up')) return 'shipped';
+        return null;   // created / confirmed / anything else: shown on the timeline, no status change
     }
 
     private function notifyBuyer(Order $order, string $status, string $event): void

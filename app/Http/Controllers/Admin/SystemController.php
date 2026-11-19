@@ -64,6 +64,7 @@ class SystemController extends Controller
             'PAYSTACK_SECRET_KEY' => config('services.paystack.secret_key') ?? env('PAYSTACK_SECRET_KEY'),
             'TERMINAL_SECRET_KEY' => config('services.terminal.secret_key'),
             'TERMINAL_WEBHOOK_SECRET' => config('services.terminal.webhook_secret') ?? env('TERMINAL_WEBHOOK_SECRET'),
+            'TERMINAL_WEBHOOK_TOKEN' => config('flockr_shipping.webhook_token'),
             'GEMINI_API_KEY' => config('services.gemini.key'),
             'APP_DEBUG is off' => !config('app.debug') ? 'yes' : null,
             'APP_URL is https' => str_starts_with((string) config('app.url'), 'https://') ? 'yes' : null,

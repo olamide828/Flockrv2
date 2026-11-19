@@ -394,7 +394,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const swipeStartRef = useRef(null);
     const hold = useHoldSpeed(videoRef);
     const isPhotos = video.media_type === 'photos';
-    usePhotoSound(video, !!isActive);
+    const photoSound = usePhotoSound(video, !!isActive);
 
     const [playing,       setPlaying]       = useState(false);
     const [muted,         setMuted]         = useState(true);
@@ -514,6 +514,15 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
             lastTap.current = now;
             tapTimerRef.current = setTimeout(() => {
                 tapTimerRef.current = null;
+                if (isPhotos) {
+                    // Photo posts have no <video>: a tap pauses / resumes the music and shows the matching icon
+                    if (photoSound.hasSound) {
+                        const nowPaused = photoSound.toggle();
+                        setPlaying(!nowPaused);
+                        setShowPP(nowPaused);
+                    }
+                    return;
+                }
                 const el = videoRef.current;
                 if (el?.muted) { el.muted = false; setMuted(false); setWantsSound(true); }
                 if (el?.paused) { userPausedRef.current = false; el.play().catch(() => {}); }
@@ -521,7 +530,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                 setShowPP(true);
             }, DOUBLE_TAP_MS);
         }
-    }, [liked, mobileSheet, triggerLikeAnim, handleLike]);
+    }, [liked, mobileSheet, triggerLikeAnim, handleLike, isPhotos, photoSound]);
 
     const handleSave = useCallback(async () => {
         if (!auth?.user) return router.visit('/login');
