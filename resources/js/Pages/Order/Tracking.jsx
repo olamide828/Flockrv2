@@ -1,5 +1,5 @@
 import AppLayout from '@/Layouts/AppLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { RiArrowLeftLine, RiCheckDoubleLine, RiMapPinLine, RiRefreshLine, RiTimeLine } from 'react-icons/ri';
@@ -14,42 +14,29 @@ const PROBLEM = {
     disputed:        { label: 'Under review',    sub: 'This order is under review by our support team.' },
 };
 
-// ── Static map (Google Maps embed showing seller → buyer route) ───────────────
-function DeliveryMap({ sellerCity, sellerState, buyerCity, buyerState }) {
-    if (!sellerCity || !buyerCity) return null;
-
-    const origin      = encodeURIComponent(`${sellerCity}, ${sellerState}, Nigeria`);
-    const destination = encodeURIComponent(`${buyerCity}, ${buyerState}, Nigeria`);
-    const apiKey      = window.__GOOGLE_MAPS_KEY__ ?? ''; // optional — works without key in embed mode
-
-    const src = apiKey
-        ? `https://www.google.com/maps/embed/v1/directions?key=${apiKey}&origin=${origin}&destination=${destination}&mode=driving`
-        : `https://maps.google.com/maps?q=${destination}&output=embed`;
-
+// ── Route map: the seller's pickup address → the buyer's delivery address ────
+function DeliveryMap({ from, to }) {
+    if (!from || !to) return null;
+    const enc = (v) => encodeURIComponent(v);
+    // saddr/daddr draws the actual route (blue line, A → B) and needs no API key
+    const src = `https://maps.google.com/maps?saddr=${enc(from)}&daddr=${enc(to)}&dirflg=d&output=embed`;
+    const openUrl = `https://www.google.com/maps/dir/?api=1&origin=${enc(from)}&destination=${enc(to)}&travelmode=driving`;
     return (
         <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden', marginBottom: 16 }}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <RiMapPinLine size={14} color="#FF6B35" />
-                <p style={{ margin: 0, color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Delivery Route</p>
+                <p style={{ margin: 0, flex: 1, color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Delivery Route</p>
+                <a href={openUrl} target="_blank" rel="noreferrer" style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Open in Maps</a>
             </div>
-            <iframe
-                src={src}
-                width="100%"
-                height="220"
-                style={{ border: 'none', display: 'block', filter: 'invert(0.9) hue-rotate(180deg) brightness(0.85)' }}
-                loading="lazy"
-                allowFullScreen
-                title="Delivery route"
-            />
-            <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF6B35', flexShrink: 0 }} />
-                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{sellerCity}, {sellerState}</span>
+            <iframe src={src} width="100%" height="240" style={{ border: 'none', display: 'block' }} loading="lazy" allowFullScreen title="Delivery route" />
+            <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF6B35', flexShrink: 0, marginTop: 5 }} />
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.4 }}><b style={{ color: 'rgba(255,255,255,0.8)' }}>Pickup:</b> {from}</span>
                 </div>
-                <div style={{ height: 1, width: 32, background: 'rgba(255,255,255,0.1)' }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{buyerCity}, {buyerState}</span>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', flexShrink: 0 }} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', flexShrink: 0, marginTop: 5 }} />
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.4 }}><b style={{ color: 'rgba(255,255,255,0.8)' }}>Delivery:</b> {to}</span>
                 </div>
             </div>
         </div>
@@ -63,6 +50,10 @@ export default function OrderTracking({ order: initialOrder }) {
     const problem = PROBLEM[order.status];
     const done = order.status === 'delivered';
     const address = addressOf(order);
+    const { auth } = usePage().props;
+    const isBuyer = auth?.user?.id === order.buyer_id;
+    const fromAddr = [order.seller?.pickup_street, order.seller?.pickup_city, order.seller?.pickup_state, 'Nigeria'].filter(Boolean).join(', ');
+    const toAddr = [address?.address ?? address?.street, address?.city, address?.state, 'Nigeria'].filter(Boolean).join(', ');
 
     const refresh = async () => {
         setRefreshing(true);
@@ -100,7 +91,7 @@ export default function OrderTracking({ order: initialOrder }) {
                             <RiCheckDoubleLine size={30} color="#10B981" />
                             <p style={{ margin: '8px 0 4px', color: '#10B981', fontWeight: 800, fontSize: 20 }}>Delivered! 🎉</p>
                             {order.delivered_at && <p style={{ margin: '0 0 12px', color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{fmtDateTime(order.delivered_at)}</p>}
-                            <Link href={`/orders/${order.id}`} style={{ display: 'inline-flex', padding: '9px 20px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>View order &amp; leave a review</Link>
+                            {isBuyer && <Link href={`/orders/${order.id}`} style={{ display: 'inline-flex', padding: '9px 20px', background: '#FF6B35', borderRadius: 999, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>View order &amp; leave a review</Link>}
                         </div>
                     )}
 
@@ -114,7 +105,7 @@ export default function OrderTracking({ order: initialOrder }) {
                     <ProgressStages order={order} />
                     <TrackingTimeline order={order} title="Shipment history" />
 
-                    <DeliveryMap sellerCity={order.seller?.pickup_city} sellerState={order.seller?.pickup_state} buyerCity={address?.city} buyerState={address?.state} />
+                    <DeliveryMap from={order.seller?.pickup_city ? fromAddr : null} to={address?.city ? toAddr : null} />
 
                     <OrderSummary order={order} />
 

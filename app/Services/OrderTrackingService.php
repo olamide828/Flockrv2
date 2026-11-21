@@ -26,6 +26,7 @@ class OrderTrackingService
         'shipment.delivered'        => ['Delivered', 'Package delivered.'],
         'shipment.pickup_failed'    => ['Pickup failed', 'The courier could not collect the package. Rescheduling.'],
         'shipment.delivery_failed'  => ['Delivery attempt failed', 'Another attempt will be made.'],
+        'shipment.dropped_off'      => ['Handed to courier', 'Your package was dropped off with the courier.'],
         'shipment.returned'         => ['Returned to sender', null],
         'shipment.cancelled'        => ['Shipment cancelled', null],
     ];
@@ -33,6 +34,7 @@ class OrderTrackingService
     public function log(Order $order, string $event, string $source = 'flockr', ?Carbon $at = null, array $extra = []): void
     {
         $at ??= now();
+        $event = str_replace('-', '_', $event);
         [$title, $desc] = self::TITLES[$event] ?? [ucfirst(str_replace(['shipment.', '_', '.'], ['', ' ', ' '], $event)), null];
 
         try {
@@ -53,13 +55,27 @@ class OrderTrackingService
         }
     }
 
-    /** Pull Terminal's own event time out of a webhook payload. */
+    /**
+     * Pull Terminal's own event time out of a webhook payload.
+     * Terminal sends UTC. When the string has no offset ("2026-11-19T01:20:00") PHP would read it as OUR
+     * timezone (Lagos), which shifts every courier step one hour early. So read it as UTC, then convert.
+     */
     public function terminalTime(array $data): Carbon
     {
+        $candidates = [];
         foreach (['event_time', 'timestamp', 'occurred_at', 'updated_at', 'created_at'] as $k) {
-            if (!empty($data[$k])) {
-                try { return Carbon::parse($data[$k]); } catch (\Throwable) {}
-            }
+            $candidates[] = $data[$k] ?? null;
+            $candidates[] = data_get($data, 'shipment.' . $k);
+        }
+        foreach ($candidates as $v) {
+            if (empty($v)) continue;
+            try {
+                if (is_numeric($v)) {
+                    $t = (float) $v;
+                    return Carbon::createFromTimestampUTC((int) ($t > 20000000000 ? $t / 1000 : $t))->setTimezone(config('app.timezone'));
+                }
+                return Carbon::parse((string) $v, 'UTC')->setTimezone(config('app.timezone'));
+            } catch (\Throwable) {}
         }
         return now();
     }
@@ -84,12 +100,28 @@ class OrderTrackingService
             $out[] = ['event' => 'order.created', 'title' => 'Order placed', 'description' => null, 'location' => null, 'at' => $order->created_at->toIso8601String(), 'source' => 'flockr'];
         }
         foreach ($events as $e) {
-            $out[] = ['event' => $e->event, 'title' => $e->title, 'description' => $e->description, 'location' => $e->location, 'at' => $e->occurred_at->toIso8601String(), 'source' => $e->source];
+            $ev = str_replace('-', '_', $e->event);
+            // bare "Updated" pings add nothing for the buyer; keep them only if Terminal said something with them
+            if (in_array($ev, ['shipment.updated', 'shipment.tracking_updated'], true) && !$e->description && !$e->location) continue;
+            $out[] = ['event' => $ev, 'title' => $e->title, 'description' => $e->description, 'location' => $e->location, 'at' => $e->occurred_at->toIso8601String(), 'source' => $e->source];
         }
         if ($order->status === 'cancelled' && !$events->contains('event', 'order.cancelled')) {
             $out[] = ['event' => 'order.cancelled', 'title' => 'Order cancelled', 'description' => $order->cancellation_reason, 'location' => null, 'at' => ($order->updated_at ?? now())->toIso8601String(), 'source' => 'flockr'];
         }
-        return $out;
+        return $this->sorted($out);
+    }
+
+    /** Oldest first; on a tie, our own steps come in their natural order (placed, paid, ...), then the courier's. */
+    private function sorted(array $rows): array
+    {
+        $rank = fn ($e) => match (true) {
+            $e === 'order.created' => 0,
+            $e === 'order.paid'    => 1,
+            $e === 'order.packed'  => 2,
+            default                => 3,
+        };
+        usort($rows, fn ($a, $b) => [strtotime($a['at']), $rank($a['event'])] <=> [strtotime($b['at']), $rank($b['event'])]);
+        return $rows;
     }
 
     /** One order payload for all three buyer pages, so they can never disagree. */
@@ -97,7 +129,7 @@ class OrderTrackingService
     {
         $order->loadMissing([
             'items.product' => fn ($q) => $q->withTrashed()->select('id', 'name', 'images', 'slug', 'seller_id', 'deleted_at'),
-            'seller:id,name,username,avatar,pickup_city,pickup_state',
+            'seller:id,name,username,avatar,pickup_street,pickup_city,pickup_state',
             'buyer:id,name,email',
             'dispute.messages.user:id,name,username,avatar',
         ]);
@@ -106,6 +138,7 @@ class OrderTrackingService
 
         return array_merge($order->toArray(), [
             'courier_name'    => $order->courier_name ?? $order->courier,
+            'courier_ref'     => $order->tracking_number ?: $order->terminal_shipment_id,
             'courier_fee'     => $ship,
             'shipping_fee'    => $ship,
             'discount_amount' => (float) ($order->discount_amount ?? 0),

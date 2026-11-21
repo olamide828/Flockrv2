@@ -2,12 +2,12 @@ import { RiCheckLine, RiCheckDoubleLine, RiMapPinLine, RiTruckLine, RiStoreLine,
 
 export function fmtDateTime(d) {
     if (!d) return '';
-    return new Date(d).toLocaleString('en-NG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return new Date(d).toLocaleString('en-NG', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' });
 }
 
 const ICONS = {
     'order.created': RiShoppingBagLine, 'order.paid': RiBankCardLine, 'order.packed': RiStoreLine,
-    'shipment.created': RiMotorbikeLine, 'shipment.picked_up': RiMotorbikeLine, 'shipment.in_transit': RiTruckLine,
+    'shipment.created': RiMotorbikeLine, 'shipment.dropped_off': RiMotorbikeLine, 'shipment.picked_up': RiMotorbikeLine, 'shipment.in_transit': RiTruckLine,
     'shipment.out_for_delivery': RiTruckLine, 'shipment.delivered': RiCheckDoubleLine,
     'shipment.pickup_failed': RiAlertLine, 'shipment.delivery_failed': RiAlertLine, 'shipment.returned': RiAlertLine,
     'shipment.cancelled': RiAlertLine, 'order.cancelled': RiAlertLine,
@@ -51,7 +51,8 @@ export function ProgressStages({ order }) {
 
 /** Real events, newest first, each with its own timestamp (courier events use Terminal's time). */
 export default function TrackingTimeline({ order, title = 'Tracking history' }) {
-    const events = [...(order.timeline ?? [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+    // newest first; the server already orders ties (placed → paid → courier), so reverse that order rather than re-sorting
+    const events = [...(order.timeline ?? [])].map(e => ({ ...e, event: String(e.event).replace(/-/g, '_') })).reverse();
     return (
         <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden' }}>
             <p style={{ margin: 0, padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{title}</p>

@@ -82,6 +82,13 @@ class TerminalWebhookController extends Controller
             'payload'     => $data,
         ]);
 
+        // A tracking number can arrive on any event (even ones that don't change the status): keep it
+        $anyRef = $data['tracking_number'] ?? data_get($data, 'extras.tracking_number') ?? data_get($data, 'shipment.tracking_number') ?? data_get($data, 'shipment.extras.tracking_number') ?? null;
+        if ($anyRef && !$order->tracking_number) {
+            Order::where('id', $order->id)->update(['tracking_number' => (string) $anyRef]);
+            $order->tracking_number = (string) $anyRef;
+        }
+
         // Understands "shipment.in_transit", "In transit", "shipment.delivered", status words, etc.
         $newStatus = $this->mapStatus($event, $data);
 
@@ -128,8 +135,9 @@ if ($event === 'shipment.cancelled' && $order) {
             }
 
             // Set tracking number if provided
-            if (!empty($data['tracking_number'])) {
-                $updates['tracking_number'] = $data['tracking_number'];
+            $ref = $data['tracking_number'] ?? data_get($data, 'extras.tracking_number') ?? data_get($data, 'shipment.tracking_number') ?? data_get($data, 'shipment.extras.tracking_number') ?? $data['waybill_number'] ?? null;
+            if (!empty($ref)) {
+                $updates['tracking_number'] = (string) $ref;
             }
 
             $moved = Order::where('id', $order->id)
@@ -164,6 +172,7 @@ if ($event === 'shipment.cancelled' && $order) {
         if (str_contains($hay, 'return')) return 'returned';
         if (str_contains($hay, 'out_for_deliver')) return 'shipped';
         if (str_contains($hay, 'deliver')) return 'delivered';
+        if (str_contains($hay, 'dropped')) return 'shipped';   // dropped-off = the courier now has it
         if (str_contains($hay, 'transit') || str_contains($hay, 'picked') || str_contains($hay, 'pick_up')) return 'shipped';
         return null;   // created / confirmed / anything else: shown on the timeline, no status change
     }

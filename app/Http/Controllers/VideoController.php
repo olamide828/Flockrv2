@@ -607,7 +607,7 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             $sStart = (int) $request->input('sound_start', 0);
             $sEnd   = $request->filled('sound_end') ? min((float) $request->input('sound_end'), $sStart + 150) : null;
             if ($sEnd !== null && $sEnd <= $sStart) $sEnd = null;
-            $video->update(['sound_id' => $sound->id, 'photo_sound' => ['start' => $sStart, 'end' => $sEnd, 'volume' => (float) $request->input('music_volume', 0.7)]]);
+            $video->forceFill(['sound_id' => $sound->id, 'photo_sound' => ['start' => $sStart, 'end' => $sEnd, 'volume' => (float) $request->input('music_volume', 0.7)]])->save();
         }
 
         // Tag the seller's own products (anything else is ignored)

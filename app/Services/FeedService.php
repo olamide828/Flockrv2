@@ -182,6 +182,15 @@ class FeedService
             ->limit((int) ceil($slice * 0.7))
             ->get();
 
+        // Strategy F: recent posts using a trending sound (they still have to earn their rank in computeScore)
+        $hotSounds = app(\App\Services\SoundTrendService::class)->candidateSoundIds();
+        $soundHot = empty($hotSounds) ? collect() : (clone $base)
+            ->whereIn('sound_id', $hotSounds)
+            ->where('published_at', '>=', now()->subHours(72))
+            ->orderByDesc('published_at')
+            ->limit((int) ceil($slice * 0.4))
+            ->get();
+
         // Strategy E: random exploration
         $exploration = (clone $base)
             ->inRandomOrder()
@@ -193,6 +202,7 @@ class FeedService
             ->concat($recent)
             ->concat($commerce)
             ->concat($exploration)
+            ->concat($soundHot)
             ->unique('id')
             ->values();
     }
@@ -300,6 +310,9 @@ private function getAdjacentCategoryIds(array $categoryIds): array
     + (self::W_RECENCY * $recency)
     + (self::W_NOVELTY * $novelty)
     + $velocityBonus;
+
+// A trending sound gives a lottery-style boost, but only as much as the post's own engagement earns (see SoundTrendService)
+$baseScore += app(\App\Services\SoundTrendService::class)->boost($video);
 
 $proBoost = ($video->relationLoaded('user') && $video->user?->hasActiveSubscription())
     ? self::PRO_BOOST_MULTIPLIER

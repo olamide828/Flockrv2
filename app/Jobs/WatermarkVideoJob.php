@@ -153,9 +153,10 @@ class WatermarkVideoJob implements ShouldQueue
         $gap  = max(5,  (int) round($vw * 0.012));   // space between stack items
         $bs   = max(14, (int) round($vw * 0.038));   // "flockr" size
         $us   = max(12, (int) round($vw * 0.029));   // @username size
-        $padX = max(16, (int) round($vw * 0.045));
-        $padT = max(20, (int) round($vh * 0.045));
-        $padB = max(24, (int) round($vh * 0.06));
+        // Well inside the frame (not hugging an edge) so cropping the border doesn't remove it
+        $padX = max(24, (int) round($vw * 0.07));
+        $padT = max(40, (int) round($vh * 0.10));
+        $padB = max(60, (int) round($vh * 0.20));
         $stackH = $lw + $gap + $bs + 3 + $us;
 
         // ── Fade timing: top-right in the first half of each cycle, bottom-left in the second

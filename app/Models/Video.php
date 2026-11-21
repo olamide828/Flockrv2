@@ -41,6 +41,9 @@ class Video extends Model
         'media_type',
         'photos',
         'photo_sound',
+        'sound_id',
+        'allow_sound_reuse',
+        'enhance',
     ];
 
     protected $casts = [
@@ -52,6 +55,8 @@ class Video extends Model
         'text_overlays' => 'array',
         'photos' => 'array',
         'photo_sound' => 'array',
+        'allow_sound_reuse' => 'boolean',
+        'enhance' => 'boolean',
     ];
 
     protected $appends = [
@@ -80,6 +85,11 @@ class Video extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function sound(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sound::class);
     }
 
     public function getRouteKeyName(): string

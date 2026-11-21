@@ -11,6 +11,7 @@ import FollowButton from './FollowButton'
 import PostVideoPlayer from './PostVideoPlayer'
 import PostMediaCarousel from './PostMediaCarousel'
 import PostShareSheet from './PostShareSheet'
+import PostPoll from './PostPoll'
 import PostViewersSheet from './PostViewersSheet'
 import { timeAgo, fmtCount } from './Helpers'
 import VerifiedBadge from '@/Components/VerifiedBadge'
@@ -52,7 +53,7 @@ function PostMoreSheet({ onClose, canDelete, onDelete, notMine, onBlock, onRepor
 
 export default function PostCard({
   post, auth, onDelete, onLike, onBlockAuthor, onReport, showToast,
-  isFollowingAuthor, onFollowChange, onViewed, onOpenLightbox,
+  isFollowingAuthor, onFollowChange, onViewed, onOpenLightbox, onPollChange,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showShare, setShowShare] = useState(false)
@@ -180,6 +181,8 @@ export default function PostCard({
             )}
           </div>
         )}
+
+        {post.poll && <PostPoll poll={post.poll} auth={auth} showToast={showToast} compact onChange={(poll) => onPollChange?.(post.id, poll)} />}
 
         {media.length > 0 && (
           <div onClick={handleMediaTap}

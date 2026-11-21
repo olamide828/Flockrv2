@@ -59,6 +59,7 @@ Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRo
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
 });
+Route::get('/videos/{video}/photos/{index}/download', [\App\Http\Controllers\PhotoDownloadController::class, 'photo'])->whereNumber('index')->middleware('throttle:60,1');
 Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
 Route::get('/videos/download/status', [VideoDownloadController::class, 'status']);
 Route::delete('/videos/download/cleanup', [VideoDownloadController::class, 'cleanup']);
@@ -167,6 +168,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
     Route::post('/community/rooms/{room}/messages/{message}/like', [CommunityController::class, 'likeRoomMessage']);
 
+    Route::post('/community/polls/{poll}/vote', [CommunityController::class, 'votePoll'])->middleware('throttle:40,1');
     Route::post('/community/comments/{comment}/like', [CommunityController::class, 'likePostComment']);
 Route::post('/community/comments/{comment}/pin', [CommunityController::class, 'pinPostComment']);
  

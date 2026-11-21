@@ -13,6 +13,7 @@ import FollowButton from '@/Components/Community/FollowButton'
 import PostVideoPlayer from '@/Components/Community/PostVideoPlayer'
 import PostMediaCarousel from '@/Components/Community/PostMediaCarousel'
 import PostShareSheet from '@/Components/Community/PostShareSheet'
+import PostPoll from '@/Components/Community/PostPoll'
 import PostViewersSheet from '@/Components/Community/PostViewersSheet'
 import PostReportModal from '@/Components/Community/PostReportModal'
 import MediaLightbox from '@/Components/Community/MediaLightBox'
@@ -394,6 +395,8 @@ export default function CommunityPost({ post: initPost, comments: initComments }
             </div>
 
             {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}>{post.content}</p>}
+
+            {post.poll && <PostPoll poll={post.poll} auth={auth} showToast={showToast} onChange={(poll) => setPost(p => ({ ...p, poll }))} />}
 
             {media.length > 0 && (
               <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 14, background: '#000', height: 560 }}>

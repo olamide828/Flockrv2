@@ -112,15 +112,16 @@ export function etaLabel(order) {
 export function CourierCard({ order }) {
     const [copied, setCopied] = useState(false);
     const eta = etaLabel(order);
-    if (!order.courier_name && !order.tracking_number && !eta) return null;
-    const showNum = order.tracking_number && !['pending', 'paid'].includes(order.status);
-    const copy = async () => { try { await navigator.clipboard.writeText(order.tracking_number); } catch {} setCopied(true); setTimeout(() => setCopied(false), 1800); };
+    const ref = order.tracking_number || order.courier_ref;
+    if (!order.courier_name && !ref && !eta) return null;
+    const showNum = !!ref && !['pending', 'paid'].includes(order.status);
+    const copy = async () => { try { await navigator.clipboard.writeText(ref); } catch {} setCopied(true); setTimeout(() => setCopied(false), 1800); };
     return (
         <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(139,92,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiTruckLine size={20} color="#8B5CF6" /></div>
             <div style={{ flex: 1, minWidth: 0 }}>
                 {order.courier_name && <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700 }}>{order.courier_name}</p>}
-                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: showNum ? 'monospace' : 'inherit' }}>{showNum ? order.tracking_number : 'Tracking number appears once the courier picks up'}</p>
+                <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontFamily: showNum ? 'monospace' : 'inherit' }}>{showNum ? ref : (order.status === 'delivered' ? 'No courier reference was provided' : 'Courier reference appears once your order is booked')}</p>
             </div>
             {eta && (
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>

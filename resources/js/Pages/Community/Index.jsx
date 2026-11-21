@@ -266,6 +266,10 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
     setFollowingMap(prev => ({ ...prev, [userId]: following }))
   }
 
+  const handlePollChange = (postId, poll) => {
+    setPosts(p => p.map(q => q.id === postId ? { ...q, poll } : q))
+  }
+
   const handleViewed = (postId, viewsCount) => {
     setPosts(p => p.map(q => q.id === postId ? { ...q, views_count: viewsCount } : q))
   }
@@ -584,6 +588,7 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
                     isFollowingAuthor={followingMap[post.user_id] ?? !!post.is_following_author}
                     onFollowChange={handleFollowChange}
                     onViewed={handleViewed}
+                    onPollChange={handlePollChange}
                     onOpenLightbox={(mediaIndex) => openLightbox(post, mediaIndex)}
                   />
                 ))}

@@ -50,7 +50,7 @@ Artisan::command('terminal:register-webhook', function() {
         'url'    => url('/api/webhooks/terminal') . (config('flockr_shipping.webhook_token') ? '?token=' . config('flockr_shipping.webhook_token') : ''),
         'live'   => false,
         'name'   => 'Flockr Shipment Updates',
-        'events' => ['shipment.created','shipment.picked_up','shipment.in_transit','shipment.out_for_delivery','shipment.delivered','shipment.pickup_failed','shipment.delivery_failed','shipment.returned'],
+        'events' => ['shipment.created','shipment.dropped-off','shipment.in-transit','shipment.tracking_updated','shipment.updated','shipment.delivered','shipment.returned','shipment.cancelled'],   // names exactly as Terminal lists them
     ])->json();
     $this->info(json_encode($response, JSON_PRETTY_PRINT));
 })->purpose('Register Flockr webhook with Terminal Africa');
@@ -64,3 +64,25 @@ Schedule::command('videos:heal')->everyTenMinutes();
 
 // Keeps hashtag post-counts honest (the live counters can drift when videos/products are deleted)
 Schedule::command('hashtags:recount')->dailyAt('03:30');
+
+// One-off: courier steps saved before Round 19 were read one hour early (Terminal sends UTC). Re-reads each from its saved payload.
+Artisan::command('tracking:fix-times {--dry : only show what would change}', function () {
+    $svc = app(\App\Services\OrderTrackingService::class);
+    $fixed = 0;
+    \App\Models\OrderTrackingEvent::where('source', 'terminal')->orderBy('id')->chunkById(200, function ($rows) use ($svc, &$fixed) {
+        foreach ($rows as $e) {
+            $payload = is_array($e->payload) ? $e->payload : (json_decode((string) $e->payload, true) ?: []);
+            if (!$payload) continue;
+            $new = $svc->terminalTime($payload);
+            if ($new->equalTo($e->occurred_at)) continue;
+            $this->line("#{$e->id} {$e->event}: {$e->occurred_at} -> {$new}");
+            if (!$this->option('dry')) {
+                $e->occurred_at = $new;
+                $e->event = str_replace('-', '_', $e->event);
+                $e->save();
+            }
+            $fixed++;
+        }
+    });
+    $this->info(($this->option('dry') ? 'Would fix ' : 'Fixed ') . $fixed . ' event(s).');
+})->purpose('Correct the time of courier tracking events saved before the UTC fix');

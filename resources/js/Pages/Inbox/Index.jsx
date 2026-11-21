@@ -7,8 +7,12 @@ import {
   RiSendPlaneFill, RiArrowLeftLine, RiChat1Line,
   RiCheckDoubleLine, RiCheckLine, RiSearchLine,
   RiCloseLine, RiMoreLine, RiAlertLine, RiProhibitedLine, RiBellLine,
-  RiVipDiamondLine, RiInboxUnarchiveLine, RiAttachment2, RiVerifiedBadgeFill,
+  RiVipDiamondLine, RiInboxUnarchiveLine, RiVerifiedBadgeFill,
 } from 'react-icons/ri'
+import GlassHeader, { GlassIconBtn } from '@/Components/Chat/GlassHeader'
+import GlassComposer, { GlassNotice } from '@/Components/Chat/GlassComposer'
+import RetryWrap from '@/Components/Chat/RetryWrap'
+import { mergeIncoming, settleOptimistic, markFailed, markSending, isNetworkFailure, useElementHeight, usePolling } from '@/Components/Chat/useChatMessages'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
 import MentionAutocomplete from '@/Components/Chat/MentionAutocomplete'
@@ -328,6 +332,7 @@ const [deleteTarget, setDeleteTarget] = useState(null)
 const canUsePro = auth?.user?.role === 'seller' && auth?.user?.is_subscriber
 
 // ── Off-platform payment safety ────────────────────────────────────────────
+const [limitHit, setLimitHit] = useState({}) // { [conversationId]: true } once the server says the message-request limit is reached
 const [showWarningSheet, setShowWarningSheet]   = useState(false)
 const [warningKeyword, setWarningKeyword]       = useState(null)
 const [sellerInfoCache, setSellerInfoCache]     = useState({})
@@ -467,24 +472,7 @@ useEffect(() => {
             })
 
             if (active?.id === conv.id) {
-                setMessages(prev => {
-    const existingIdx = prev.findIndex(m => m.id === e.message.id)
-    if (existingIdx !== -1) {
-        const copy = [...prev]
-        copy[existingIdx] = e.message
-        return copy
-    }
-    const optimisticIndex = prev.findIndex(
-        m => String(m.id).startsWith('opt-') && m.body === e.message.body && m.sender_id === e.message.sender_id
-    )
-    if (optimisticIndex !== -1) {
-        const copy = [...prev]
-        copy[optimisticIndex] = e.message
-        return copy
-    }
-    const dupe = prev.some(m => !String(m.id).startsWith('opt-') && m.body === e.message.body && m.sender_id === e.message.sender_id && Math.abs(new Date(m.created_at) - new Date(e.message.created_at)) < 3000)
-    return dupe ? prev : [...prev, e.message]
-})
+                setMessages(prev => mergeIncoming(prev, e.message))
                 axios.post(`/api/conversations/${conv.id}/mark-read`).catch(() => {})
             }
         })
@@ -646,73 +634,85 @@ useEffect(() => {
     return () => clearTimeout(t)
   }, [userSearch])
 
+  // Sends (or re-sends) one optimistic message. On no-internet / timeout / server error the bubble stays with a red Retry.
+  const deliver = async (opt, conv) => {
+    const p = opt._payload
+    const url = `/api/conversations/${conv.id}/messages`
+    try {
+      let data
+      if (p.file) {
+        const fd = new FormData()
+        fd.append('media', p.file)
+        if (p.body) fd.append('body', p.body)
+        if (p.reply_to_id) fd.append('reply_to_id', p.reply_to_id)
+        fd.append('client_id', opt.id)
+        ;({ data } = await axios.post(url, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }))
+      } else {
+        ;({ data } = await axios.post(url, { body: p.body, reply_to_id: p.reply_to_id ?? null, client_id: opt.id }, { timeout: 20000 }))
+      }
+      setMessages(prev => settleOptimistic(prev, opt.id, data))
+      setConversations(prev => {
+        const updated = prev.map(c => c.id === conv.id ? { ...c, last_message: data, unread_count: 0 } : c)
+        const found = updated.find(c => c.id === conv.id)
+        return found ? [found, ...updated.filter(c => c.id !== conv.id)] : updated
+      })
+      if (conv.is_support && !p.file) {
+        const countAtSend = messages.length + 1
+        setTimeout(() => {
+          axios.get(`/api/conversations/${conv.id}/messages`)
+            .then(({ data: all }) => setMessages(curr => (curr.length <= countAtSend ? (Array.isArray(all) ? all : (all.data ?? curr)) : curr)))
+            .catch(() => {})
+        }, 6000)
+      }
+    } catch (err) {
+      if (err.response?.status === 403 && err.response.data?.request_limit_reached) {
+        // Out of message-request messages: drop the bubble, hide the input (see the composer area below)
+        setMessages(prev => prev.filter(m => m.id !== opt.id))
+        setLimitHit(prev => ({ ...prev, [conv.id]: true }))
+      } else if (isNetworkFailure(err)) {
+        setMessages(prev => markFailed(prev, opt.id))
+      } else {
+        setMessages(prev => prev.filter(m => m.id !== opt.id))
+        showToast(err.response?.data?.message ?? 'Could not send that message.', 'error')
+      }
+    }
+  }
+
+  const retrySend = (msg) => {
+    if (!active || !msg?._payload) return
+    setMessages(prev => markSending(prev, msg.id))
+    deliver(msg, active)
+  }
+
   const sendMessage = async (e) => {
-    e.preventDefault()
-    if (!body.trim() || !active || sending) return
+    e?.preventDefault?.()
+    if (!body.trim() || !active) return
     const other = otherUser(active)
     if (other && (blockedByMe[other.id] || blockedByOther[other.id])) return
-    setSending(true)
-    const optimistic = { id: `opt-${Date.now()}`, sender_id: auth.user.id, body: body.trim(), created_at: new Date().toISOString(), _optimistic: true, sender: auth.user }
+    const text = body.trim()
+    const optimistic = { id: `opt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, sender_id: auth.user.id, body: text, created_at: new Date().toISOString(), _optimistic: true, sender: auth.user, _payload: { body: text, reply_to_id: replyingTo?.id ?? null } }
     setMessages(prev => [...prev, optimistic])
     setBody('')
+    setReplyingTo(null)
     if (inputRef.current) inputRef.current.style.height = 'auto'
-    try {
-      const { data } = await axios.post(`/api/conversations/${active.id}/messages`, {
-    body: optimistic.body,
-    reply_to_id: replyingTo?.id ?? null,
-})
-      setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
-      setConversations(prev => {
-        const updated = prev.map(c => c.id === active.id ? { ...c, last_message: data, unread_count: 0 } : c)
-        const found = updated.find(c => c.id === active.id)
-        return [found, ...updated.filter(c => c.id !== active.id)]
-      })
-      setReplyingTo(null)
-      if (active?.is_support) {
-    const countAtSend = messages.length + 1
-    setTimeout(() => {
-        setMessages(curr => {
-            if (curr.length <= countAtSend) {
-                axios.get(`/api/conversations/${active.id}/messages`)
-                    .then(({ data }) => setMessages(Array.isArray(data) ? data : (data.data ?? [])))
-                    .catch(() => {})
-            }
-            return curr
-        })
-    }, 6000)
-}
-    } catch (err) {
-    setMessages(prev => prev.filter(m => m.id !== optimistic.id))
-    if (err.response?.status === 403 && err.response.data?.request_limit_reached) {
-        showToast?.(err.response.data.message, 'error')
-    }
-    } finally { setSending(false) }
+    deliver(optimistic, active)
   }
 
   const selectMedia = (file) => {
     setPendingMedia({ file, previewUrl: URL.createObjectURL(file) })
     setPendingCaption('')
-}
+  }
 
- const confirmSendMedia = async () => {
-    if (!pendingMedia || !active) return
+  const confirmSendMedia = async () => {
+    if (!pendingMedia || !active || sendingMedia) return
     setSendingMedia(true)
-    const optimistic = { id: `opt-${Date.now()}`, sender_id: auth.user.id, body: pendingCaption.trim() || null, media_url: pendingMedia.previewUrl, media_type: pendingMedia.file.type.startsWith('video') ? 'video' : 'image', created_at: new Date().toISOString(), _optimistic: true, sender: auth.user }
+    const caption = pendingCaption.trim() || null
+    const optimistic = { id: `opt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, sender_id: auth.user.id, body: caption, media_url: pendingMedia.previewUrl, media_type: pendingMedia.file.type.startsWith('video') ? 'video' : 'image', created_at: new Date().toISOString(), _optimistic: true, sender: auth.user, _payload: { file: pendingMedia.file, body: caption, reply_to_id: replyingTo?.id ?? null } }
     setMessages(prev => [...prev, optimistic])
-    const fd = new FormData()
-    fd.append('media', pendingMedia.file)
-    if (pendingCaption.trim()) fd.append('body', pendingCaption.trim())
-    if (replyingTo) fd.append('reply_to_id', replyingTo.id)
-    try {
-        const { data } = await axios.post(`/api/conversations/${active.id}/messages`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m))
-        setPendingMedia(null); setPendingCaption(''); setReplyingTo(null)
-    } catch (err) {
-        setMessages(prev => prev.filter(m => m.id !== optimistic.id))
-        if (err.response?.status === 403 && err.response.data?.request_limit_reached) showToast(err.response.data.message, 'error')
-    } finally { setSendingMedia(false) }
-}
-
+    setPendingMedia(null); setPendingCaption(''); setReplyingTo(null)
+    setSendingMedia(false)
+    deliver(optimistic, active)
+  }
 
 const detectMention = (text, cursorPos) => {
     const other = otherUser(active)
@@ -898,6 +898,31 @@ const dismissRequestSheet = () => {
     : messages
 
   const isMine     = (msg) => msg.sender_id === auth?.user?.id
+
+  // ── glass layout: how tall the floating header / composer are (messages scroll underneath) ──
+  const [headerRef, headerH] = useElementHeight()
+  const [composerRef, composerH] = useElementHeight()
+
+  const theyFollowMe = (u) => !!(u?.follows_me ?? u?.follows_you ?? u?.they_follow_me)
+  // Someone you haven't accepted shouldn't see when you were last online. Shown once they follow you or you've both spoken.
+  const statusVisible = (conv, other) => {
+    if (!other) return false
+    if (other.is_flockr_support || other.role === 'admin' || theyFollowMe(other)) return true
+    if (conv?.last_message?.sender_id === other.id) return true
+    return active?.id === conv?.id && messages.some(m => m.sender_id === other.id)
+  }
+  const activeOther = active ? otherUser(active) : null
+  const activeLimited = !!(active && limitHit[active.id]) && !theyFollowMe(activeOther) && !messages.some(m => m.sender_id === activeOther?.id)
+  // While limited, check now and then whether they followed back so the input can come back on its own
+  usePolling(activeLimited, () => {
+    axios.get('/api/conversations').then(({ data }) => {
+      const list = Array.isArray(data) ? data : (data?.data ?? [])
+      const fresh = list.find(c => c.id === active?.id)
+      if (!fresh) return
+      setActive(prev => (prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev))
+      setConversations(prev => prev.map(c => c.id === fresh.id ? { ...c, ...fresh } : c))
+    }).catch(() => {})
+  })
   const showAvatar = (msgs, i) => !isMine(msgs[i]) && msgs[i + 1]?.sender_id !== msgs[i].sender_id
   const isFirst    = (msgs, i) => i === 0 || msgs[i - 1]?.sender_id !== msgs[i].sender_id
   const isLast     = (msgs, i) => i === msgs.length - 1 || msgs[i + 1]?.sender_id !== msgs[i].sender_id
@@ -1078,7 +1103,7 @@ const dismissRequestSheet = () => {
                 <button key={conv.id} onClick={() => setActive(conv)} className={`conv-item ${isAct ? 'conv-item-active' : ''}`}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left' }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <Avatar user={other} size={48} showStatus={!blocked} isBlocked={blocked} />
+                    <Avatar user={other} size={48} showStatus={!blocked && statusVisible(conv, other)} isBlocked={blocked} />
                     {unread > 0 && (
                       <span style={{ position: 'absolute', bottom: 0, right: -2, minWidth: 18, height: 18, borderRadius: 999, background: '#ff5c00', border: '2px solid #0d0d0d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', padding: '0 4px' }}>
                         {unread > 99 ? '99+' : unread}
@@ -1125,7 +1150,7 @@ const dismissRequestSheet = () => {
         </div>
 
         {/* ══ CHAT PANEL ══ */}
-        <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', display: active ? 'flex' : 'none' }} className="chat-panel">
+        <div style={{ flex: 1, flexDirection: 'column', minWidth: 0, background: '#0a0a0a', position: 'relative', display: active ? 'flex' : 'none' }} className="chat-panel">
           
          {(() => { const bg = active ? resolveActiveBackground() : { theme: 'off', wallpaperUrl: null }; return <ChatBackgroundAnimation theme={bg.theme} wallpaperUrl={bg.wallpaperUrl} /> })()}
 
@@ -1142,75 +1167,13 @@ const dismissRequestSheet = () => {
             const blocked    = iBlocked || theyBlocked
             const displayName = blocked ? 'Unknown User' : (other?.name ?? '')
 
+            const showStatus = statusVisible(active, other)
+            const limited = activeLimited && !iBlocked && !theyBlocked
+
             return (
-              <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,13,13,0.97)', backdropFilter: 'blur(12px)', flexShrink: 0, position: 'relative', zIndex: 5 }}>
-                  <button onClick={() => setActive(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex', padding: 6, borderRadius: 8 }}>
-                    <RiArrowLeftLine size={20} />
-                  </button>
-                  <button onClick={() => !blocked && router.visit(`/@${other?.username}`)} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: blocked ? 'default' : 'pointer', flex: 1, minWidth: 0, textAlign: 'left' }}>
-                    <Avatar user={other} size={38} showStatus={!blocked} isBlocked={blocked} />
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ color: blocked ? 'rgba(255,255,255,0.4)' : '#fff', fontSize: 14, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, fontStyle: blocked ? 'italic' : 'normal' }}>
-  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
-  {!blocked && other?.is_verified && <RiVerifiedBadgeFill size={13} color="#FF6B35" style={{ flexShrink: 0 }} />}
-</p>
-                      {!blocked && (
-                        <p style={{ color: other?.is_online ? '#10B981' : 'rgba(255,255,255,0.35)', fontSize: 11, margin: 0, fontWeight: other?.is_online ? 600 : 400 }}>
-                          {lastSeenText(other?.last_seen_at, other?.is_online)}
-                        </p>
-                      )}
-                      {theyBlocked && !iBlocked && (
-                        <p style={{ color: 'rgba(239,68,68,0.7)', fontSize: 11, margin: 0 }}>You can't message this user</p>
-                      )}
-                      {iBlocked && (
-                        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, margin: 0 }}>You blocked this user</p>
-                      )}
-                    </div>
-                  </button>
-
-                  <button onClick={() => setMsgSearchOpen(o => !o)} style={{ width: 36, height: 36, borderRadius: '50%', background: msgSearchOpen ? 'rgba(255,92,0,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${msgSearchOpen ? 'rgba(255,92,0,0.3)' : 'rgba(255,255,255,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                    <RiSearchLine size={16} color={msgSearchOpen ? '#ff5c00' : 'rgba(255,255,255,0.5)'} />
-                  </button>
-                  <div style={{ position: 'relative' }}>
-                    <button onClick={() => setShowMenu(m => !m)} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                      <RiMoreLine size={18} color="rgba(255,255,255,0.5)" />
-                    </button>
-                    {showMenu && (
-                      <ChatMenu
-                        isBlocked={iBlocked}
-                        onBlock={handleBlock}
-                        onAnimation={() => { setShowMenu(false); setShowThemePicker(true) }}
-                        onReport={() => { setShowMenu(false); setReportTarget(active); }}
-                        onClose={() => setShowMenu(false)}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {bannerConversations[active.id] && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.15)', flexShrink: 0 }}>
-                    <RiAlertLine size={15} color="#EF4444" style={{ flexShrink: 0 }} />
-                    <p style={{ margin: 0, color: '#EF4444', fontSize: 12, fontWeight: 600 }}>This seller asked to be paid outside Flockr. Be extra careful.</p>
-                  </div>
-                )}
-
-                {msgSearchOpen && (
-                  <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', flexShrink: 0, position: 'relative', zIndex: 1 }}>
-                    <div style={{ position: 'relative' }}>
-                      <RiSearchLine size={14} color="rgba(255,255,255,0.3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                      <input autoFocus value={msgSearch} onChange={e => setMsgSearch(e.target.value)} placeholder="Search in conversation..." className="search-inp" />
-                      {msgSearch && (
-                        <>
-                          <span style={{ position: 'absolute', right: 36, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{filteredMsgs.length} result{filteredMsgs.length !== 1 ? 's' : ''}</span>
-                          <button onClick={() => setMsgSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', display: 'flex' }}><RiCloseLine size={14} /></button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 2, position: 'relative', zIndex: 1 }}>
+              <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+                {/* Messages scroll under the floating glass header and composer */}
+                <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: `${headerH + 12}px 16px ${composerH + 12}px`, scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {loadingMsgs && <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#ff5c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}
 {!loadingMsgs && filteredMsgs.length === 0 && (
   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
@@ -1243,11 +1206,13 @@ const dismissRequestSheet = () => {
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
                 </div>
             )}
-            <ChatMessageBubble
-    msg={msg} mine={mine} showName={false}
-    showAv={showAvatar(filteredMsgs, i)} avatarUser={other} fmtTime={fmtTime}
-    onOpenLightbox={openLightbox} onPressAction={handlePressAction}
-/>
+            <RetryWrap failed={msg._failed} mine={mine} onRetry={() => retrySend(msg)}>
+              <ChatMessageBubble
+                msg={msg} mine={mine} showName={false}
+                showAv={showAvatar(filteredMsgs, i)} avatarUser={other} fmtTime={fmtTime}
+                onOpenLightbox={openLightbox} onPressAction={handlePressAction}
+              />
+            </RetryWrap>
 
         </div>
     )
@@ -1268,85 +1233,90 @@ const dismissRequestSheet = () => {
                   <div ref={bottomRef} />
                 </div>
 
-                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#0d0d0d', position: 'relative', zIndex: 1 }}>
-                  
-                {mentionQuery !== null && (
-        <MentionAutocomplete
-            initialQuery={mentionQuery}
-            onSelect={selectMention}
-            onClose={() => { setMentionStart(null); setMentionQuery(null) }}
-        />
-    )}
-                  
+                <GlassHeader
+                  headerRef={headerRef}
+                  onBack={() => setActive(null)}
+                  onTitleClick={blocked ? undefined : () => router.visit(`/@${other?.username}`)}
+                  avatar={<Avatar user={other} size={34} showStatus={!blocked && showStatus} isBlocked={blocked} />}
+                  title={<><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: blocked ? 'italic' : 'normal', color: blocked ? 'rgba(255,255,255,0.5)' : '#fff' }}>{displayName}</span>{!blocked && other?.is_verified && <RiVerifiedBadgeFill size={13} color="#FF6B35" style={{ flexShrink: 0 }} />}</>}
+                  subtitle={blocked ? (iBlocked ? 'You blocked this user' : "You can't message this user") : (showStatus ? lastSeenText(other?.last_seen_at, other?.is_online) : null)}
+                  subtitleColor={!blocked && showStatus && other?.is_online ? '#34d399' : undefined}
+                  actions={<>
+                    <GlassIconBtn label="Search in chat" active={msgSearchOpen} onClick={() => setMsgSearchOpen(o => !o)}><RiSearchLine size={18} /></GlassIconBtn>
+                    <div style={{ position: 'relative' }}>
+                      <GlassIconBtn label="More" onClick={() => setShowMenu(m => !m)}><RiMoreLine size={20} /></GlassIconBtn>
+                      {showMenu && (
+                        <ChatMenu
+                          isBlocked={iBlocked}
+                          onBlock={handleBlock}
+                          onAnimation={() => { setShowMenu(false); setShowThemePicker(true) }}
+                          onReport={() => { setShowMenu(false); setReportTarget(active) }}
+                          onClose={() => setShowMenu(false)}
+                        />
+                      )}
+                    </div>
+                  </>}
+                  below={<>
+                    {bannerConversations[active.id] && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 16, background: 'rgba(60,20,20,0.55)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                        <RiAlertLine size={15} color="#EF4444" style={{ flexShrink: 0 }} />
+                        <p style={{ margin: 0, color: '#fca5a5', fontSize: 12, fontWeight: 600 }}>This seller asked to be paid outside Flockr. Be extra careful.</p>
+                      </div>
+                    )}
+                    {msgSearchOpen && (
+                      <div style={{ position: 'relative' }}>
+                        <RiSearchLine size={14} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 1 }} />
+                        <input autoFocus value={msgSearch} onChange={e => setMsgSearch(e.target.value)} placeholder="Search in conversation..." className="search-inp" style={{ background: 'rgba(30,30,32,0.5)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderRadius: 999 }} />
+                        {msgSearch && (
+                          <>
+                            <span style={{ position: 'absolute', right: 36, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{filteredMsgs.length} result{filteredMsgs.length !== 1 ? 's' : ''}</span>
+                            <button onClick={() => setMsgSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex' }}><RiCloseLine size={14} /></button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>}
+                />
+
+                <GlassComposer
+                  composerRef={composerRef}
+                  value={body}
+                  onChange={setBody}
+                  onSubmit={sendMessage}
+                  onPickMedia={selectMedia}
+                  inputRef={inputRef}
+                  mediaInputRef={mediaInputRef}
+                  sending={sending}
+                  placeholder="Message"
+                  onInputExtra={(e) => { broadcastTyping(); detectMention(e.target.value, e.target.selectionStart) }}
+                  top={<>
+                    {mentionQuery !== null && !iBlocked && !theyBlocked && (
+                      <MentionAutocomplete initialQuery={mentionQuery} onSelect={selectMention} onClose={() => { setMentionStart(null); setMentionQuery(null) }} />
+                    )}
+                    {pendingMedia && !iBlocked && !theyBlocked && (
+                      <MediaComposerPreview file={pendingMedia.file} previewUrl={pendingMedia.previewUrl} caption={pendingCaption} onCaptionChange={setPendingCaption} onSend={confirmSendMedia} onCancel={() => setPendingMedia(null)} sending={sendingMedia} />
+                    )}
+                    {replyingTo && !iBlocked && !theyBlocked && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 16, background: 'rgba(30,30,32,0.5)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        <div style={{ flex: 1, borderLeft: '2px solid #FF6B35', paddingLeft: 8, overflow: 'hidden' }}>
+                          <p style={{ margin: 0, color: '#FF6B35', fontSize: 11, fontWeight: 700 }}>Replying to</p>
+                          <p style={{ margin: 0, color: 'rgba(255,255,255,0.7)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{replyingTo.body || 'Media'}</p>
+                        </div>
+                        <button onClick={() => setReplyingTo(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
+                      </div>
+                    )}
+                  </>}
+                >
                   {iBlocked ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0' }}>
-                      <RiProhibitedLine size={16} color="rgba(255,255,255,0.3)" />
-                      <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>
-                        You blocked this user.{' '}
-                        <button onClick={handleBlock} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: 0 }}>Unblock</button>
-                      </span>
-                    </div>
+                    <GlassNotice><RiProhibitedLine size={15} style={{ verticalAlign: -3, marginRight: 6 }} />You blocked this user.{' '}
+                      <button onClick={handleBlock} style={{ background: 'none', border: 'none', color: '#34d399', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: 0 }}>Unblock</button></GlassNotice>
                   ) : theyBlocked ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0' }}>
-                      <RiProhibitedLine size={16} color="rgba(239,68,68,0.5)" />
-                      <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>You can't reply to this conversation.</span>
-                    </div>
-                  ) : (
-                    <>
-
-{pendingMedia && (
-    <MediaComposerPreview
-        file={pendingMedia.file} previewUrl={pendingMedia.previewUrl} caption={pendingCaption}
-        onCaptionChange={setPendingCaption} onSend={confirmSendMedia}
-        onCancel={() => setPendingMedia(null)} sending={sendingMedia}
-    />
-)}
-
-                    {replyingTo && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: 'rgba(255,255,255,0.03)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ flex: 1, borderLeft: '2px solid #FF6B35', paddingLeft: 8, overflow: 'hidden' }}>
-            <p style={{ margin: 0, color: '#FF6B35', fontSize: 11, fontWeight: 700 }}>Replying to</p>
-            <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{replyingTo.body || 'Media'}</p>
-        </div>
-        <button onClick={() => setReplyingTo(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}><RiCloseLine size={16} /></button>
-    </div>
-)}
-
-                    <form onSubmit={sendMessage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '6px 14px', gap: 8, maxHeight: 132, overflow: 'hidden' }}>
-    <textarea
-        ref={inputRef}
-        value={body}
-        onChange={e => { setBody(e.target.value); broadcastTyping(); detectMention(e.target.value, e.target.selectionStart) }}
-        placeholder="Message..."
-        maxLength={8000}
-        rows={1}
-        style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '6px 0', resize: 'none', fontFamily: 'inherit', lineHeight: 1.4, maxHeight: 108, overflowY: 'auto' }}
-        onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }}
-    />
-</div>
-<button
-    type="button"
-    onClick={() => mediaInputRef.current?.click()}
-    style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
->
-    <RiAttachment2 size={18} />
-</button>
-<input
-    ref={mediaInputRef}
-    type="file"
-    accept="image/*,video/*"
-    onChange={e => e.target.files?.[0] && selectMedia(e.target.files[0])}
-    style={{ display: 'none' }}
-/>
-                      <button type="submit" disabled={!body.trim() || sending} style={{ width: 42, height: 42, borderRadius: '50%', background: body.trim() ? '#ff5c00' : 'rgba(255,255,255,0.08)', border: 'none', cursor: body.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
-                        <RiSendPlaneFill size={17} color={body.trim() ? '#fff' : 'rgba(255,255,255,0.25)'} />
-                      </button>
-                    </form>
-                    </>
-                  )}
-                </div>
-              </>
+                    <GlassNotice tone="bad">You can't reply to this conversation.</GlassNotice>
+                  ) : limited ? (
+                    <GlassNotice>You've sent the most messages allowed to someone who doesn't follow you yet. When <b style={{ color: '#fff' }}>{other?.name ?? 'they'}</b> follows you back, you can keep chatting.</GlassNotice>
+                  ) : null}
+                </GlassComposer>
+              </div>
             )
           })()}
         </div>

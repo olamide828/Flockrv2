@@ -21,7 +21,8 @@ use Inertia\Response;
 
 class CommunityController extends Controller
 {
-    public function __construct(private CommunityFeedService $feedService)
+    public function __construct(private CommunityFeedService $feedService,
+        private \App\Services\PollService $polls)
     {
     }
 
@@ -80,6 +81,7 @@ class CommunityController extends Controller
             if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
             return $arr;
         });
+        $data = $this->polls->decorate($data, $userId);
 
         return response()->json([
             'data'         => $data,
@@ -130,6 +132,7 @@ class CommunityController extends Controller
             if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
             return $arr;
         });
+        $data = $this->polls->decorate($data, $viewerId);
 
         return response()->json([
             'data'         => $data,
@@ -163,6 +166,7 @@ class CommunityController extends Controller
                 'is_liked_by_me'      => $liked,
                 'is_following_author' => $following,
                 'comments_count'      => $this->countComments($post),
+                'poll'                => $this->polls->payloadFor($post->id, $userId, $post->user_id),
                 'user'                => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
@@ -187,6 +191,7 @@ class CommunityController extends Controller
                 'is_liked_by_me'      => $liked,
                 'is_following_author' => $following,
                 'comments_count'      => $this->countComments($post),
+                'poll'                => $this->polls->payloadFor($post->id, $userId, $post->user_id),
                 'user'                => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
             ]),
             'comments' => $comments,
@@ -269,7 +274,7 @@ class CommunityController extends Controller
             return $arr;
         });
 
-        return response()->json($data);
+        return response()->json($this->polls->decorate($data, $userId));
     }
 
     // ── Post Comments ─────────────────────────────────────────────────────────
@@ -365,7 +370,17 @@ class CommunityController extends Controller
             'media'             => 'nullable|array|max:10',
             'media.*.url'       => 'required_with:media|string|max:1000',
             'media.*.type'      => 'required_with:media|in:image,video',
+            'poll'                  => 'nullable|array',
+            'poll.options'          => 'required_with:poll|array|min:2|max:6',
+            'poll.options.*'        => 'required|string|max:80',
+            'poll.duration_hours'   => 'nullable|integer|in:1,6,24,72,168',
+            'poll.allow_multiple'   => 'nullable|boolean',
         ]);
+
+        // A poll's question is the post text
+        if (!empty($validated['poll']) && trim((string) ($validated['content'] ?? '')) === '') {
+            return response()->json(['message' => 'Write your question first: the post text is the poll question.'], 422);
+        }
 
         $mediaItems = $validated['media'] ?? (
             !empty($validated['media_url'])
@@ -394,11 +409,17 @@ class CommunityController extends Controller
             ]);
         }
 
+        if (!empty($validated['poll'])) {
+            try { $this->polls->create($post, $validated['poll']); }
+            catch (\Throwable $e) { $post->delete(); throw $e; }   // no half-made poll posts
+        }
+
         $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         return response()->json(array_merge($post->toArray(), [
             'is_liked_by_me' => false,
             'comments_count' => 0,
+            'poll'           => $this->polls->payloadFor($post->id, Auth::id(), Auth::id()),
             'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
         ]), 201);
     }
@@ -424,6 +445,17 @@ class CommunityController extends Controller
             'liked'       => !$liked,
             'likes_count' => max(0, $post->fresh()->likes_count),
         ]);
+    }
+
+    /** POST /api/community/polls/{poll}/vote  { option_ids: [..] } */
+    public function votePoll(Request $request, int $poll): JsonResponse
+    {
+        $data = $request->validate(['option_ids' => 'required|array|min:1|max:6', 'option_ids.*' => 'integer']);
+        $this->polls->vote($poll, Auth::id(), $data['option_ids']);
+
+        $postId = (int) DB::table('post_polls')->where('id', $poll)->value('post_id');
+        $ownerId = (int) Post::where('id', $postId)->value('user_id');
+        return response()->json(['poll' => $this->polls->payloadFor($postId, Auth::id(), $ownerId)]);
     }
 
     public function dismissPost(Post $post): JsonResponse

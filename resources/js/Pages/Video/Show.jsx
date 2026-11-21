@@ -55,6 +55,7 @@ import TextOverlays from '@/Components/Video/TextOverlays';
 import Avatar from '@/Components/Media/Avatar';
 import SoundMarquee from '@/Components/Video/SoundMarquee';
 import { ENHANCE_CSS } from '@/lib/media';
+import PhotoDownloadSheet from '@/Components/Video/PhotoDownloadSheet';
 const soundHref = (v) => (v.sound_credit ? (v.sound_credit.path || `/sound/${v.sound_credit.id}`) : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +132,7 @@ function MoreSheet({ onClose, onReport, videoRef, videoUlid }) {
 // useVideoDownload — server-side watermark download hook
 // ─────────────────────────────────────────────────────────────────────────────
 function useVideoDownload(video) {
+    const [showPhotoDl, setShowPhotoDl] = useState(false);
     const [dlState, setDlState] = useState('idle'); // idle | preparing | processing | done | error
     const [dlProgress, setDlProgress] = useState(null); // 0-99 while the server prepares the file
     const pollTimer = useRef(null);
@@ -161,6 +163,8 @@ function useVideoDownload(video) {
     }, [video.user?.username, video.ulid]);
 
     const download = useCallback(async () => {
+        // photo posts: pick which photos to save (the server stamps each with the watermark)
+        if (video.media_type === 'photos') { setShowPhotoDl(true); return; }
         if (dlState !== 'idle' && dlState !== 'error') return;
         setDlState('preparing');
         setDlProgress(null);
@@ -211,7 +215,7 @@ function useVideoDownload(video) {
         }
     }, [dlState, video.ulid, triggerBrowserDownload]);
 
-    return { download, dlState, dlProgress };
+    return { download, dlState, dlProgress, showPhotoDl, setShowPhotoDl };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -419,7 +423,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
 
     const { bursts: likeBursts, trigger: triggerLikeAnim } = useLikeAnimation()
 
-    const { download, dlState, dlProgress } = useVideoDownload(video);
+    const { download, dlState, dlProgress, showPhotoDl, setShowPhotoDl } = useVideoDownload(video);
 
 
     const isOwner     = auth?.user?.id === video.user_id;
@@ -428,6 +432,22 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     const videoUrl    = typeof window !== 'undefined' ? `${window.location.origin}/@${video.user?.username ?? 'flockr'}/video/${video.ulid}` : '';
     
     useHlsVideo(videoRef, isActive ? videoSrc : null);
+
+      // Photo posts have no <video>, so the normal view timer never ran: count a view after 5s on screen (or when you scroll away after 3s+)
+    useEffect(() => {
+      if (!isPhotos || !isActive) return undefined
+      const t0 = Date.now()
+      let sent = false
+      const send = () => {
+        if (sent) return
+        const secs = Math.round((Date.now() - t0) / 1000)
+        if (secs < 3) return
+        sent = true
+        axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+      }
+      const timer = setTimeout(send, 5000)
+      return () => { clearTimeout(timer); send() }
+    }, [isPhotos, isActive, video.ulid])
 
     useEffect(() => {
         const el = videoRef.current
@@ -575,6 +595,7 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', background: '#000', overflow: 'hidden' }}>
 
+            {showPhotoDl && <PhotoDownloadSheet video={video} onClose={() => setShowPhotoDl(false)} />}
             {mobileSheet === 'share' && (
                 <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setMobileSheet(null)} onDownload={download} dlState={dlState} dlProgress={dlProgress} />
             )}

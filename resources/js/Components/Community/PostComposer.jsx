@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { RiCloseLine, RiImage2Line } from 'react-icons/ri'
+import { RiCloseLine, RiImage2Line, RiBarChartHorizontalLine, RiAddLine } from 'react-icons/ri'
 import Av from './Av'
 
 const MAX_ITEMS = 10
@@ -11,6 +11,10 @@ export default function PostComposer({ auth, onClose, onPosted, showToast }) {
   const [items, setItems] = useState([]) // [{ preview, type, file }]
   const [posting, setPosting] = useState(false)
   const [uploadStatus, setUploadStatus] = useState(null) // "Uploading 2/4..." while posting
+  const [pollOn, setPollOn] = useState(false)
+  const [pollOptions, setPollOptions] = useState(['', ''])
+  const [pollHours, setPollHours] = useState(24)
+  const [pollMultiple, setPollMultiple] = useState(false)
   const textRef = useRef(null)
   const fileRef = useRef(null)
 
@@ -51,8 +55,11 @@ export default function PostComposer({ auth, onClose, onPosted, showToast }) {
     })
   }
 
+  const cleanOptions = pollOptions.map(o => o.trim()).filter(Boolean)
+  const pollValid = !pollOn || (content.trim().length > 0 && cleanOptions.length >= 2 && new Set(cleanOptions.map(o => o.toLowerCase())).size === cleanOptions.length)
+
   const submit = async () => {
-    if ((!content.trim() && items.length === 0) || posting) return
+    if ((!content.trim() && items.length === 0) || posting || !pollValid) return
     setPosting(true)
 
     try {
@@ -78,6 +85,7 @@ export default function PostComposer({ auth, onClose, onPosted, showToast }) {
       const { data } = await axios.post('/api/community/posts', {
         content: content.trim() || null,
         media: uploaded.length ? uploaded : undefined,
+        poll: pollOn ? { options: cleanOptions, duration_hours: pollHours, allow_multiple: pollMultiple } : undefined,
       })
 
       onPosted(data)
@@ -91,7 +99,7 @@ export default function PostComposer({ auth, onClose, onPosted, showToast }) {
     }
   }
 
-  const canPost = !posting && (content.trim().length > 0 || items.length > 0)
+  const canPost = !posting && pollValid && (content.trim().length > 0 || items.length > 0)
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:900, background:'#0a0a0a', display:'flex', flexDirection:'column' }}>
@@ -140,12 +148,47 @@ export default function PostComposer({ auth, onClose, onPosted, showToast }) {
             ))}
           </div>
         )}
+
+        {pollOn && (
+          <div style={{ marginTop:16, padding:14, borderRadius:16, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.03)' }}>
+            <p style={{ margin:'0 0 10px', color:'rgba(255,255,255,0.5)', fontSize:12 }}>Your text above is the question. Add 2 to 6 options.</p>
+            {pollOptions.map((o, i) => (
+              <div key={i} style={{ display:'flex', gap:8, marginBottom:8 }}>
+                <input value={o} maxLength={80} placeholder={`Option ${i + 1}`} onChange={e => setPollOptions(prev => prev.map((x, j) => j === i ? e.target.value : x))}
+                  style={{ flex:1, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:12, padding:'10px 12px', color:'#fff', fontSize:16, outline:'none' }} />
+                {pollOptions.length > 2 && (
+                  <button onClick={() => setPollOptions(prev => prev.filter((_, j) => j !== i))} aria-label="Remove option" style={{ background:'none', border:'none', color:'rgba(255,255,255,0.4)', cursor:'pointer' }}><RiCloseLine size={18} /></button>
+                )}
+              </div>
+            ))}
+            {pollOptions.length < 6 && (
+              <button onClick={() => setPollOptions(prev => [...prev, ''])} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', color:'#FF6B35', fontSize:13, fontWeight:700, cursor:'pointer', padding:'4px 0 10px' }}>
+                <RiAddLine size={16} /> Add option
+              </button>
+            )}
+            <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <label style={{ color:'rgba(255,255,255,0.5)', fontSize:12 }}>Poll length{' '}
+                <select value={pollHours} onChange={e => setPollHours(Number(e.target.value))} style={{ background:'#1a1a1a', color:'#fff', border:'1px solid rgba(255,255,255,0.12)', borderRadius:8, padding:'6px 8px', fontSize:13 }}>
+                  <option value={1}>1 hour</option><option value={6}>6 hours</option><option value={24}>1 day</option><option value={72}>3 days</option><option value={168}>7 days</option>
+                </select>
+              </label>
+              <label style={{ display:'flex', alignItems:'center', gap:6, color:'rgba(255,255,255,0.5)', fontSize:12 }}>
+                <input type="checkbox" checked={pollMultiple} onChange={e => setPollMultiple(e.target.checked)} /> Allow multiple answers
+              </label>
+            </div>
+            {content.trim().length === 0 && <p style={{ margin:'10px 0 0', color:'#EF4444', fontSize:12 }}>Write your question in the box above.</p>}
+          </div>
+        )}
       </div>
 
       <div style={{ borderTop:'1px solid rgba(255,255,255,0.07)', padding:'12px 16px', display:'flex', alignItems:'center', gap:20, flexShrink:0 }}>
         <input ref={fileRef} type="file" accept="image/*,video/*" multiple onChange={handleFiles} style={{ display:'none' }} />
-        <button onClick={() => fileRef.current?.click()} disabled={items.length >= MAX_ITEMS} style={{ display:'flex', alignItems:'center', gap:7, background:'none', border:'none', cursor: items.length >= MAX_ITEMS ? 'default' : 'pointer', color: items.length >= MAX_ITEMS ? 'rgba(255,107,53,0.4)' : '#FF6B35', fontSize:14, fontWeight:600, padding:0 }}>
+        <button onClick={() => fileRef.current?.click()} disabled={items.length >= MAX_ITEMS || pollOn} style={{ display:'flex', alignItems:'center', gap:7, background:'none', border:'none', cursor: items.length >= MAX_ITEMS ? 'default' : 'pointer', color: items.length >= MAX_ITEMS ? 'rgba(255,107,53,0.4)' : '#FF6B35', fontSize:14, fontWeight:600, padding:0 }}>
           <RiImage2Line size={22} /> Photo/Video {items.length > 0 && `(${items.length}/${MAX_ITEMS})`}
+        </button>
+        <button onClick={() => setPollOn(v => !v)} disabled={items.length > 0 || posting} title="Poll"
+          style={{ display:'flex', alignItems:'center', gap:7, background:'none', border:'none', cursor: items.length > 0 ? 'default' : 'pointer', color: pollOn ? '#fff' : (items.length > 0 ? 'rgba(255,107,53,0.4)' : '#FF6B35'), fontSize:14, fontWeight:600, padding:0 }}>
+          <RiBarChartHorizontalLine size={22} /> Poll
         </button>
         <div style={{ marginLeft:'auto', position:'relative', width:28, height:28 }}>
           <svg width={28} height={28} style={{ transform:'rotate(-90deg)' }}>

@@ -12,6 +12,10 @@ import RoomInfoModal from './RoomInfoModal'
 import RoomMediaPlayer from './RoomMediaPlayer'
 import RoomMediaLightbox from './RoomMediaLightBox';
 import { fmtTime } from './Helpers'
+import GlassHeader, { GlassIconBtn } from '@/Components/Chat/GlassHeader'
+import GlassComposer from '@/Components/Chat/GlassComposer'
+import { GLASS } from '@/Components/Chat/glass'
+import { mergeIncoming, settleOptimistic, markFailed, markSending, isNetworkFailure, useElementHeight } from '@/Components/Chat/useChatMessages'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast, initialMediaMessageId, onConsumedInitialMedia }) {
   const [messages,  setMessages]  = useState([])
@@ -31,6 +35,8 @@ const typingTimersRef = useRef({})
   const [showShare,  setShowShare]  = useState(false)
   const [showInfo,   setShowInfo]   = useState(false)
 
+  const [headerRef, headerH] = useElementHeight()
+  const [composerRef, composerH] = useElementHeight()
   const bottomRef  = useRef(null)
   const inputRef   = useRef(null)
   const roomFileRef = useRef(null)
@@ -73,21 +79,7 @@ const typingTimersRef = useRef({})
 useEffect(() => {
     if (!window.Echo) return
     const channel = window.Echo.private(`room.${room.id}`)
-    channel.listen('.RoomMessageSent', (e) => setMessages(p => {
-      if (p.some(m => m.id === e.message.id)) return p
-      const optIndex = p.findIndex(m =>
-        String(m.id).startsWith('opt-') &&
-        m.user_id === e.message.user_id &&
-        m.body === e.message.body &&
-        m.media_url === e.message.media_url
-      )
-      if (optIndex !== -1) {
-        const copy = [...p]
-        copy[optIndex] = e.message
-        return copy
-      }
-      return [...p, e.message]
-    }))
+    channel.listen('.RoomMessageSent', (e) => setMessages(p => mergeIncoming(p, e.message)))
     channel.listen('.RoomMessageDeleted', (e) => {
       setMessages(p => p.map(m => m.id === e.message_id
         ? { ...m, is_deleted: true, body: null, media_url: null, media_type: null }
@@ -159,55 +151,57 @@ useEffect(() => {
     setPendingMedia({ preview: URL.createObjectURL(file), type: isVideo ? 'video' : 'image', file })
   }
 
-  const send = async (e) => {
-    e.preventDefault()
-    if ((!body.trim() && !pendingMedia) || sending) return
-    if (!auth?.user) { router.visit('/login'); return }
-    setSending(true)
-
-    let media_url = null, media_type = null
-    if (pendingMedia) {
-      try {
+  // Sends (or re-sends) one optimistic message. No internet / timeout / server error → the bubble stays with a red Retry.
+  const deliver = async (opt) => {
+    const p = opt._payload
+    try {
+      let media_url = p.media_url ?? null
+      const media_type = p.media_type ?? null
+      if (p.file && !media_url) {
         const form = new FormData()
-        form.append('file', pendingMedia.file)
-        form.append('type', pendingMedia.type)
-        setUploadProgress(0)
-        const { data } = await axios.post('/api/upload/media', form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (evt) => {
-            if (evt.total) setUploadProgress(Math.round((evt.loaded * 100) / evt.total))
-          },
-        })
-        media_url = data.url; media_type = pendingMedia.type
-      } catch (err) {
-        showToast?.(err.response?.data?.message ?? 'Upload failed. Please try again.', 'error')
-        setSending(false)
-        setUploadProgress(null)
-        return
+        form.append('file', p.file)
+        form.append('type', media_type)
+        const { data } = await axios.post('/api/upload/media', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
+        media_url = data.url
+        opt._payload = { ...p, media_url }   // if only the message POST fails later, Retry won't upload the file again
       }
-      setUploadProgress(null)
+      const { data } = await axios.post(`/api/community/rooms/${room.id}/messages`, {
+        body: p.body, media_url, media_type, reply_to_id: p.reply_to_id,
+      }, { timeout: 20000 })
+      setMessages(prev => settleOptimistic(prev, opt.id, data))
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        setMessages(prev => markFailed(prev, opt.id).map(m => m.id === opt.id ? { ...m, _payload: opt._payload } : m))
+      } else {
+        setMessages(prev => prev.filter(m => m.id !== opt.id))
+        showToast?.(err.response?.data?.message ?? 'Could not send that message.', 'error')
+      }
     }
+  }
 
+  const retrySend = (msg) => {
+    if (!msg?._payload) return
+    setMessages(prev => markSending(prev, msg.id))
+    deliver(msg)
+  }
+
+  const send = async (e) => {
+    e?.preventDefault?.()
+    if (!body.trim() && !pendingMedia) return
+    if (!auth?.user) { router.visit('/login'); return }
+
+    const text = body.trim() || null
     const opt = {
-      id: `opt-${Date.now()}`, user_id: auth.user.id, body: body.trim() || null,
-      media_url: media_url ?? pendingMedia?.preview, media_type,
+      id: `opt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, user_id: auth.user.id, body: text,
+      media_url: pendingMedia?.preview ?? null, media_type: pendingMedia?.type ?? null,
       created_at: new Date().toISOString(), user: auth.user,
-      reply_to: replyTo, reply_to_id: replyTo?.id ?? null, _opt: true,
+      reply_to: replyTo, reply_to_id: replyTo?.id ?? null, _opt: true, _optimistic: true,
+      _payload: { body: text, file: pendingMedia?.file ?? null, media_type: pendingMedia?.type ?? null, reply_to_id: replyTo?.id ?? null },
     }
     setMessages(p => [...p, opt])
-    const b = body.trim()
     setBody(''); setReplyTo(null); setPendingMedia(null)
-    try {
-      const { data } = await axios.post(`/api/community/rooms/${room.id}/messages`, {
-        body: b || null, media_url, media_type, reply_to_id: opt.reply_to_id,
-      })
-      setMessages(p => {
-        const alreadyDeliveredByBroadcast = p.some(m => m.id === data.id && m.id !== opt.id)
-        if (alreadyDeliveredByBroadcast) return p.filter(m => m.id !== opt.id)
-        return p.map(m => m.id === opt.id ? data : m)
-      })
-    } catch { setMessages(p => p.filter(m => m.id !== opt.id)); setBody(b) }
-    finally { setSending(false) }
+    if (inputRef.current) inputRef.current.style.height = 'auto'
+    deliver(opt)
   }
 
   const deleteMsg = async (msg) => {
@@ -273,68 +267,12 @@ useEffect(() => {
   const canDel  = msg => isMine(msg) || isOwner || auth?.user?.role === 'admin'
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#050505' }}>
+    <div style={{ position:'relative', height:'100%', overflow:'hidden', background:'#050505' }}>
       {showShare && <ShareRoomSheet room={room} onClose={() => setShowShare(false)} />}
       {showInfo  && <RoomInfoModal room={room} onClose={() => setShowInfo(false)} />}
 
-      {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', borderBottom:'1px solid rgba(255,255,255,0.07)', background:'rgba(8,8,8,0.97)', backdropFilter:'blur(16px)', flexShrink:0, zIndex:10 }}>
-        <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.6)', display:'flex', padding:4 }}>
-          <RiArrowLeftLine size={22} />
-        </button>
-        <div style={{ width:38, height:38, borderRadius:'50%', overflow:'hidden', flexShrink:0 }}>
-          <img src={room.avatar_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-        </div>
-        <div style={{ flex:1, minWidth:0 }}>
-          <p style={{ margin:0, color:'#fff', fontWeight:700, fontSize:15, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</p>
-          <p style={{ margin:0, color:'rgba(255,255,255,0.35)', fontSize:11 }}>{room.members_count} members</p>
-        </div>
-        <div style={{ display:'flex', gap:4 }}>
-          {room.rules?.length > 0 && (
-            <button onClick={onOpenRules} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.5)' }}>
-              <RiShieldLine size={17} />
-            </button>
-          )}
-          {canShare && (
-            <button onClick={() => setShowShare(true)} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.5)' }}>
-              <RiShareLine size={16} />
-            </button>
-          )}
-          <button onClick={onOpenMembers} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.5)' }}>
-            <RiGroupLine size={17} />
-          </button>
-          {isOwner && (
-            <button onClick={onOpenSettings} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.5)' }}>
-              <RiSettings3Line size={17} />
-            </button>
-          )}
-          <div style={{ position:'relative' }}>
-            <button onClick={() => setHeaderMenu(o => !o)} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.5)' }}>
-              <RiMoreLine size={17} />
-            </button>
-            {headerMenu && (
-              <>
-                <div onClick={() => setHeaderMenu(false)} style={{ position:'fixed', inset:0, zIndex:98 }} />
-                <div style={{ position:'absolute', top:42, right:0, zIndex:99, background:'#1a1a1a', border:'1px solid rgba(255,255,255,0.1)', borderRadius:14, overflow:'hidden', minWidth:170, boxShadow:'0 8px 32px rgba(0,0,0,0.7)' }}>
-                  <button onClick={() => { setHeaderMenu(false); setShowInfo(true) }}
-                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:600, borderBottom: !isOwner ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
-                    <RiInformationLine size={16} color="rgba(255,255,255,0.5)" /> Info
-                  </button>
-                  {!isOwner && (
-                    <button onClick={() => { setHeaderMenu(false); onLeaveRoom(room) }}
-                      style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:13, fontWeight:600 }}>
-                      <RiLogoutBoxLine size={16} /> Leave room
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'none', padding:'8px 0' }}>
+      {/* Messages scroll under the floating glass header and composer */}
+      <div style={{ position:'absolute', inset:0, overflowY:'auto', scrollbarWidth:'none', padding:`${headerH + 8}px 0 ${composerH + 8}px` }}>
         {hasMore && (
           <div style={{ display:'flex', justifyContent:'center', padding:'12px 0' }}>
             <button onClick={loadMore} style={{ padding:'6px 18px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.09)', color:'rgba(255,255,255,0.5)', fontSize:12, cursor:'pointer' }}>Load earlier</button>
@@ -390,7 +328,7 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                   onMouseDown={e  => onPressStart(e, msg)}
                   onMouseUp={onPressEnd}
                   onMouseLeave={onPressEnd}
-                  style={{ display:'flex', justifyContent: mine ? 'flex-end' : 'flex-start', padding:`${showAv ? 8 : 2}px 12px 2px`, alignItems:'flex-end', gap:8, opacity: msg._opt ? 0.6 : 1, transition:'transform 0.15s ease', cursor:'default', userSelect:'none' }}>
+                  style={{ display:'flex', justifyContent: mine ? 'flex-end' : 'flex-start', padding:`${showAv ? 8 : 2}px 12px 2px`, alignItems:'flex-end', gap:8, opacity: msg._failed ? 1 : (msg._opt ? 0.6 : 1), transition:'transform 0.15s ease', cursor:'default', userSelect:'none' }}>
                   {!mine && (
                     <div style={{ width:32, flexShrink:0, alignSelf:'flex-end' }}>
                       {showAv && <Link href={`/@${msg.user?.username}`}><Av user={msg.user} size={32} /></Link>}
@@ -449,6 +387,12 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
 
                     <span style={{ color:'rgba(255,255,255,0.22)', fontSize:10, padding: mine ? '0 4px 0 0' : '0 0 0 4px' }}>{fmtTime(msg.created_at)}</span>
                   </div>
+                  {msg._failed && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); retrySend(msg) }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} aria-label="Message not sent. Tap to retry"
+                      style={{ flexShrink:0, alignSelf:'center', display:'flex', alignItems:'center', gap:4, padding:'6px 10px', borderRadius:999, border:'1px solid rgba(239,68,68,0.5)', background:'rgba(239,68,68,0.16)', color:'#f87171', fontSize:12, fontWeight:700, cursor:'pointer', order: mine ? 2 : 0 }}>
+                      Retry
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -474,6 +418,46 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
         })()}
         <div ref={bottomRef} style={{ height:8 }} />
       </div>
+
+      <GlassHeader
+        headerRef={headerRef}
+        onBack={onBack}
+        onTitleClick={() => setShowInfo(true)}
+        avatar={<img src={room.avatar_url} alt="" style={{ width:34, height:34, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} />}
+        title={<span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</span>}
+        subtitle={typingUsers && Object.keys(typingUsers).length ? 'typing…' : `${room.members_count} members`}
+        subtitleColor={typingUsers && Object.keys(typingUsers).length ? '#ff8a4d' : undefined}
+        actions={<>
+          <GlassIconBtn label="Members" onClick={onOpenMembers}><RiGroupLine size={18} /></GlassIconBtn>
+          <div style={{ position:'relative' }}>
+            <GlassIconBtn label="More" onClick={() => setHeaderMenu(o => !o)}><RiMoreLine size={20} /></GlassIconBtn>
+            {headerMenu && (
+              <>
+                <div onClick={() => setHeaderMenu(false)} style={{ position:'fixed', inset:0, zIndex:98 }} />
+                <div style={{ ...GLASS, background:'rgba(24,24,26,0.82)', position:'absolute', top:44, right:0, zIndex:99, borderRadius:16, overflow:'hidden', minWidth:180 }}>
+                  {[
+                    { show:true, icon:<RiInformationLine size={16} />, label:'Room info', run:() => setShowInfo(true) },
+                    { show: room.rules?.length > 0, icon:<RiShieldLine size={16} />, label:'Rules', run:onOpenRules },
+                    { show: canShare, icon:<RiShareLine size={16} />, label:'Share room', run:() => setShowShare(true) },
+                    { show: isOwner, icon:<RiSettings3Line size={16} />, label:'Room settings', run:onOpenSettings },
+                  ].filter(i => i.show).map(i => (
+                    <button key={i.label} onClick={() => { setHeaderMenu(false); i.run() }}
+                      style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'12px 16px', background:'none', border:'none', borderBottom:'1px solid rgba(255,255,255,0.06)', cursor:'pointer', color:'#fff', fontSize:13, fontWeight:600 }}>
+                      <span style={{ color:'rgba(255,255,255,0.6)', display:'flex' }}>{i.icon}</span> {i.label}
+                    </button>
+                  ))}
+                  {!isOwner && (
+                    <button onClick={() => { setHeaderMenu(false); onLeaveRoom(room) }}
+                      style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'12px 16px', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:13, fontWeight:600 }}>
+                      <RiLogoutBoxLine size={16} /> Leave room
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </>}
+      />
 
       {msgAction && (
         <>
@@ -517,67 +501,52 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
         />
       )}
 
-      {replyTo && (
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background:'rgba(255,107,53,0.07)', borderTop:'1px solid rgba(255,107,53,0.18)', flexShrink:0 }}>
-          <RiReplyLine size={15} color="#FF6B35" />
-          <div style={{ flex:1, minWidth:0 }}>
-            <p style={{ margin:0, color:'#FF6B35', fontSize:11, fontWeight:700 }}>{replyTo.user?.name}</p>
-            <p style={{ margin:0, color:'rgba(255,255,255,0.5)', fontSize:12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{replyTo.body}</p>
-          </div>
-          <button onClick={() => setReplyTo(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', display:'flex' }}>
-            <RiCloseLine size={16} />
-          </button>
-        </div>
-      )}
 
-      {pendingMedia && (
-        <div style={{ padding:'10px 14px 0', flexShrink:0 }}>
-          <div style={{ position:'relative', display:'inline-block', borderRadius:14, overflow:'hidden', border:'1px solid rgba(255,255,255,0.1)' }}>
-            {pendingMedia.type === 'video'
-              ? <video src={pendingMedia.preview} style={{ height:90, display:'block' }} />
-              : <img src={pendingMedia.preview} alt="" style={{ height:90, display:'block' }} />
-            }
-            {uploadProgress !== null && (
-              <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
-                <span style={{ color:'#fff', fontSize:13, fontWeight:700 }}>{uploadProgress}%</span>
-                <div style={{ width:'70%', height:4, borderRadius:999, background:'rgba(255,255,255,0.2)', overflow:'hidden' }}>
-                  <div style={{ width:`${uploadProgress}%`, height:'100%', background:'#FF6B35', transition:'width 0.15s' }} />
+      {auth?.user ? (
+        <GlassComposer
+          composerRef={composerRef}
+          value={body}
+          onChange={setBody}
+          onSubmit={send}
+          onPickMedia={(file) => {
+            if (file.size > MAX_UPLOAD_MB * 1024 * 1024) { showToast?.(`That file is too big — max ${MAX_UPLOAD_MB}MB.`, 'error'); return }
+            setPendingMedia({ preview: URL.createObjectURL(file), type: file.type.startsWith('video/') ? 'video' : 'image', file })
+          }}
+          inputRef={inputRef}
+          mediaInputRef={roomFileRef}
+          placeholder="Message"
+          canSend={body.trim().length > 0 || !!pendingMedia}
+          onInputExtra={() => broadcastTyping()}
+          top={<>
+            {replyTo && (
+              <div style={{ ...GLASS, display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderRadius:16 }}>
+                <RiReplyLine size={15} color="#FF6B35" />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ margin:0, color:'#FF6B35', fontSize:11, fontWeight:700 }}>{replyTo.user?.name}</p>
+                  <p style={{ margin:0, color:'rgba(255,255,255,0.7)', fontSize:12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{replyTo.body}</p>
                 </div>
+                <button onClick={() => setReplyTo(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.5)', display:'flex' }}><RiCloseLine size={16} /></button>
               </div>
             )}
-            {uploadProgress === null && (
-              <button onClick={() => setPendingMedia(null)} style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.75)', border:'none', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
-                <RiCloseLine size={13} />
-              </button>
+            {pendingMedia && (
+              <div style={{ position:'relative', display:'inline-block', borderRadius:14, overflow:'hidden', ...GLASS }}>
+                {pendingMedia.type === 'video'
+                  ? <video src={pendingMedia.preview} style={{ height:90, display:'block' }} />
+                  : <img src={pendingMedia.preview} alt="" style={{ height:90, display:'block' }} />}
+                <button onClick={() => setPendingMedia(null)} style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.75)', border:'none', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
+                  <RiCloseLine size={13} />
+                </button>
+              </div>
             )}
-          </div>
-        </div>
-      )}
-
-      <div style={{ padding:'10px 12px', borderTop:'1px solid rgba(255,255,255,0.07)', background:'rgba(8,8,8,0.95)', flexShrink:0, paddingBottom:'max(12px, env(safe-area-inset-bottom))' }}>
-        {auth?.user ? (
-          <form onSubmit={send} style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <input ref={roomFileRef} type="file" accept="image/*,video/*" onChange={pickRoomMedia} style={{ display:'none' }} />
-            <button type="button" onClick={() => roomFileRef.current?.click()} style={{ width:38, height:38, borderRadius:'50%', background:'rgba(255,255,255,0.07)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:'#FF6B35' }}>
-              <RiImage2Line size={18} />
-            </button>
-            <div style={{ flex:1, display:'flex', alignItems:'center', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.09)', borderRadius:999, padding:'0 14px', gap:8 }}>
-              <textarea ref={inputRef} value={body} onChange={e => { setBody(e.target.value); broadcastTyping() }}
-              placeholder="Message..." maxLength={8000} rows={1}
-              style={{ flex:1, background:'none', border:'none', outline:'none', color:'#fff', fontSize:16, padding:'11px 0', resize:'none', fontFamily:'inherit', lineHeight:1.4, maxHeight:108, overflowY:'auto' }}
-              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 108) + 'px' }} />
-            </div>
-            <button type="submit" disabled={(!body.trim() && !pendingMedia) || sending}
-              style={{ width:44, height:44, borderRadius:'50%', background: (body.trim() || pendingMedia) ? '#FF6B35' : 'rgba(255,255,255,0.07)', border:'none', cursor: (body.trim() || pendingMedia) ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <RiSendPlaneFill size={18} color={(body.trim() || pendingMedia) ? '#fff' : 'rgba(255,255,255,0.25)'} />
-            </button>
-          </form>
-        ) : (
-          <button onClick={() => router.visit('/login')} style={{ width:'100%', padding:'12px', background:'rgba(255,107,53,0.1)', border:'1px solid rgba(255,107,53,0.25)', borderRadius:14, color:'#FF6B35', fontWeight:700, fontSize:14, cursor:'pointer' }}>
+          </>}
+        />
+      ) : (
+        <div ref={composerRef} style={{ position:'absolute', left:0, right:0, bottom:0, zIndex:20, padding:'8px 12px calc(env(safe-area-inset-bottom) + 10px)' }}>
+          <button onClick={() => router.visit('/login')} style={{ ...GLASS, width:'100%', padding:'13px', borderRadius:20, color:'#FF6B35', fontWeight:700, fontSize:14, cursor:'pointer' }}>
             Log in to send messages
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes spin { to { transform:rotate(360deg); } }

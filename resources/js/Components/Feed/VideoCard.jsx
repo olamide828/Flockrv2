@@ -33,6 +33,7 @@ import SoundMarquee from '@/Components/Video/SoundMarquee'
 import { ENHANCE_CSS } from '@/lib/media'
 import { useVideoWatchdog } from '@/lib/useVideoWatchdog'
 import Avatar from '@/Components/Media/Avatar'
+import PhotoDownloadSheet from '@/Components/Video/PhotoDownloadSheet'
 const soundHref = (v) => (v.sound_credit ? (v.sound_credit.path || `/sound/${v.sound_credit.id}`) : v.allow_sound_reuse ? `/sound/from-video/${v.ulid}` : null)
 
 const fmt = (n) => {
@@ -163,6 +164,7 @@ function SideBtn({ onClick, children, label, btnRef }) {
 }
 
 function useVideoDownload(video) {
+  const [showPhotoDl, setShowPhotoDl] = useState(false)
   const [dlState, setDlState] = useState('idle')
   const [dlProgress, setDlProgress] = useState(null)   // 0-99 while the server prepares the file
   const pollTimer = useRef(null)
@@ -190,6 +192,8 @@ function useVideoDownload(video) {
   }, [video.user?.username, video.ulid])
 
   const download = useCallback(async () => {
+    // photo posts: pick which photos to save (the server stamps each with the watermark)
+    if (video.media_type === 'photos') { setShowPhotoDl(true); return }
     if (dlState !== 'idle' && dlState !== 'error') return
     setDlState('preparing')
     setDlProgress(null)
@@ -214,7 +218,7 @@ function useVideoDownload(video) {
     }
   }, [dlState, video.ulid, triggerBrowserDownload])
 
-  return { download, dlState, dlProgress }
+  return { download, dlState, dlProgress, showPhotoDl, setShowPhotoDl }
 }
 
 export default function VideoCard({ video, isActive }) {
@@ -276,7 +280,7 @@ export default function VideoCard({ video, isActive }) {
     return () => { document.body.style.overflow = '' }
   }, [showReportVideo])
 
-  const { download, dlState, dlProgress } = useVideoDownload(video);
+  const { download, dlState, dlProgress, showPhotoDl, setShowPhotoDl } = useVideoDownload(video);
 
   const isOwner     = auth?.user?.id === video.user_id
   const hasProducts = video.is_for_sale && video.products?.length > 0
@@ -285,6 +289,22 @@ export default function VideoCard({ video, isActive }) {
 
   const wd = useVideoWatchdog(videoRef, isActive)
   useHlsVideo(videoRef, isActive && !wd.reloading ? videoSrc : null)
+
+  // Photo posts have no <video>, so the normal view timer never ran: count a view after 5s on screen (or when you scroll away after 3s+)
+  useEffect(() => {
+    if (!isPhotos || !isActive) return undefined
+    const t0 = Date.now()
+    let sent = false
+    const send = () => {
+      if (sent) return
+      const secs = Math.round((Date.now() - t0) / 1000)
+      if (secs < 3) return
+      sent = true
+      axios.post(`/api/videos/${video.ulid}/view`, { watch_seconds: secs, session_id: null }, { withCredentials: true }).catch(() => {})
+    }
+    const timer = setTimeout(send, 5000)
+    return () => { clearTimeout(timer); send() }
+  }, [isPhotos, isActive, video.ulid])
 
   useEffect(() => {
     const el = videoRef.current
@@ -453,8 +473,11 @@ export default function VideoCard({ video, isActive }) {
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', overflow: 'hidden' }}>
 
       {showShare && (
+        <>
         <ShareSheet videoUrl={videoUrl} videoTitle={video.title} onClose={() => setShowShare(false)} onDownload={download} dlState={dlState} dlProgress={dlProgress} />
+        </>
       )}
+      {showPhotoDl && <PhotoDownloadSheet video={video} onClose={() => setShowPhotoDl(false)} />}
       {showMoreSheet && (
         <MoreSheet onClose={() => setShowMoreSheet(false)} onReport={() => setShowReportVideo(true)} videoRef={videoRef} videoUlid={video.ulid} />
       )}
