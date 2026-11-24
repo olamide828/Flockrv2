@@ -139,7 +139,13 @@ class Video extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', 'active')->whereNotNull('published_at');
+        // Videos of banned / suspended / deleted creators never show anywhere that uses this scope (feeds, search, sounds, profiles)
+        return $query->where('videos.status', 'active')->whereNotNull('videos.published_at')
+            ->whereNotIn('videos.user_id', function ($q) {
+                $q->select('id')->from('users')->where(function ($w) {
+                    $w->where('is_active', false)->orWhereNotNull('deleted_at');
+                });
+            });
     }
 
     public function scopeForFeed($query)

@@ -1,4 +1,5 @@
 import { Link, router, usePage } from '@inertiajs/react';
+import { firstChar } from '@/lib/initial'
 import axios from 'axios';
 import VerifyEmailBanner from '@/Components/verifyEmailBanner';
 import ProfileSheet from '@/Components/ProfileSheet';
@@ -989,7 +990,7 @@ export function AvatarImage({ user, size = 36 }) {
                 border: '1.5px solid rgba(255,255,255,0.15)',
             }}
         >
-            {(user?.name ?? user?.username ?? 'U')[0].toUpperCase()}
+            {firstChar(user?.name ?? user?.username)}
         </div>
     );
 } 

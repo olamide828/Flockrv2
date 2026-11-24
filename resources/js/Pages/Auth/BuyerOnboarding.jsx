@@ -1,5 +1,7 @@
 import { Head, useForm } from '@inertiajs/react';
 import axios from 'axios';
+import { AuthLogo } from '@/Components/Auth/AuthShell';
+import { INTERESTS } from '@/Components/Auth/interests';
 import { useState } from 'react';
 import {
     RiArrowLeftLine,
@@ -26,23 +28,7 @@ import {
     RiUserSmileLine,
 } from 'react-icons/ri';
 
-const INTERESTS = [
-    { label: 'Fashion & Clothing', Icon: RiShirtLine },
-    { label: 'Beauty & Skincare', Icon: RiPaintBrushLine },
-    { label: 'Electronics & Gadgets', Icon: RiSmartphoneLine },
-    { label: 'Food & Drinks', Icon: RiRestaurantLine },
-    { label: 'Home & Living', Icon: RiHome4Line },
-    { label: 'Health & Wellness', Icon: RiCapsuleLine },
-    { label: 'Accessories & Jewelry', Icon: RiHandbagLine },
-    { label: 'Kids & Baby', Icon: RiBearSmileLine },
-    { label: 'Books & Education', Icon: RiBookLine },
-    { label: 'Gaming', Icon: RiGamepadLine },
-    { label: 'Auto Parts', Icon: RiCarLine },
-    { label: 'Sports & Fitness', Icon: RiFootballLine },
-    { label: 'Organic & Natural', Icon: RiLeafLine },
-    { label: 'Art & Crafts', Icon: RiPaletteLine },
-    { label: 'Other', Icon: RiMoreLine },
-];
+
 
 const BUDGET_OPTIONS = [
     { value: 'under_5k', label: 'Under ₦5,000', sub: 'Budget-friendly finds' },
@@ -101,9 +87,7 @@ export default function BuyerOnboarding() {
                         borderBottom: '1px solid rgba(255,255,255,0.07)',
                     }}
                 >
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#fff' }}>
-                        flockr<span style={{ color: 'var(--flockr-orange)' }}>.</span>
-                    </span>
+                    <AuthLogo size={26} />
                     <button
                         onClick={skip}
                         style={{ background: 'none', border: 'none', color: 'var(--flockr-muted)', fontSize: 13, cursor: 'pointer' }}
@@ -187,7 +171,7 @@ export default function BuyerOnboarding() {
                                         paddingRight: 4,
                                     }}
                                 >
-                                    {INTERESTS.map(({ label, Icon }) => {
+                                    {INTERESTS.map(({ label, emoji }) => {
                                         const active = data.interests.includes(label);
                                         return (
                                             <button
@@ -207,11 +191,7 @@ export default function BuyerOnboarding() {
                                                     gap: 8,
                                                 }}
                                             >
-                                                <Icon
-                                                    size={16}
-                                                    color={active ? 'var(--flockr-orange)' : 'var(--flockr-muted)'}
-                                                    style={{ flexShrink: 0 }}
-                                                />
+                                                <span aria-hidden style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>{emoji}</span>
                                                 <span
                                                     style={{
                                                         color: active ? '#fff' : 'var(--flockr-muted)',

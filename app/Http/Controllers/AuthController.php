@@ -49,12 +49,16 @@ class AuthController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:100',
-            'username' => 'required|string|max:30|alpha_dash|unique:users,username',
+            'username' => ['required', 'string', 'min:3', 'max:15', 'regex:/^[a-zA-Z0-9_.]+$/', 'unique:users,username', function ($a, $v, $fail) { if (in_array(strtolower($v), \App\Services\UsernameService::RESERVED, true)) $fail('That username is reserved.'); }],
             'email' => 'required|email|unique:users,email',
             'phone' => 'nullable|string|max:20|unique:users,phone',
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
             'role' => 'required|in:buyer,seller',
         ]);
+
+        if (User::withTrashed()->where('username', strtolower($validated['username']))->exists()) {
+            return back()->withErrors(['username' => 'That username is taken.'])->withInput();
+        }
 
         $emailTaken = User::withTrashed()
         ->where('deleted_email', $request->email)
@@ -91,7 +95,7 @@ class AuthController extends Controller
 
         Auth::login($user);
 
-        $user->sendEmailVerificationNotification();   
+        app(\App\Services\EmailVerificationCodeService::class)->send($user, true);
        \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
 
         // IMPORTANT: regenerate session ONCE here, before any redirect
@@ -130,6 +134,8 @@ class AuthController extends Controller
             'description' => 'required|string|max:500',
             'location' => 'required|string|max:100',
             'whatsapp' => 'nullable|string|max:20',
+            'interests' => 'nullable|array|max:15',
+            'interests.*' => 'string|max:100',
             'pickup_street'      => 'nullable|string|max:200',
     'pickup_city'        => 'nullable|string|max:100',
     'pickup_state'       => 'nullable|string|max:100',
@@ -145,7 +151,7 @@ class AuthController extends Controller
             'name' => $validated['store_name'],
             'bio' => $validated['description'],
             'location' => $validated['location'],
-            'phone' => $validated['whatsapp'] ?? $user->phone,
+            'phone' => (!empty($validated['whatsapp']) && !User::withTrashed()->where('phone', $validated['whatsapp'])->where('id', '!=', $user->id)->exists()) ? $validated['whatsapp'] : $user->phone,
             // Store seller store info in preferences
             'preferences' => array_merge($existing, [
                 'store_name' => $validated['store_name'],
@@ -167,6 +173,16 @@ foreach ($validated['product_categories'] as $catLabel) {
         \App\Models\UserInterest::updateOrCreate(
             ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
             ['score' => 0.6, 'interaction_count' => 1, 'last_interacted_at' => now()]
+        );
+    }
+}
+
+// What the seller likes to watch/shop (same signal buyers give), so their own feed is personalised too
+if (!empty($validated['interests'])) {
+    foreach (app(\App\Services\CategoryMatcher::class)->match($validated['interests']) as $catId) {
+        \App\Models\UserInterest::updateOrCreate(
+            ['user_id' => $user->id, 'type' => 'category', 'ref_id' => $catId],
+            ['score' => 0.5, 'interaction_count' => 1, 'last_interacted_at' => now()]
         );
     }
 }
@@ -244,12 +260,17 @@ foreach ($categoryIds as $catId) {
             : back()->withErrors(['email' => __($status)]);
     }
 
-    public function verifyNotice(): Response
-{
-    return Inertia::render('Auth/VerifyEmail', [
-        'status' => session('status'),
-    ]);
-}
+    public function verifyNotice(): Response|RedirectResponse
+    {
+        $user = Auth::user();
+        if ($user->hasVerifiedEmail()) return redirect()->route('home');
+        $svc = app(\App\Services\EmailVerificationCodeService::class);
+        return Inertia::render('Auth/VerifyEmail', [
+            'status'   => session('status'),
+            'email'    => $user->email,
+            'cooldown' => $svc->cooldownLeft($user),
+        ]);
+    }
 
 public function verify(\Illuminate\Foundation\Auth\EmailVerificationRequest $request): RedirectResponse
 {
@@ -262,15 +283,19 @@ public function verify(\Illuminate\Foundation\Auth\EmailVerificationRequest $req
     return redirect()->route('home')->with('status', 'Email verified! Welcome to Flockr.');
 }
 
-public function sendVerification(Request $request): RedirectResponse
+/** POST /email/verification-code — always answers JSON with a countdown; never throws. */
+public function sendVerification(Request $request): \Illuminate\Http\JsonResponse
 {
-    if ($request->user()->hasVerifiedEmail()) {
-        return redirect()->route('home');
-    }
+    $res = app(\App\Services\EmailVerificationCodeService::class)->send($request->user());
+    return response()->json($res, 200);
+}
 
-    $request->user()->sendEmailVerificationNotification();
-
-    return back()->with('status', 'verification-link-sent');
+/** POST /email/verify-code {code} */
+public function verifyCode(Request $request): \Illuminate\Http\JsonResponse
+{
+    $request->validate(['code' => 'required|string|max:12']);
+    $res = app(\App\Services\EmailVerificationCodeService::class)->verify($request->user(), $request->input('code'));
+    return response()->json($res + ['redirect' => $res['ok'] ? route('home') : null], $res['ok'] ? 200 : 422);
 }
 
     // Terms of service and privacy policy pages are static, so we can just return Inertia views

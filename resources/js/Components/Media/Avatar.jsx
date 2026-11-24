@@ -1,3 +1,4 @@
+import { firstChar } from '@/lib/initial'
 import SafeImg from '@/Components/Media/SafeImg'
 
 const hue = (s = '') => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
@@ -5,7 +6,7 @@ const hue = (s = '') => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0
 /** Round avatar that always renders: the photo when it loads, coloured initials otherwise. */
 export default function Avatar({ src, name = '', size = 40, style, ring }) {
     const h = hue(name)
-    const initial = (name.trim()[0] || 'U').toUpperCase()
+    const initial = firstChar(name)
     const fallback = (
         <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: size * 0.42, background: `linear-gradient(135deg, hsl(${h} 70% 45%), hsl(${(h + 50) % 360} 65% 28%))` }}>
             {initial}

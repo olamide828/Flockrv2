@@ -38,7 +38,9 @@ class EventController extends Controller
         ->get()
         ->each(fn($e) => $e->state = 'upcoming');
 
+    // Past events are only listed for the sellers who took part in them (everyone else just sees live + upcoming)
     $ended = Event::where('status', 'ended')
+        ->whereHas('participants', fn ($p) => $p->where('seller_id', \Illuminate\Support\Facades\Auth::id() ?? 0))
         ->orderByDesc('ends_at')
         ->limit(10)
         ->withCount('participants')

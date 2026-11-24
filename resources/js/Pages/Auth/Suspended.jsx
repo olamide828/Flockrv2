@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Head, router, usePage } from '@inertiajs/react'
+import { AuthLogo } from '@/Components/Auth/AuthShell'
 import { RiLockLine, RiMailLine, RiCheckboxCircleLine, RiLogoutBoxLine } from 'react-icons/ri'
 
 function fmtDate(iso) {
@@ -27,6 +28,7 @@ export default function Suspended({ suspendedAt, reason, appeal }) {
             <Head title="Account Suspended" />
             <div className="sp-screen">
                 <div className="sp-inner">
+                    <div style={{ marginBottom: 28 }}><AuthLogo size={28} center /></div>
                     <div className="sp-icon"><RiLockLine size={30} /></div>
 
                     <h1>Your account has been suspended</h1>

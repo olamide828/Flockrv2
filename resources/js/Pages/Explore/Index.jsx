@@ -458,6 +458,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   const [sellers,  setSellers]  = useState([])
   const [videos,   setVideos]   = useState(trendingVideos)
   const [loading,  setLoading]  = useState(false)
+  const [alsoSearched, setAlsoSearched] = useState([])   // extra words the AI added to widen a thin search
 
   // ── Secret effects state ────────────────────────────────────────────────
   const [emojiRain, setEmojiRain]             = useState(null)   
@@ -522,7 +523,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
   useEffect(() => {
     clearTimeout(debounceRef.current)
     if (!hasQuery && category === null) {
-      setResults([]); setSellers([]); setVideos(trendingVideos); return
+      setResults([]); setSellers([]); setAlsoSearched([]); setVideos(trendingVideos); return
     }
     debounceRef.current = setTimeout(async () => {
       setLoading(true)
@@ -533,6 +534,7 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
         setResults(data.products ?? [])
         setSellers(data.sellers ?? [])
         setVideos(data.videos ?? [])
+        setAlsoSearched(Array.isArray(data.also_searched) ? data.also_searched.filter(w => typeof w === 'string').slice(0, 6) : [])
       } catch {} finally { setLoading(false) }
     }, 350)
     return () => clearTimeout(debounceRef.current)
@@ -742,6 +744,10 @@ export default function Explore({ trendingProducts = [], trendingVideos = [], to
                     <div className="flex justify-center py-16">
                       <div style={{ width: 28, height: 28, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                     </div>
+                  )}
+
+                  {!loading && alsoSearched.length > 0 && (
+                    <p className="text-xs text-white/40">Also showing results for: <span className="text-white/60">{alsoSearched.join(', ')}</span></p>
                   )}
 
                   {!loading && (

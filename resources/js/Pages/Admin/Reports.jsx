@@ -7,7 +7,7 @@ import { errMsg, num, timeAgo, useAdminList } from '@/Components/Admin/lib'
 
 const API = '/api/admin/reports'
 const TONE = { pending: 'warn', actioned: 'good', dismissed: 'mute' }
-const TYPES = [['', 'All types'], ['user', 'Users'], ['video', 'Videos'], ['product', 'Products'], ['chat', 'Chats'], ['order', 'Orders'], ['appeal', 'Suspension appeals']]
+const TYPES = [['', 'All types'], ['user', 'Users'], ['video', 'Videos'], ['comment', 'Comments'], ['product', 'Products'], ['chat', 'Chats'], ['order', 'Orders'], ['appeal', 'Suspension appeals']]
 
 export default function Reports() {
   const list = useAdminList(API, { search: '', status: 'pending', type: '', sort: 'count' })
@@ -44,6 +44,11 @@ export default function Reports() {
   const delMsg = async (m) => {
     if (!(await confirm({ title: 'Remove this message?', message: 'It disappears from the conversation for both people.', confirmLabel: 'Remove' }))) return
     try { await axios.delete(`${API}/${view.id}/messages/${m.id}`); toast('Message removed'); load(view) } catch (e) { toast(errMsg(e), 'error') }
+  }
+  const delComment = async () => {
+    const f = await confirm({ title: 'Remove this comment?', message: 'The comment and its replies are removed.', confirmLabel: 'Remove', fields: [{ key: 'reason', label: 'Reason (optional)', multiline: true }] })
+    if (!f) return
+    try { await axios.delete(`${API}/${view.id}/comment`, { data: { reason: f.reason || null } }); toast('Comment removed'); load(view) } catch (e) { toast(errMsg(e), 'error') }
   }
   const suspend = async (u) => {
     const f = await confirm({ title: `Suspend @${u.username}?`, message: 'They are signed out and emailed the reason.', confirmLabel: 'Suspend', fields: [{ key: 'reason', label: 'Reason', required: true, multiline: true }] })
@@ -116,6 +121,19 @@ export default function Reports() {
                 </div>
               </Card>
             ) : <Empty title="Product not found" sub="It may have been permanently removed." />)}
+
+            {content?.kind === 'comment' && (content.comment ? (
+              <Card title="Reported comment" pad>
+                <p style={{ margin: 0, opacity: .6, fontSize: 12 }}>by @{content.comment.author?.username} · {timeAgo(content.comment.created_at)}{content.comment.deleted ? ' · already removed' : ''}</p>
+                {content.comment.body && <p style={{ margin: '8px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{content.comment.body}</p>}
+                {content.comment.image_url && <img src={content.comment.image_url} alt="" style={{ maxWidth: '100%', maxHeight: 280, borderRadius: 12, marginTop: 6 }} />}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                  {content.comment.link && <Btn size="sm" onClick={() => window.open(content.comment.link, '_blank')}>Open video</Btn>}
+                  {!content.comment.deleted && <Btn size="sm" kind="danger" onClick={delComment}>Remove comment</Btn>}
+                  {content.comment.author && <Btn size="sm" kind="danger" onClick={() => suspend(content.comment.author)}>Suspend @{content.comment.author.username}</Btn>}
+                </div>
+              </Card>
+            ) : <Empty title="Comment not found" sub="It may have been permanently removed." />)}
 
             {content?.kind === 'chat' && (
               <Card title={`Conversation (${(content.messages || []).length} messages)`} pad>

@@ -20,12 +20,22 @@ class Comment extends Model
         'reply_to_username', // who this reply is tagged at (display only)
         'likes_count',
         'is_pinned',
+        'image_path',
+        'liked_by_creator',
     ];
 
     protected $casts = [
         'is_pinned'   => 'boolean',
         'likes_count' => 'integer',
+        'liked_by_creator' => 'boolean',
     ];
+
+    protected $appends = ['image_url'];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        return $this->image_path ? app(\App\Services\StorageService::class)->url($this->image_path) : null;
+    }
 
     // ── Relationships ─────────────────────────────────────────────────────────
 

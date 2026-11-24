@@ -363,11 +363,25 @@ export default function Upload({ products: initialProducts = [] }) {
         setUploading(true); setErrors({}); setProgress(0); setUploadLabel('Preparing photos…')
         try {
             const frame = frameSize.current
-            const fd = new FormData()
-            for (const p of photos) {
-                const f = await composePhotoFile(p.file, photoOverlays[p.id] ?? [], frame)
-                fd.append('photos[]', f)
+            // Photos go up in batches of 8: one big request makes PHP drop everything past its file limit (20 by default)
+            const files = []
+            for (const p of photos) files.push(await composePhotoFile(p.file, photoOverlays[p.id] ?? [], frame))
+            const BATCH = 8
+            const staged = []
+            for (let i = 0; i < files.length; i += BATCH) {
+                const part = files.slice(i, i + BATCH)
+                const sf = new FormData()
+                part.forEach(f => sf.append('photos[]', f))
+                setUploadLabel(`Uploading photos ${Math.min(i + BATCH, files.length)}/${files.length}…`)
+                const { data: st } = await axios.post('/api/videos/photos/stage', sf, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                    onUploadProgress: e => { if (e.total) setProgress(Math.round(((i + (e.loaded / e.total) * part.length) / files.length) * 100)) },
+                })
+                if (!st?.paths || st.paths.length !== part.length) throw new Error('Some photos did not upload. Please try again.')
+                staged.push(...st.paths)
             }
+            const fd = new FormData()
+            staged.forEach(sp => fd.append('staged[]', sp))
             fd.append('title', title.trim())
             fd.append('description', description.trim())
             fd.append('hashtags', hashtags.trim())
@@ -381,11 +395,8 @@ export default function Upload({ products: initialProducts = [] }) {
                 if (sound.end) fd.append('sound_end', String(Math.round(sound.end * 10) / 10))
                 fd.append('music_volume', String(sound.musicVolume))
             }
-            setUploadLabel('Uploading…')
-            await axios.post('/api/videos/photos', fd, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: e => { if (e.total) setProgress(Math.round((e.loaded / e.total) * 100)) },
-            })
+            setUploadLabel('Publishing…')
+            await axios.post('/api/videos/photos', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
             setDone(true)
             setTimeout(() => router.visit('/'), 1800)
         } catch (err) {

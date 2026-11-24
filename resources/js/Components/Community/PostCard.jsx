@@ -5,7 +5,9 @@ import {
   RiHeartLine, RiHeartFill, RiChat1Line, RiMoreLine, RiDeleteBinLine,
   RiShareForwardLine, RiEyeLine, RiAlertLine,
   RiProhibitedLine, RiInformationLine, RiFullscreenLine, RiCloseLine,
+  RiBookmarkLine, RiBookmarkFill,
 } from 'react-icons/ri'
+import MentionText from '@/Components/Common/MentionText'
 import Av from './Av'
 import FollowButton from './FollowButton'
 import PostVideoPlayer from './PostVideoPlayer'
@@ -60,6 +62,8 @@ export default function PostCard({
   const [showViewers, setShowViewers] = useState(false)
   const [showInfoTip, setShowInfoTip] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [saved, setSaved] = useState(!!post.is_saved_by_me)
+  useEffect(() => { setSaved(!!post.is_saved_by_me) }, [post.is_saved_by_me])
   const canDelete  = auth?.user?.id === post.user_id || auth?.user?.role === 'admin'
   const notMine    = auth?.user?.id !== post.user_id
   const isOwnPost  = auth?.user?.id === post.user_id
@@ -97,6 +101,17 @@ export default function PostCard({
   }
   const handleMenuClick = (e) => { e.stopPropagation(); e.preventDefault(); setMenuOpen(true) }
   const handleDelClick  = () => { setMenuOpen(false); onDelete(post) }
+  const handleSaveClick = async (e) => {
+    e.stopPropagation(); e.preventDefault()
+    if (!auth?.user) { router.visit('/login'); return }
+    const was = saved
+    setSaved(!was)
+    try {
+      const { data } = await axios.post(`/api/community/posts/${post.id}/save`)
+      setSaved(data.saved)
+      showToast?.(data.saved ? 'Post saved' : 'Removed from saved')
+    } catch { setSaved(was); showToast?.('Could not save that post', 'error') }
+  }
   const handleShareClick = (e) => { e.stopPropagation(); e.preventDefault(); setShowShare(true) }
 
   const openViewers = (e) => {
@@ -172,7 +187,7 @@ export default function PostCard({
             <p style={{
               color:'rgba(255,255,255,0.92)', fontSize:15, lineHeight:1.55, margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word',
               ...(expanded ? {} : { display:'-webkit-box', WebkitLineClamp:6, WebkitBoxOrient:'vertical', overflow:'hidden' }),
-            }}>{post.content}</p>
+            }}><MentionText text={post.content} /></p>
             {post.content.length > 300 && (
               <button onClick={e => { e.stopPropagation(); e.preventDefault(); setExpanded(x => !x) }}
                 style={{ background:'none', border:'none', color:'#FF6B35', fontSize:13, fontWeight:700, cursor:'pointer', padding:'4px 0 0', display:'block' }}>
@@ -221,6 +236,11 @@ export default function PostCard({
           <button onClick={handleShareClick} title="Share"
             style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color:'rgba(255,255,255,0.45)', fontSize:13, fontWeight:500 }}>
             <RiShareForwardLine size={19} />
+          </button>
+
+          <button onClick={handleSaveClick} title={saved ? 'Remove from saved' : 'Save post'} aria-label={saved ? 'Remove from saved' : 'Save post'}
+            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor:'pointer', padding:'8px', borderRadius:999, color: saved ? '#FF6B35' : 'rgba(255,255,255,0.45)', lineHeight:0 }}>
+            {saved ? <RiBookmarkFill size={19} style={{ display:'block' }} /> : <RiBookmarkLine size={19} style={{ display:'block' }} />}
           </button>
 
           <button

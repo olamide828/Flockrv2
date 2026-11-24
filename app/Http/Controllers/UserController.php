@@ -16,7 +16,12 @@ class UserController extends Controller
 {
     public function show(string $username): Response
     {
-        $user = User::withTrashed()->where('username', $username)->firstOrFail();
+        $user = User::withTrashed()->where('username', $username)->first()
+            // Old handle of a deleted account (their username was replaced by deleted_N): still show the "deleted" profile until the purge
+            ?? (\Illuminate\Support\Facades\Schema::hasColumn('users', 'deleted_username')
+                ? User::onlyTrashed()->where('deleted_username', $username)->whereNull('purged_at')->first()
+                : null);
+        abort_unless($user, 404);
 
     // deleted / banned accounts still get a profile page, in a locked-down state (no content, no follow lists)
     $accountState = $user->trashed() ? 'deleted' : (!$user->is_active ? 'banned' : 'active');
@@ -272,104 +277,28 @@ if ($authUserId && $products->isNotEmpty()) {
     }
 
     public function deleteAccount(Request $request): JsonResponse
-{
-    $user = Auth::user();
+    {
+        $user    = Auth::user();
+        $service = app(\App\Services\AccountDeletionService::class);
 
-    // ── 1. Check blockers ─────────────────────────────────────────────────
-    $pendingBuyerOrders = \App\Models\Order::where('buyer_id', $user->id)
-        ->whereIn('status', ['pending', 'paid', 'processing', 'shipped'])
-        ->count();
+        // Money or goods still moving: refuse (orders in any active state, disputes, payouts, wallet balance)
+        if ($blocker = $service->blocker($user)) {
+            return response()->json($blocker, 422);
+        }
 
-    if ($pendingBuyerOrders > 0) {
+        // Phase 1: anonymise, hide content, wipe payment details, set the purge date (see docs/ACCOUNT_DELETION.md)
+        $service->delete($user);
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
         return response()->json([
-            'message' => 'You have active orders in progress. Please wait for them to complete before deleting your account.',
-            'blocker' => 'pending_orders',
-            'count'   => $pendingBuyerOrders,
-        ], 422);
-    }
-
-    $pendingSellerOrders = \App\Models\Order::where('seller_id', $user->id)
-        ->whereIn('status', ['pending', 'paid', 'processing', 'shipped'])
-        ->count();
-
-    if ($pendingSellerOrders > 0) {
-        return response()->json([
-            'message' => 'You have active customer orders to fulfil. Please resolve all orders before deleting your account.',
-            'blocker' => 'pending_seller_orders',
-            'count'   => $pendingSellerOrders,
-        ], 422);
-    }
-
-    $pendingPayouts = \DB::table('payouts')
-        ->where('seller_id', $user->id)
-        ->whereIn('status', ['pending', 'processing'])
-        ->count();
-
-    if ($pendingPayouts > 0) {
-        return response()->json([
-            'message' => 'You have a payout being processed. Please wait for it to complete before deleting your account.',
-            'blocker' => 'pending_payouts',
-        ], 422);
-    }
-
-    $openDisputes = \App\Models\Order::where(function ($q) use ($user) {
-            $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
-        })
-        ->where('status', 'disputed')
-        ->count();
-
-    if ($openDisputes > 0) {
-        return response()->json([
-            'message' => 'You have an open dispute that must be resolved before deleting your account.',
-            'blocker' => 'open_disputes',
-        ], 422);
-    }
-
-    // ── 2. Preserve identity for admin/fraud reference BEFORE anonymising ─
-    \DB::transaction(function () use ($user) {
-        $user->update([
-            // Save original values admin can still search
-            'deleted_name'          => $user->name,
-            'deleted_email'         => $user->email,
-            // Schedule hard deletion in 30 days
-            'deletion_scheduled_at' => now()->addDays(30),
-            // Anonymise immediately — account becomes unusable
-            'is_active'             => false,
-            'email'                 => 'deleted_' . $user->id . '_' . time() . '@flockr.deleted',
-            'username'              => 'deleted_' . $user->id,
-            'name'                  => 'Deleted User',
-            'avatar'                => null,
-            'bio'                   => null,
-            'phone'                 => null,
+            'message' => 'Your account has been scheduled for deletion and will be permanently removed in ' . (int) config('flockr_privacy.deletion_retention_days', 30) . ' days.',
         ]);
-
-        // Soft-delete all their content immediately
-        \App\Models\Video::where('user_id', $user->id)
-            ->whereNull('deleted_at')
-            ->update(['deleted_at' => now()]);
-
-        \App\Models\Product::where('seller_id', $user->id)
-            ->whereNull('deleted_at')
-            ->update(['deleted_at' => now()]);
-
-        // Soft-delete the user
-        $user->delete();
-    });
-
-    // ── 3. Sign out — Sanctum RequestGuard has no logout() method ────────
-    if (method_exists($user, 'tokens')) {
-        $user->tokens()->delete();
     }
 
-    if ($request->hasSession()) {
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-    }
-
-    return response()->json([
-        'message' => 'Your account has been scheduled for deletion and will be permanently removed in 30 days.',
-    ]);
-}
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**

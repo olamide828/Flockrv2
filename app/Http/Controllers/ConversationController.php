@@ -21,7 +21,7 @@ class ConversationController extends Controller
     private const PARTICIPANT_FIELDS = 'id,name,username,avatar,last_seen_at';
     private const SENDER_FIELDS = 'id,name,username,avatar,last_seen_at';
 
-    public function index(): Response
+    public function index()
     {
         $user = Auth::user();
         $this->ensureSupportConversation($user);
@@ -48,13 +48,16 @@ class ConversationController extends Controller
             ->get();
 
         $convIds = $allConvs->pluck('id');
+        $this->markDelivered($convIds->all());
         $sentByMeIds = DB::table('messages')->where('sender_id', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
         $sentByOtherIds = DB::table('messages')->where('sender_id', '!=', $user->id)->whereIn('conversation_id', $convIds)->distinct()->pluck('conversation_id')->toArray();
+
+        $mySentCounts = DB::table('messages')->where('sender_id', $user->id)->whereIn('conversation_id', $convIds)->groupBy('conversation_id')->selectRaw('conversation_id, count(*) as c')->pluck('c', 'conversation_id')->all();
 
         $wallpaperIds = DB::table('conversation_user')->whereIn('conversation_id', $convIds)->whereNotNull('chat_wallpaper_id')->pluck('chat_wallpaper_id')->unique();
         $wallpapers = ChatWallpaper::whereIn('id', $wallpaperIds)->get()->keyBy('id');
 
-        $mapped = $allConvs->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $sentByMeIds, $sentByOtherIds, $dismissedIds, $storage, $wallpapers, $user) {
+        $mapped = $allConvs->map(function ($conv) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $sentByMeIds, $sentByOtherIds, $dismissedIds, $storage, $wallpapers, $user, $mySentCounts) {
             $conv->participants->each(function ($p) use ($blockedIds, $blockedByIds, $whoFollowsMe, $whoIFollow, $storage, $wallpapers) {
                 $p->setAttribute('is_blocked_by_me', in_array($p->id, $blockedIds));
                 $p->setAttribute('has_blocked_me', in_array($p->id, $blockedByIds));
@@ -66,7 +69,16 @@ class ConversationController extends Controller
                 $p->setAttribute('conversation_wallpaper_url', $wallpaper ? $storage->url($wallpaper->image_path) : null);
             });
 
+            // Someone who isn't following you (and hasn't replied) must not see when you were last online
+            $otherSpoke = in_array($conv->id, $sentByOtherIds);
+            $conv->participants->each(function ($p) use ($user, $otherSpoke) {
+                if ($p->id === $user->id) return;
+                if (!($p->is_flockr_support || $p->role === 'admin' || $p->follows_me || $otherSpoke)) $p->setAttribute('last_seen_at', null);
+            });
+
             $other = $conv->participants->first(fn($p) => $p->id !== $user->id);
+            // Out of message-request messages: 3 sent, they don't follow me and haven't replied
+            $conv->setAttribute('request_limit_reached', (bool) ($other && !$other->is_flockr_support && !$other->follows_me && !$otherSpoke && (($mySentCounts[$conv->id] ?? 0) >= 3)));
             $isPendingRequestForMe = $other
                 && !$other->is_flockr_support
                 && !in_array($other->id, $whoIFollow)
@@ -83,6 +95,11 @@ class ConversationController extends Controller
         $conversations = $mapped->reject(fn($c) => $c->is_pending_request)
             ->sortByDesc(fn($c) => $c->is_support ? 1 : 0)
             ->values();
+
+        // The Inbox polls this URL for fresh flags (e.g. "they followed back") and wants JSON, not the page
+        if (request()->expectsJson() && !request()->header('X-Inertia')) {
+            return response()->json($conversations);
+        }
 
         return Inertia::render('Inbox/Index', [
             'conversations' => $conversations,
@@ -117,7 +134,7 @@ class ConversationController extends Controller
             ->conversations()
             ->whereHas('participants', fn($q) => $q->where('user_id', $other->id))
             ->with([
-                'participants:' . self::PARTICIPANT_FIELDS,
+                'participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support',
                 'lastMessage',
             ])
             ->withCount([
@@ -128,16 +145,16 @@ class ConversationController extends Controller
             ->first();
 
         if ($existing) {
+            $this->hideStatus($existing, Auth::user());
             return response()->json($existing);
         }
 
         $conv = Conversation::create();
         $conv->participants()->attach([Auth::id(), $other->id]);
 
-        return response()->json(
-            $conv->load('participants:' . self::PARTICIPANT_FIELDS),
-            201
-        );
+        $conv->load('participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support');
+        $this->hideStatus($conv, Auth::user());
+        return response()->json($conv, 201);
     }
 
     public function messages(Conversation $conversation): JsonResponse
@@ -147,28 +164,38 @@ class ConversationController extends Controller
         }
 
         $messages = $conversation->messages()
-    ->with('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name')
-    ->orderBy('created_at', 'asc')
-    ->get()
-    ->map(function ($m) {
-        if ($m->is_deleted) {
-            $m->setAttribute('body', '');
-            $m->setAttribute('media_url', null);
+            ->with('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name')
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $storage = app(StorageService::class);
+        \App\Models\Message::fillProducts($messages->filter(fn ($m) => !$m->is_deleted));
+        $this->hideSenderStatus($conversation, $messages);
+
+        // Emoji reactions for the whole thread in one query: [{emoji, user_id}]
+        $reactionRows = DB::table('message_reactions')->whereIn('message_id', $messages->pluck('id'))
+            ->get(['message_id', 'emoji', 'user_id'])->groupBy('message_id');
+
+        $messages = $messages->map(function ($m) use ($storage, $reactionRows) {
+            $m->setAttribute('reactions', ($reactionRows[$m->id] ?? collect())->map(fn ($r) => ['emoji' => $r->emoji, 'user_id' => (int) $r->user_id])->values()->all());
+            if ($m->is_deleted) {
+                $m->setAttribute('body', '');
+                $m->setAttribute('media_url', null);
+                $m->setAttribute('suggested_products', []);
+                return $m;
+            }
+            if ($m->media_path) {
+                $m->setAttribute('media_url', $storage->url($m->media_path));
+            }
             return $m;
-        }
-        if ($m->media_path) {
-            $m->setAttribute('media_url', app(StorageService::class)->url($m->media_path));
-        }
-        if ($m->suggested_product_ids) {
-        $m->setAttribute('suggested_products', \App\Models\Product::whereIn('id', $m->suggested_product_ids)->get());
-        }
-        return $m;
-    });
+        });
+
+        $this->markDelivered([$conversation->id]);
 
         $conversation->messages()
             ->where('sender_id', '!=', Auth::id())
             ->whereNull('read_at')
-            ->update(['read_at' => now()]);
+            ->update(['read_at' => now(), 'delivered_at' => DB::raw('COALESCE(delivered_at, NOW())')]);
 
         return response()->json($messages);
     }
@@ -177,6 +204,21 @@ class ConversationController extends Controller
     {
         if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        // A retried send (same client_id) returns the message that already went through instead of posting it twice
+        $clientId = substr((string) $request->input('client_id', ''), 0, 64) ?: null;
+        if ($clientId) {
+            $dupe = $conversation->messages()->where('sender_id', Auth::id())->where('client_id', $clientId)->first();
+            if ($dupe) {
+                $dupe->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name');
+                if ($dupe->media_path) $dupe->setAttribute('media_url', app(StorageService::class)->url($dupe->media_path));
+                return response()->json($dupe, 200);
+            }
+        }
+
+        if ($restriction = \App\Support\ChatRestriction::active(Auth::id(), 'dm')) {
+            return response()->json(['message' => \App\Support\ChatRestriction::message($restriction), 'chat_restricted' => true], 403);
         }
 
         $otherParticipant = $conversation->participants()
@@ -199,11 +241,14 @@ class ConversationController extends Controller
         if ($otherParticipant) {
             $theyFollowMe = DB::table('follows')->where('follower_id', $otherParticipant->id)->where('following_id', Auth::id())->exists();
 
-            if (!$theyFollowMe && !$otherParticipant->is_flockr_support) {
+            // The limit only applies while they have neither followed you back nor replied: once they answer, you can chat freely
+            $theyReplied = $conversation->messages()->where('sender_id', $otherParticipant->id)->exists();
+
+            if (!$theyFollowMe && !$theyReplied && !$otherParticipant->is_flockr_support) {
                 $mySentCount = $conversation->messages()->where('sender_id', Auth::id())->count();
                 if ($mySentCount >= 3) {
                     return response()->json([
-                        'message' => "You've reached the message request limit. When @{$otherParticipant->username} follows you back, you'll be able to keep chatting.",
+                        'message' => "You've reached the message request limit. When @{$otherParticipant->username} replies or follows you back, you'll be able to keep chatting.",
                         'request_limit_reached' => true,
                     ], 403);
                 }
@@ -214,6 +259,7 @@ class ConversationController extends Controller
     'body'        => 'nullable|string|max:1000',
     'media'       => 'nullable|file|mimes:jpg,jpeg,png,webp,mp4,mov|max:20480',
     'reply_to_id' => 'nullable|integer|exists:messages,id',
+    'client_id'   => 'nullable|string|max:64',
 ]);
 
         $bodyText = trim((string) $request->input('body', ''));
@@ -230,13 +276,24 @@ class ConversationController extends Controller
             $mediaPath = app(StorageService::class)->uploadCommunityMedia($file, $mediaType);
         }
 
-        $message = $conversation->messages()->create([
-    'sender_id'   => Auth::id(),
-    'body'        => $bodyText,
-    'media_path'  => $mediaPath,
-    'media_type'  => $mediaType,
-    'reply_to_id' => $request->input('reply_to_id'),
-]);
+        try {
+            $message = $conversation->messages()->create([
+                'sender_id'   => Auth::id(),
+                'body'        => $bodyText,
+                'media_path'  => $mediaPath,
+                'media_type'  => $mediaType,
+                'reply_to_id' => $request->input('reply_to_id'),
+                'client_id'   => $clientId,
+            ]);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Two identical retries raced: the first one won, return it
+            $message = $conversation->messages()->where('sender_id', Auth::id())->where('client_id', $clientId)->firstOrFail();
+        }
+
+        // ✓✓ straight away when the other person is online right now
+        if ($otherParticipant && !$message->delivered_at && $otherParticipant->is_online) {
+            $message->forceFill(['delivered_at' => now()])->save();
+        }
 
         $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id,media_type', 'replyTo.sender:id,name');
         if ($message->media_path) {
@@ -262,37 +319,131 @@ class ConversationController extends Controller
             \App\Jobs\GenerateSupportReply::dispatch($conversation->id, $message->id);
         }
 
-        if ($message->suggested_product_ids) {
-    $message->setAttribute('suggested_products', \App\Models\Product::whereIn('id', $message->suggested_product_ids)->get());
-}
-
         return response()->json($message, 201);
     }
 
 
 
     public function deleteMessage(Conversation $conversation, \App\Models\Message $message): JsonResponse
-{
-    if ($message->conversation_id !== $conversation->id) {
-        return response()->json(['message' => 'Not found.'], 404);
+    {
+        if ((int) $message->conversation_id !== (int) $conversation->id) {
+            return response()->json(['message' => 'Not found.'], 404);
+        }
+        if ((int) $message->sender_id !== (int) Auth::id()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        // forceFill: is_deleted is not mass-assignable on older copies of the model, and update() would throw there (the server error)
+        $message->forceFill(['is_deleted' => true])->save();
+
+        $masked = $message->replicate();
+        $masked->id = $message->id;
+        $masked->setAttribute('body', '');
+        $masked->setAttribute('media_url', null);
+        $masked->setAttribute('suggested_products', []);
+        $masked->setAttribute('is_deleted', true);
+        $masked->created_at = $message->created_at;
+
+        try {
+            broadcast(new \App\Events\MessageDeleted($message->id, $conversation->id))->toOthers();
+        } catch (\Throwable) {}
+
+        return response()->json($masked);
     }
-    if ($message->sender_id !== Auth::id()) {
-        return response()->json(['message' => 'Unauthorized.'], 403);
+
+    /** Messages can be edited for this many minutes after sending (same as WhatsApp). */
+    private const EDIT_WINDOW_MINUTES = 15;
+
+    /** PATCH /api/conversations/{conversation}/messages/{message}  { body } */
+    public function editMessage(Request $request, Conversation $conversation, \App\Models\Message $message): JsonResponse
+    {
+        if ((int) $message->conversation_id !== (int) $conversation->id) return response()->json(['message' => 'Not found.'], 404);
+        if ((int) $message->sender_id !== (int) Auth::id()) return response()->json(['message' => 'You can only edit your own messages.'], 403);
+        if ($message->is_deleted) return response()->json(['message' => 'This message was deleted.'], 422);
+        if ($message->created_at->lt(now()->subMinutes(self::EDIT_WINDOW_MINUTES))) {
+            return response()->json(['message' => 'Messages can only be edited for ' . self::EDIT_WINDOW_MINUTES . ' minutes after sending.'], 422);
+        }
+        if ($restriction = \App\Support\ChatRestriction::active(Auth::id(), 'dm')) {
+            return response()->json(['message' => \App\Support\ChatRestriction::message($restriction), 'chat_restricted' => true], 403);
+        }
+
+        $data = $request->validate(['body' => 'required|string|max:1000']);
+        $body = trim($data['body']);
+        if ($body === '') return response()->json(['message' => 'Message cannot be empty.'], 422);
+        if ($body === (string) $message->body) return response()->json(['message' => 'ok', 'body' => $body, 'edited_at' => $message->edited_at]);
+
+        $message->forceFill(['body' => $body, 'edited_at' => now()])->save();
+
+        try {
+            broadcast(new \App\Events\MessageUpdated($conversation->id, $message->id, $body, $message->edited_at->toIso8601String(), $this->reactionsOf($message->id)))->toOthers();
+        } catch (\Throwable) {}
+
+        return response()->json(['message' => 'ok', 'body' => $body, 'edited_at' => $message->edited_at]);
     }
 
-    $message->update(['is_deleted' => true]);
-    $message->load('sender:' . self::SENDER_FIELDS, 'replyTo:id,body,sender_id');
+    /** POST /api/conversations/{conversation}/messages/{message}/react  { emoji }  (same emoji again removes it) */
+    public function reactMessage(Request $request, Conversation $conversation, \App\Models\Message $message): JsonResponse
+    {
+        if (!$conversation->participants()->where('user_id', Auth::id())->exists()) return response()->json(['message' => 'Unauthorized.'], 403);
+        if ((int) $message->conversation_id !== (int) $conversation->id) return response()->json(['message' => 'Not found.'], 404);
+        if ($message->is_deleted) return response()->json(['message' => 'This message was deleted.'], 422);
 
-    $masked = clone $message;
-    $masked->setAttribute('body', '');
-    $masked->setAttribute('media_url', null);
+        $emoji = (string) $request->validate(['emoji' => 'required|string|max:16'])['emoji'];
 
-    try {
-        broadcast(new \App\Events\MessageDeleted($message->id, $conversation->id))->toOthers();
-    } catch (\Throwable) {}
+        $existing = DB::table('message_reactions')->where('message_id', $message->id)->where('user_id', Auth::id())->first();
+        if ($existing && $existing->emoji === $emoji) {
+            DB::table('message_reactions')->where('id', $existing->id)->delete();
+        } else {
+            DB::table('message_reactions')->upsert(
+                [['message_id' => $message->id, 'user_id' => Auth::id(), 'emoji' => $emoji, 'created_at' => now(), 'updated_at' => now()]],
+                ['message_id', 'user_id'], ['emoji', 'updated_at']
+            );
+        }
 
-    return response()->json($masked);
-}
+        $reactions = $this->reactionsOf($message->id);
+
+        // The inbox list shows the reaction as the latest activity: "You: Reacted 👍 to “How are you?”"
+        $added = !($existing && $existing->emoji === $emoji);
+        $preview = $message->body !== '' && $message->body !== null
+            ? \Illuminate\Support\Str::limit($message->body, 40)
+            : ($message->media_type === 'video' ? 'a video' : 'a photo');
+        $last = $added ? ['user_id' => Auth::id(), 'emoji' => $emoji, 'preview' => $preview, 'message_id' => $message->id, 'at' => now()->toIso8601String()] : null;
+        if ($added) {
+            DB::table('conversations')->where('id', $conversation->id)->update(['last_reaction' => json_encode($last), 'updated_at' => now()]);
+        } else {
+            DB::table('conversations')->where('id', $conversation->id)->whereRaw("(last_reaction::jsonb ->> 'message_id')::int = ? AND (last_reaction::jsonb ->> 'user_id')::int = ?", [$message->id, Auth::id()])->update(['last_reaction' => null]);
+        }
+
+        try {
+            broadcast(new \App\Events\MessageUpdated($conversation->id, $message->id, null, null, $reactions, $last))->toOthers();
+        } catch (\Throwable) {}
+
+        return response()->json(['reactions' => $reactions, 'last_reaction' => $last]);
+    }
+
+    /** The person opening their inbox / a chat has now received everything waiting: stamp ✓✓ and tell the senders. */
+    private function markDelivered(iterable $conversationIds): void
+    {
+        try {
+            $rows = DB::table('messages')->whereIn('conversation_id', $conversationIds)
+                ->where('sender_id', '!=', Auth::id())->whereNull('delivered_at')
+                ->groupBy('conversation_id')->selectRaw('conversation_id, max(id) as up_to')->get();
+            if ($rows->isEmpty()) return;
+
+            DB::table('messages')->whereIn('conversation_id', $rows->pluck('conversation_id'))
+                ->where('sender_id', '!=', Auth::id())->whereNull('delivered_at')->update(['delivered_at' => now()]);
+
+            foreach ($rows->take(30) as $r) {
+                try { broadcast(new \App\Events\MessageUpdated((int) $r->conversation_id, 0, null, null, [], null, (int) $r->up_to))->toOthers(); } catch (\Throwable) {}
+            }
+        } catch (\Throwable) {}
+    }
+
+    private function reactionsOf(int $messageId): array
+    {
+        return DB::table('message_reactions')->where('message_id', $messageId)->get(['emoji', 'user_id'])
+            ->map(fn ($r) => ['emoji' => $r->emoji, 'user_id' => (int) $r->user_id])->all();
+    }
 
     /**
      * POST /api/conversations/{conversation}/report
@@ -374,7 +525,7 @@ class ConversationController extends Controller
         if (!$conversation->participants()->where('user_id', Auth::id())->exists()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
-        $conversation->messages()->where('sender_id', '!=', Auth::id())->whereNull('read_at')->update(['read_at' => now()]);
+        $conversation->messages()->where('sender_id', '!=', Auth::id())->whereNull('read_at')->update(['read_at' => now(), 'delivered_at' => DB::raw('COALESCE(delivered_at, NOW())')]);
         return response()->json(['ok' => true]);
     }
 
@@ -409,4 +560,26 @@ class ConversationController extends Controller
         return Inertia::render('Inbox/Requests', ['requests' => $requests]);
     }
 
+
+    /** Hide `last_seen_at` of the other participants unless they follow me, are support/admin, or have already replied. */
+    private function hideStatus($conv, User $viewer): void
+    {
+        $others = $conv->participants->where('id', '!=', $viewer->id);
+        if ($others->isEmpty()) return;
+        $spoke     = DB::table('messages')->where('conversation_id', $conv->id)->where('sender_id', '!=', $viewer->id)->pluck('sender_id')->flip();
+        $followers = DB::table('follows')->where('following_id', $viewer->id)->whereIn('follower_id', $others->pluck('id'))->pluck('follower_id')->flip();
+        foreach ($others as $p) {
+            if (!($p->is_flockr_support || $p->role === 'admin' || isset($followers[$p->id]) || isset($spoke[$p->id]))) $p->setAttribute('last_seen_at', null);
+        }
+    }
+
+    private function hideSenderStatus(Conversation $conversation, $messages): void
+    {
+        $conversation->loadMissing('participants:' . self::PARTICIPANT_FIELDS . ',role,is_flockr_support');
+        $this->hideStatus($conversation, Auth::user());
+        $hidden = $conversation->participants->where('id', '!=', Auth::id())->filter(fn ($p) => $p->last_seen_at === null)->pluck('id')->all();
+        foreach ($messages as $m) {
+            if ($m->sender && in_array($m->sender->id, $hidden, true)) $m->sender->setAttribute('last_seen_at', null);
+        }
+    }
 }

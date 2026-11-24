@@ -1,5 +1,7 @@
 import { Head, useForm } from '@inertiajs/react';
 import axios from 'axios';
+import { AuthLogo } from '@/Components/Auth/AuthShell';
+import { INTERESTS } from '@/Components/Auth/interests';
 import { useEffect, useState } from 'react';
 import {
     RiArrowLeftLine,
@@ -50,11 +52,16 @@ const CATEGORIES = [
 ];
 
 const MAX_CATEGORIES = 3;
+const MIN_INTERESTS = 3;
+// which step owns which server error
+const FIELD_STEP = { store_name: 1, business_type: 1, whatsapp: 1, product_categories: 2, interests: 3, description: 4, location: 4, pickup_street: 4, pickup_city: 4, pickup_state: 4, pickup_state_code: 4, pickup_postal_code: 4 };
 
 export default function SellerOnboarding() {
     const [step,               setStep]               = useState(1);
     const [selectedCategories, setSelectedCategories] = useState([]);
-    const TOTAL_STEPS = 3;
+    const TOTAL_STEPS = 4;
+    const [selectedInterests, setSelectedInterests] = useState([]);
+    const [touched, setTouched] = useState(false);
 
     // Terminal API states/cities
     const [states,        setStates]        = useState([]);
@@ -69,6 +76,7 @@ export default function SellerOnboarding() {
         description:        '',
         location:           '',
         whatsapp:           '',
+        interests:          [],
         pickup_street:      '',
         pickup_city:        '',
         pickup_state:       '',
@@ -78,7 +86,7 @@ export default function SellerOnboarding() {
 
     // Load Terminal states when step 3 is reached
     useEffect(() => {
-        if (step !== 3 || states.length > 0) return;
+        if (step !== 4 || states.length > 0) return;
         let cancelled = false;
         setLoadingStates(true);
         axios.get('/api/locations/states')
@@ -127,13 +135,46 @@ export default function SellerOnboarding() {
         });
     };
 
-    const submit = async e => {
-        e.preventDefault();
-        await axios.get('/sanctum/csrf-cookie');
-        post('/seller/onboarding');
+    const toggleInterest = label => {
+        setSelectedInterests(prev => {
+            const next = prev.includes(label) ? prev.filter(c => c !== label) : [...prev, label];
+            setData('interests', next);
+            return next;
+        });
     };
 
-    const canSubmit = !!data.description && !!data.location && !!data.pickup_street && !!data.pickup_state && !!data.pickup_city;
+    const stepErrors = {
+        1: [!data.store_name.trim() && 'Enter your store name', !data.business_type && 'Choose a business type'].filter(Boolean),
+        2: [data.product_categories.length === 0 && 'Pick at least one category'].filter(Boolean),
+        3: [],
+        4: [!data.description.trim() && 'Describe your store', !data.location.trim() && 'Add your store location', !data.pickup_street.trim() && 'Add your pickup street', !data.pickup_state && 'Select a state', !data.pickup_city && 'Select a city'].filter(Boolean),
+    };
+    const stepOk = n => stepErrors[n].length === 0;
+    const canSubmit = stepOk(4);
+    const serverErrors = Object.entries(errors);
+
+    const goNext = () => { setTouched(true); if (stepOk(step)) { setTouched(false); next(); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+
+    const submit = async e => {
+        e.preventDefault();
+        setTouched(true);
+        const firstBad = [1, 2, 4].find(n => !stepOk(n));
+        if (firstBad) { setStep(firstBad); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+        await axios.get('/sanctum/csrf-cookie');
+        post('/seller/onboarding', {
+            onError: errs => {
+                const first = Math.min(...Object.keys(errs).map(k => FIELD_STEP[k] ?? 4));
+                setStep(first);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            },
+        });
+    };
+
+    const Hint = ({ n }) => (touched && !stepOk(n)) ? (
+        <div style={{ marginTop: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10 }}>
+            {stepErrors[n].map(m => <p key={m} style={{ margin: 0, color: '#F87171', fontSize: 12.5, lineHeight: 1.6 }}>• {m}</p>)}
+        </div>
+    ) : null;
 
     return (
         <>
@@ -141,9 +182,7 @@ export default function SellerOnboarding() {
             <div style={{ minHeight: '100vh', background: 'var(--flockr-black)', display: 'flex', flexDirection: 'column' }}>
                 {/* Top bar */}
                 <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#fff' }}>
-                        flockr<span style={{ color: 'var(--flockr-orange)' }}>.</span>
-                    </span>
+                    <AuthLogo size={26} />
                     <span style={{ color: 'var(--flockr-muted)', fontSize: 13 }}>Step {step} of {TOTAL_STEPS}</span>
                 </div>
 
@@ -154,6 +193,12 @@ export default function SellerOnboarding() {
 
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 20px' }}>
                     <div style={{ width: '100%', maxWidth: 480 }}>
+                        {serverErrors.length > 0 && (
+                            <div role="alert" style={{ marginBottom: 20, padding: '12px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12 }}>
+                                <p style={{ margin: '0 0 4px', color: '#F87171', fontSize: 13, fontWeight: 700 }}>We couldn't set up your store yet</p>
+                                {serverErrors.map(([k, v]) => <p key={k} style={{ margin: 0, color: '#FCA5A5', fontSize: 12.5, lineHeight: 1.6 }}>• {v}</p>)}
+                            </div>
+                        )}
 
                         {/* ── Step 1: Store basics ──────────────────────────── */}
                         {step === 1 && (
@@ -192,8 +237,9 @@ export default function SellerOnboarding() {
                                     </Field>
                                 </div>
 
-                                <button type="button" onClick={next} disabled={!data.store_name || !data.business_type}
-                                    style={{ ...primaryBtn, marginTop: 28, opacity: !data.store_name || !data.business_type ? 0.5 : 1 }}>
+                                <Hint n={1} />
+                                <button type="button" onClick={goNext}
+                                    style={{ ...primaryBtn, marginTop: 20, opacity: stepOk(1) ? 1 : 0.6 }}>
                                     <span>Continue</span><RiArrowRightLine size={18} />
                                 </button>
                             </div>
@@ -226,18 +272,45 @@ export default function SellerOnboarding() {
                                     })}
                                 </div>
 
-                                <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                                <Hint n={2} />
+                                <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
                                     <button type="button" onClick={prev} style={ghostBtn}><RiArrowLeftLine size={16} /> Back</button>
-                                    <button type="button" onClick={next} disabled={data.product_categories.length === 0}
-                                        style={{ ...primaryBtn, flex: 1, opacity: data.product_categories.length === 0 ? 0.5 : 1 }}>
+                                    <button type="button" onClick={goNext} style={{ ...primaryBtn, flex: 1, opacity: stepOk(2) ? 1 : 0.6 }}>
                                         <span>Continue</span><RiArrowRightLine size={18} />
                                     </button>
                                 </div>
                             </div>
                         )}
 
-                        {/* ── Step 3: Bio + Location + Pickup ──────────────── */}
+                        {/* ── Step 3: What you like (feeds your own feed) ───── */}
                         {step === 3 && (
+                            <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                                <StepHeader Icon={RiShoppingBagLine} title="What do you like?" sub={`Pick at least ${MIN_INTERESTS} so we can fill your feed with videos you'll enjoy`} />
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                    {INTERESTS.map(({ label, emoji }) => {
+                                        const active = selectedInterests.includes(label);
+                                        return (
+                                            <button key={label} type="button" onClick={() => toggleInterest(label)}
+                                                style={{ padding: '10px 12px', background: active ? 'rgba(255,92,0,0.12)' : 'var(--flockr-card)', border: `1.5px solid ${active ? 'var(--flockr-orange)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <span aria-hidden style={{ fontSize: 20, lineHeight: 1 }}>{emoji}</span>
+                                                <span style={{ color: active ? '#fff' : 'var(--flockr-muted)', fontSize: 13, fontWeight: active ? 600 : 400 }}>{label}</span>
+                                                {active && <RiCheckLine size={14} color="var(--flockr-orange)" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <p style={{ color: 'var(--flockr-muted)', fontSize: 12, margin: '12px 0 0' }}>{selectedInterests.length} selected{selectedInterests.length < MIN_INTERESTS ? ` — ${MIN_INTERESTS - selectedInterests.length} more recommended` : ''}</p>
+                                <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                                    <button type="button" onClick={prev} style={ghostBtn}><RiArrowLeftLine size={16} /> Back</button>
+                                    <button type="button" onClick={goNext} style={{ ...primaryBtn, flex: 1 }}>
+                                        <span>{selectedInterests.length === 0 ? 'Skip for now' : 'Continue'}</span><RiArrowRightLine size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── Step 4: Bio + Location + Pickup ──────────────── */}
+                        {step === 4 && (
                             <form onSubmit={submit} style={{ animation: 'fadeIn 0.3s ease' }}>
                                 <StepHeader Icon={RiMapPinLine} title="Almost done!" sub="Help buyers know more about your store" />
 
@@ -361,17 +434,18 @@ export default function SellerOnboarding() {
                                     <button type="button" onClick={prev} style={ghostBtn}><RiArrowLeftLine size={16} /> Back</button>
                                     <button
                                         type="submit"
-                                        disabled={processing || !canSubmit}
-                                        style={{ ...primaryBtn, flex: 1, opacity: processing || !canSubmit ? 0.5 : 1 }}
+                                        disabled={processing}
+                                        style={{ ...primaryBtn, flex: 1, opacity: processing ? 0.6 : canSubmit ? 1 : 0.6 }}
                                     >
                                         <RiRocketLine size={17} />
                                         <span>{processing ? 'Setting up...' : 'Launch My Store'}</span>
                                     </button>
                                 </div>
 
-                                {!canSubmit && (
-                                    <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 12, marginTop: 8 }}>
-                                        Fill description, location, street, state and city to continue
+                                <Hint n={4} />
+                                {!canSubmit && !touched && (
+                                    <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12, marginTop: 8 }}>
+                                        Still needed: {stepErrors[4].join(', ').toLowerCase()}
                                     </p>
                                 )}
                             </form>

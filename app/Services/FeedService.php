@@ -23,6 +23,8 @@ class FeedService
     const W_DIVERSITY = 0.10;
     const W_NOVELTY = 0.05;
     const MAX_PER_SELLER = 2;
+    /** Gemini taste keywords for the user being served (set per request) */
+    private array $aiKeywords = [];
     const MAX_PER_CATEGORY = 3;
     const EXPLORATION_RATIO = 0.15;
     const PRO_BOOST_MULTIPLIER = 1.15; // Pro sellers' videos score 15% higher in ranking
@@ -40,6 +42,7 @@ class FeedService
         $blockedIds = $this->blockedAndBlockingIds($userId);
         $affinities = $this->getUserAffinities($userId, $sessionId);
         $isNewUser = $this->isNewUser($userId, $sessionId, $seenIds);
+        $this->aiKeywords = app(\App\Services\AiRecommendService::class)->keywords($userId);
 
         $poolSize = max($limit * 6, 60);
         $candidates = $this->generateCandidates($poolSize, $cursor, $seenIds, $blockedIds, $affinities, $isNewUser);
@@ -192,10 +195,19 @@ class FeedService
             ->get();
 
         // Strategy E: random exploration
-        $exploration = (clone $base)
-            ->inRandomOrder()
-            ->limit((int) ceil($slice * 0.5))
-            ->get();
+        // (ORDER BY random() scans the whole table, which gets slow with a big catalogue: jump to a random id instead)
+        $exploration = $this->randomSlice($base, (int) ceil($slice * 0.5));
+
+        // Strategy G: videos matching the user's Gemini taste keywords
+        $aiPicks = empty($this->aiKeywords) ? collect() : (clone $base)
+            ->where(function ($q) {
+                foreach ($this->aiKeywords as $k) {
+                    $q->orWhere('title', 'ilike', "%{$k}%")
+                      ->orWhere('description', 'ilike', "%{$k}%")
+                      ->orWhereRaw('hashtags::text ilike ?', ["%{$k}%"]);
+                }
+            })
+            ->inRandomOrder()->limit((int) ceil($slice * 0.5))->get();
 
         return $affinity
             ->concat($popular)
@@ -203,8 +215,25 @@ class FeedService
             ->concat($commerce)
             ->concat($exploration)
             ->concat($soundHot)
+            ->concat($aiPicks)
             ->unique('id')
             ->values();
+    }
+
+    /** Cheap random sample: start at a random id and read forward (wraps if the tail is empty). */
+    private function randomSlice($base, int $limit): Collection
+    {
+        $range = Cache::remember('feed:id_range', 600, fn () => [
+            (int) Video::min('id'), (int) Video::max('id'),
+        ]);
+        if ($range[1] <= $range[0]) return (clone $base)->limit($limit)->get();
+
+        $start = random_int($range[0], $range[1]);
+        $rows  = (clone $base)->where('id', '>=', $start)->orderBy('id')->limit($limit)->get();
+        if ($rows->count() < $limit) {
+            $rows = $rows->concat((clone $base)->where('id', '<', $start)->orderByDesc('id')->limit($limit - $rows->count())->get());
+        }
+        return $rows;
     }
 
     private function fetchAffinityMatched($base, array $affinities, int $limit): Collection
@@ -313,6 +342,16 @@ private function getAdjacentCategoryIds(array $categoryIds): array
 
 // A trending sound gives a lottery-style boost, but only as much as the post's own engagement earns (see SoundTrendService)
 $baseScore += app(\App\Services\SoundTrendService::class)->boost($video);
+
+// Videos the Flockr team featured get a steady lift in the feed (a badge shows on them too)
+if (!empty($video->is_featured)) $baseScore += 0.12;
+
+// Gemini taste match: a modest nudge, never enough to beat quality + freshness on its own
+if ($this->aiKeywords) {
+    $baseScore += 0.08 * app(\App\Services\AiRecommendService::class)->match(
+        $this->aiKeywords, (string) $video->title, (string) $video->description, json_encode($video->hashtags ?? [])
+    );
+}
 
 $proBoost = ($video->relationLoaded('user') && $video->user?->hasActiveSubscription())
     ? self::PRO_BOOST_MULTIPLIER
@@ -740,7 +779,7 @@ return $baseScore * $proBoost;
                 ->when($userId, fn($q) => $q->where('user_id', $userId))
                 ->when(!$userId, fn($q) => $q->where('session_id', $sessionId))
                 ->orderByDesc('seen_at')
-                ->limit(500)
+                ->limit(1000)
                 ->pluck('video_id');
         });
     }

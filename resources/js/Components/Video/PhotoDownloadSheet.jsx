@@ -21,23 +21,24 @@ export default function PhotoDownloadSheet({ video, onClose, showToast }) {
     if (!list.length || busy) return
     setBusy(true); setDone(0)
     let ok = 0
-    for (const i of list) {
-      try {
-        const res = await axios.get(`/api/videos/${video.ulid}/photos/${i}/download`, { responseType: 'blob', timeout: 60000 })
-        const url = URL.createObjectURL(res.data)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `flockr-${video.user?.username ?? 'photo'}-${i + 1}.jpg`
-        document.body.appendChild(a); a.click(); document.body.removeChild(a)
-        setTimeout(() => URL.revokeObjectURL(url), 15000)
-        ok++; setDone(ok)
-        await new Promise((r) => setTimeout(r, 350))   // browsers drop downloads fired in the same instant
-      } catch {
-        showToast?.(`Photo ${i + 1} could not be downloaded.`, 'error')
-      }
+    // One photo = a .jpg. Several = ONE .zip (browsers block pages that start several downloads at once).
+    try {
+      const single = list.length === 1
+      const res = await axios.get(single ? `/api/videos/${video.ulid}/photos/${list[0]}/download` : `/api/videos/${video.ulid}/photos/download`, {
+        params: single ? undefined : { i: list.join(',') }, responseType: 'blob', timeout: 120000,
+      })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = single ? `flockr-${video.user?.username ?? 'photo'}-${list[0] + 1}.jpg` : `flockr-${video.user?.username ?? 'photo'}-photos.zip`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 15000)
+      ok = list.length; setDone(ok)
+    } catch {
+      showToast?.('Could not download. Please try again.', 'error')
     }
     setBusy(false)
-    if (ok) { showToast?.(ok === 1 ? 'Photo saved' : `${ok} photos saved`); onClose() }
+    if (ok) { showToast?.(ok === 1 ? 'Photo saved' : `${ok} photos saved as one zip file`); onClose() }
   }
 
   return createPortal(

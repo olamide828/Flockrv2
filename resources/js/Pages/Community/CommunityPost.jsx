@@ -6,8 +6,10 @@ import { useToast } from '@/Components/Toast'
 import {
   RiArrowLeftLine, RiHeartLine, RiHeartFill, RiChat1Line,
   RiEyeLine, RiSendPlaneFill, RiShareForwardLine,
-  RiMoreLine, RiCloseLine, RiInformationLine, RiFullscreenLine,
+  RiMoreLine, RiCloseLine, RiInformationLine, RiFullscreenLine, RiBookmarkLine, RiBookmarkFill,
 } from 'react-icons/ri'
+import MentionText from '@/Components/Common/MentionText'
+import MentionSuggest, { detectMention, applyMention } from '@/Components/Common/MentionSuggest'
 import Av from '@/Components/Community/Av'
 import FollowButton from '@/Components/Community/FollowButton'
 import PostVideoPlayer from '@/Components/Community/PostVideoPlayer'
@@ -69,11 +71,14 @@ function ReplyItem({ reply, postOwnerId, currentUserId, onReply, onDelete }) {
         </div>
         <p style={{ color: 'rgba(255,255,255,0.88)', fontSize: 13, margin: '4px 0 6px', lineHeight: 1.45, wordBreak: 'break-word' }}>
           {reply.reply_to_username && <span style={{ color: '#FF6B35', fontWeight: 600, marginRight: 4 }}>@{reply.reply_to_username}</span>}
-          {reply.body}
+          <MentionText text={reply.body} />
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <LikeBtn commentId={reply.id} initialCount={reply.likes_count ?? 0} initialLiked={reply.is_liked_by_me ?? false} size={12} />
           <button onClick={() => onReply(reply)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 600 }}>Reply</button>
+          {currentUserId && !canDel && (
+            <button onClick={() => window.dispatchEvent(new CustomEvent('flockr:report-post-comment', { detail: reply }))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.25)', fontSize: 11, fontWeight: 600 }}>Report</button>
+          )}
           {canDel && (
             <button onClick={() => onDelete(reply, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.25)', fontSize: 11, fontWeight: 600 }}>Delete</button>
           )}
@@ -109,7 +114,7 @@ function CommentItem({ comment, postOwnerId, currentUserId, onReply, onDelete, o
           {comment.is_pinned && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)' }}>📌 Pinned</span>}
           <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(comment.created_at)}</span>
         </div>
-        <p style={{ color: 'rgba(255,255,255,0.88)', fontSize: 14, margin: '5px 0 8px', lineHeight: 1.45, wordBreak: 'break-word' }}>{comment.body}</p>
+        <p style={{ color: 'rgba(255,255,255,0.88)', fontSize: 14, margin: '5px 0 8px', lineHeight: 1.45, wordBreak: 'break-word' }}><MentionText text={comment.body} /></p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <LikeBtn commentId={comment.id} initialCount={comment.likes_count ?? 0} initialLiked={comment.is_liked_by_me ?? false} size={13} />
           <button onClick={() => onReply({ rootId: comment.id, tagUsername: null })} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 600 }}>Reply</button>
@@ -117,6 +122,9 @@ function CommentItem({ comment, postOwnerId, currentUserId, onReply, onDelete, o
             <button onClick={() => onPin(comment)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: comment.is_pinned ? '#FF6B35' : 'rgba(255,255,255,0.3)', fontSize: 12, fontWeight: 600 }}>
               {comment.is_pinned ? 'Unpin' : 'Pin'}
             </button>
+          )}
+          {currentUserId && !canDel && (
+            <button onClick={() => window.dispatchEvent(new CustomEvent('flockr:report-post-comment', { detail: comment }))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.25)', fontSize: 12, fontWeight: 600 }}>Report</button>
           )}
           {canDel && (
             <button onClick={() => onDelete(comment, false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.25)', fontSize: 12, fontWeight: 600 }}>Delete</button>
@@ -157,6 +165,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
   const [showInfoTip, setShowInfoTip] = useState(false)
   const [showReportModal, setShowReportModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [mention, setMention] = useState(null)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const inputRef = useRef(null)
   const viewedRef = useRef(false)
@@ -190,6 +199,17 @@ export default function CommunityPost({ post: initPost, comments: initComments }
       const { data } = await axios.post(`/api/community/posts/${post.id}/like`)
       setPost(p => ({ ...p, is_liked_by_me: data.liked, likes_count: data.likes_count }))
     } catch { setPost(p => ({ ...p, is_liked_by_me: was })) }
+  }
+
+  const handleSave = async () => {
+    if (!auth?.user) { router.visit('/login'); return }
+    const was = !!post.is_saved_by_me
+    setPost(p => ({ ...p, is_saved_by_me: !was }))
+    try {
+      const { data } = await axios.post(`/api/community/posts/${post.id}/save`)
+      setPost(p => ({ ...p, is_saved_by_me: data.saved }))
+      showToast(data.saved ? 'Post saved' : 'Removed from saved')
+    } catch { setPost(p => ({ ...p, is_saved_by_me: was })); showToast('Could not save that post', 'error') }
   }
 
   const handleMediaTap = (e) => {
@@ -273,6 +293,23 @@ export default function CommunityPost({ post: initPost, comments: initComments }
     }
   }, [post.id])
 
+  // Report on a reply/comment (Report button inside CommentItem / ReplyItem fires this event)
+  const [reportingComment, setReportingComment] = useState(null)
+  useEffect(() => {
+    const h = (e) => setReportingComment(e.detail)
+    window.addEventListener('flockr:report-post-comment', h)
+    return () => window.removeEventListener('flockr:report-post-comment', h)
+  }, [])
+  const submitCommentReport = async (reason, description) => {
+    try {
+      const { data } = await axios.post(`/api/community/comments/${reportingComment.id}/report`, { reason, description })
+      showToast(data?.message ?? 'Report submitted')
+    } catch (e) {
+      showToast(e?.response?.data?.message ?? 'Failed to submit report', 'error')
+      throw e
+    }
+  }
+
   const submitPostReport = async (reason, description) => {
     try {
       await axios.post(`/api/users/${post.user_id}/report`, { reason, description, post_id: post.id })
@@ -301,6 +338,13 @@ export default function CommunityPost({ post: initPost, comments: initComments }
       {ToastComponent}
       {showShare && <PostShareSheet post={post} onClose={() => setShowShare(false)} />}
       {showViewers && <PostViewersSheet postId={post.id} onClose={() => setShowViewers(false)} />}
+      {reportingComment && (
+        <PostReportModal
+          post={post}
+          onClose={() => setReportingComment(null)}
+          onSubmit={submitCommentReport}
+        />
+      )}
       {showReportModal && (
         <PostReportModal
           post={post}
@@ -394,7 +438,7 @@ export default function CommunityPost({ post: initPost, comments: initComments }
               )}
             </div>
 
-            {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}>{post.content}</p>}
+            {post.content && <p style={{ fontSize: 18, lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '0 0 14px' }}><MentionText text={post.content} /></p>}
 
             {post.poll && <PostPoll poll={post.poll} auth={auth} showToast={showToast} onChange={(poll) => setPost(p => ({ ...p, poll }))} />}
 
@@ -429,6 +473,10 @@ export default function CommunityPost({ post: initPost, comments: initComments }
               </div>
               <button onClick={() => setShowShare(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
                 <RiShareForwardLine size={18} />
+              </button>
+              <button onClick={handleSave} aria-label={post.is_saved_by_me ? 'Remove from saved' : 'Save post'}
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 999, color: post.is_saved_by_me ? '#FF6B35' : 'rgba(255,255,255,0.45)', lineHeight: 0 }}>
+                {post.is_saved_by_me ? <RiBookmarkFill size={18} style={{ display: 'block' }} /> : <RiBookmarkLine size={18} style={{ display: 'block' }} />}
               </button>
               <button
                 onClick={isOwnPost ? () => setShowViewers(true) : undefined}
@@ -469,9 +517,15 @@ export default function CommunityPost({ post: initPost, comments: initComments }
                   </button>
                 </div>
               )}
+              {mention && (
+                <div style={{ marginBottom: 8 }}>
+                  <MentionSuggest query={mention.query} onClose={() => setMention(null)}
+                    onPick={(u) => { setBody(b => applyMention(b, mention, u.username)); setTimeout(() => inputRef.current?.focus(), 0) }} />
+                </div>
+              )}
               <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <Av user={auth.user} size={36} />
-                <input ref={inputRef} value={body} onChange={e => setBody(e.target.value)}
+                <input ref={inputRef} value={body} onChange={e => { setBody(e.target.value); setMention(detectMention(e.target.value, e.target.selectionStart)) }}
                   placeholder={replyTo ? `Reply to @${replyTo.tagUsername ?? replyingToComment?.user?.username}...` : 'Post your reply'}
                   maxLength={500}
                   style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '10px 16px', color: '#fff', fontSize: 14, outline: 'none' }} />

@@ -517,6 +517,7 @@ const pagerBtnStyle = (disabled) => ({
                                     {eventResults.length > 0 && (
                                         <div className="dashboard-card">
                                             <div className="card-header"><div className="card-title"><RiTrophyLine /><h3>Event results</h3></div></div>
+                                            <div style={{ padding: '4px 22px 12px' }}>
                                             {eventResults.map(e => (
                                                 <a key={e.event_id} href={`/seller/events/${e.event_id}/results`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
                                                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
@@ -525,11 +526,13 @@ const pagerBtnStyle = (disabled) => ({
                                                     </span>
                                                 </a>
                                             ))}
+                                            </div>
                                         </div>
                                     )}
                                     {coupons.length > 0 && (
                                         <div className="dashboard-card">
                                             <div className="card-header"><div className="card-title"><RiTicket2Line /><h3>My coupons</h3></div></div>
+                                            <div style={{ padding: '4px 22px 12px' }}>
                                             {coupons.map(c => (
                                                 <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: 13 }}>
                                                     <div style={{ minWidth: 0 }}>
@@ -539,6 +542,7 @@ const pagerBtnStyle = (disabled) => ({
                                                     <b style={{ color: '#10B981', flexShrink: 0 }}>₦{Number(c.amount).toLocaleString()} off</b>
                                                 </div>
                                             ))}
+                                            </div>
                                         </div>
                                     )}
                                 </section>

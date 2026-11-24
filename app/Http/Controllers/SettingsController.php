@@ -50,16 +50,28 @@ return Inertia::render('Settings/Profile', [
 
         $validated = $request->validate([
             'name' => 'required|string|max:100',
-            'username' => "required|string|max:30|alpha_dash|unique:users,username,{$user->id}",
+            'username' => ['required', 'string', 'min:3', 'max:15', 'regex:/^[a-zA-Z0-9_.]+$/', "unique:users,username,{$user->id}"],
             'bio' => 'nullable|string|max:500',
             'location' => 'nullable|string|max:100',
             'phone' => "nullable|string|max:20|unique:users,phone,{$user->id}",
             'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
+        // Friendly cooldown messages (the User model enforces the same rule, this just answers before any upload happens)
+        $newUsername = strtolower($validated['username']);
+        if ($newUsername !== $user->username && $user->username_changeable_at) {
+            return back()->withErrors(['username' => 'You can change your username again on ' . \Illuminate\Support\Carbon::parse($user->username_changeable_at)->format('j M Y') . '.']);
+        }
+        if ($validated['name'] !== $user->name && $user->name_changeable_at) {
+            return back()->withErrors(['name' => 'You can change your name again on ' . \Illuminate\Support\Carbon::parse($user->name_changeable_at)->format('j M Y') . '.']);
+        }
+        if ($newUsername !== $user->username && (in_array($newUsername, \App\Services\UsernameService::RESERVED, true) || \App\Models\User::withTrashed()->where('username', $newUsername)->where('id', '!=', $user->id)->exists())) {
+            return back()->withErrors(['username' => 'That username is taken.']);
+        }
+
         $updateData = [
             'name' => $validated['name'],
-            'username' => $validated['username'],
+            'username' => $newUsername,
             'bio' => $request->has('bio') ? (empty($validated['bio']) ? null : $validated['bio']) : $user->bio,
             'location' => $request->has('location') ? (empty($validated['location']) ? null : $validated['location']) : $user->location,
             'phone' => $request->has('phone') ? (empty($validated['phone']) ? null : $validated['phone']) : $user->phone,

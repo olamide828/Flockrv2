@@ -14,35 +14,6 @@ const PROBLEM = {
     disputed:        { label: 'Under review',    sub: 'This order is under review by our support team.' },
 };
 
-// ── Route map: the seller's pickup address → the buyer's delivery address ────
-function DeliveryMap({ from, to }) {
-    if (!from || !to) return null;
-    const enc = (v) => encodeURIComponent(v);
-    // saddr/daddr draws the actual route (blue line, A → B) and needs no API key
-    const src = `https://maps.google.com/maps?saddr=${enc(from)}&daddr=${enc(to)}&dirflg=d&output=embed`;
-    const openUrl = `https://www.google.com/maps/dir/?api=1&origin=${enc(from)}&destination=${enc(to)}&travelmode=driving`;
-    return (
-        <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, overflow: 'hidden', marginBottom: 16 }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <RiMapPinLine size={14} color="#FF6B35" />
-                <p style={{ margin: 0, flex: 1, color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Delivery Route</p>
-                <a href={openUrl} target="_blank" rel="noreferrer" style={{ color: '#FF6B35', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Open in Maps</a>
-            </div>
-            <iframe src={src} width="100%" height="240" style={{ border: 'none', display: 'block' }} loading="lazy" allowFullScreen title="Delivery route" />
-            <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF6B35', flexShrink: 0, marginTop: 5 }} />
-                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.4 }}><b style={{ color: 'rgba(255,255,255,0.8)' }}>Pickup:</b> {from}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', flexShrink: 0, marginTop: 5 }} />
-                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.4 }}><b style={{ color: 'rgba(255,255,255,0.8)' }}>Delivery:</b> {to}</span>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default function OrderTracking({ order: initialOrder }) {
     const [order, setOrder] = useState(initialOrder);
@@ -52,8 +23,6 @@ export default function OrderTracking({ order: initialOrder }) {
     const address = addressOf(order);
     const { auth } = usePage().props;
     const isBuyer = auth?.user?.id === order.buyer_id;
-    const fromAddr = [order.seller?.pickup_street, order.seller?.pickup_city, order.seller?.pickup_state, 'Nigeria'].filter(Boolean).join(', ');
-    const toAddr = [address?.address ?? address?.street, address?.city, address?.state, 'Nigeria'].filter(Boolean).join(', ');
 
     const refresh = async () => {
         setRefreshing(true);
@@ -104,8 +73,6 @@ export default function OrderTracking({ order: initialOrder }) {
 
                     <ProgressStages order={order} />
                     <TrackingTimeline order={order} title="Shipment history" />
-
-                    <DeliveryMap from={order.seller?.pickup_city ? fromAddr : null} to={address?.city ? toAddr : null} />
 
                     <OrderSummary order={order} />
 

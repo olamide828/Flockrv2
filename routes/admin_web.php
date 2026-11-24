@@ -17,7 +17,7 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         'events' => 'Events', 'ledger' => 'Ledger', 'coupons' => 'Coupons', 'subscriptions' => 'Subscriptions',
         'users' => 'Users', 'users/{id}' => 'UserDetail', 'flagged-sellers' => 'FlaggedSellers',
         'support' => 'Support', 'reports' => 'Reports', 'blocks' => 'Blocks',
-        'videos' => 'Videos', 'products' => 'Products', 'rooms' => 'Rooms', 'badges' => 'Badges', 'feed' => 'Feed',
+        'videos' => 'Videos', 'products' => 'Products', 'rooms' => 'Rooms', 'chats' => 'Chats', 'deletions' => 'Deletions', 'badges' => 'Badges', 'feed' => 'Feed',
         'system' => 'System', 'audit' => 'Audit',
     ];
     foreach ($pages as $uri => $component) {

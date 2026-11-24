@@ -21,12 +21,13 @@ class ReportAdminController extends Controller
 
         match ($request->input('type')) {
             'video'   => $q->where('reports.reason', 'like', '[Video:%'),
+            'comment' => $q->where(fn ($w) => $w->where('reports.reason', 'like', '[Comment:%')->orWhere('reports.reason', 'like', '[PostComment:%')),
             'product' => $q->where('reports.reason', 'like', '[Product:%'),
             'chat'    => $q->whereNotNull('reports.conversation_id'),
             'order'   => $q->whereNotNull('reports.order_id'),
             'appeal'  => $q->where('reports.reason', 'like', '[Suspension Appeal]%'),
             'user'    => $q->whereNull('reports.conversation_id')->whereNull('reports.order_id')
-                            ->where('reports.reason', 'not like', '[Video:%')->where('reports.reason', 'not like', '[Product:%')
+                            ->where('reports.reason', 'not like', '[Video:%')->where('reports.reason', 'not like', '[Comment:%')->where('reports.reason', 'not like', '[PostComment:%')->where('reports.reason', 'not like', '[Product:%')
                             ->where('reports.reason', 'not like', '[Suspension Appeal]%'),
             default   => null,
         };
@@ -48,6 +49,8 @@ class ReportAdminController extends Controller
             $kind = 'user';
             $ref = null;
             if (preg_match('/^\[Product:\s*([^\]]+)\]\s*(.*)$/s', $reason, $m))      { $kind = 'product'; $ref = trim($m[1]); $reason = $m[2]; }
+            elseif (preg_match('/^\[PostComment:\s*([^\]]+)\]\s*(.*)$/s', $reason, $m)) { $kind = 'comment'; $ref = trim($m[1]); $reason = $m[2]; }
+            elseif (preg_match('/^\[Comment:\s*([^\]]+)\]\s*(.*)$/s', $reason, $m))  { $kind = 'comment'; $ref = trim($m[1]); $reason = $m[2]; }
             elseif (preg_match('/^\[Video:\s*([^\]]+)\]\s*(.*)$/s', $reason, $m))    { $kind = 'video';   $ref = trim($m[1]); $reason = $m[2]; }
             elseif (str_starts_with($reason, '[Suspension Appeal]'))                  { $kind = 'appeal';  $reason = trim(substr($reason, 19)); }
             elseif ($r->conversation_id) $kind = 'chat';
@@ -135,6 +138,21 @@ class ReportAdminController extends Controller
                 'thumbnail' => $v->thumbnail_url_full ?? $v->thumbnail_url, 'owner' => $v->user,
                 'link' => $v->user ? "/@{$v->user->username}/video/{$v->ulid}" : null,
             ] : null;
+        } elseif (preg_match('/^\[Comment:\s*(\d+)\]/', $reason, $m)) {
+            $c = \App\Models\Comment::withTrashed()->with(['user:id,name,username,avatar', 'video:id,ulid,title,user_id', 'video.user:id,username'])->find((int) $m[1]);
+            $out['kind'] = 'comment';
+            $out['comment'] = $c ? [
+                'id' => $c->id, 'body' => $c->body, 'image_url' => $c->image_url, 'deleted' => $c->trashed(),
+                'author' => $c->user, 'created_at' => $c->created_at,
+                'link' => ($c->video && $c->video->user) ? "/@{$c->video->user->username}/video/{$c->video->ulid}" : null,
+            ] : null;
+        } elseif (preg_match('/^\[PostComment:\s*(\d+)\]/', $reason, $m)) {
+            $c = \App\Models\PostComment::with(['user:id,name,username,avatar'])->find((int) $m[1]);
+            $out['kind'] = 'comment';
+            $out['comment'] = $c ? [
+                'id' => $c->id, 'body' => $c->body, 'image_url' => null, 'deleted' => false,
+                'author' => $c->user, 'created_at' => $c->created_at, 'link' => '/community/posts/' . $c->post_id,
+            ] : null;
         } elseif (preg_match('/^\[Product:\s*([^\]]+)\]/', $reason, $m)) {
             $p = \App\Models\Product::withTrashed()->with('seller:id,name,username,avatar')->where('slug', trim($m[1]))->first();
             $out['kind'] = 'product';
@@ -170,5 +188,36 @@ class ReportAdminController extends Controller
         $m->delete();
         Audit::log('report.message_delete', $r, ['message_id' => $messageId, 'reason' => $request->reason]);
         return response()->json(['message' => 'Message removed.']);
+    }
+
+    /** DELETE /api/admin/reports/{id}/comment — remove the reported comment (and its replies) */
+    public function deleteComment(Request $request, int $id): JsonResponse
+    {
+        $request->validate(['reason' => 'nullable|string|max:300']);
+        $r = Report::findOrFail($id);
+        if (preg_match('/^\[PostComment:\s*(\d+)\]/', (string) $r->reason, $pm)) {
+            $pc = \App\Models\PostComment::findOrFail((int) $pm[1]);
+            \DB::transaction(function () use ($pc) {
+                $kids = \DB::table('post_comments')->where('parent_id', $pc->id)->pluck('id');
+                $ids  = $kids->push($pc->id);
+                if (\Illuminate\Support\Facades\Schema::hasTable('post_comment_likes')) \DB::table('post_comment_likes')->whereIn('post_comment_id', $ids)->delete();
+                \DB::table('post_comments')->whereIn('id', $ids)->delete();
+                \DB::table('posts')->where('id', $pc->post_id)->update(['comments_count' => \DB::raw('GREATEST(comments_count - ' . (int) $ids->count() . ', 0)')]);
+            });
+            Audit::log('report.post_comment_delete', $r, ['comment_id' => $pc->id, 'reason' => $request->reason]);
+            return response()->json(['message' => 'Reply removed.']);
+        }
+        abort_unless(preg_match('/^\[Comment:\s*(\d+)\]/', (string) $r->reason, $m), 422, 'This report is not about a comment.');
+        $c = \App\Models\Comment::findOrFail((int) $m[1]);
+        $n = 1 + $c->replies()->count();
+        \DB::transaction(function () use ($c, $n) {
+            $ids = $c->replies()->pluck('id')->push($c->id);
+            \DB::table('comment_likes')->whereIn('comment_id', $ids)->delete();
+            \App\Models\Comment::where('parent_id', $c->id)->delete();
+            $c->delete();
+            \DB::table('videos')->where('id', $c->video_id)->update(['comments_count' => \DB::raw("GREATEST(comments_count - {$n}, 0)")]);
+        });
+        Audit::log('report.comment_delete', $r, ['comment_id' => (int) $m[1], 'reason' => $request->reason]);
+        return response()->json(['message' => 'Comment removed.']);
     }
 }

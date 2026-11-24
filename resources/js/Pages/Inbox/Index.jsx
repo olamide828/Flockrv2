@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { firstChar } from '@/lib/initial'
+import BlockedAvatar from '@/Components/Media/BlockedAvatar'
 import { Head, usePage, router } from '@inertiajs/react'
 import Toast, { useToast } from '@/Components/Toast'
 import AppLayout from '@/Layouts/AppLayout'
@@ -11,7 +13,6 @@ import {
 } from 'react-icons/ri'
 import GlassHeader, { GlassIconBtn } from '@/Components/Chat/GlassHeader'
 import GlassComposer, { GlassNotice } from '@/Components/Chat/GlassComposer'
-import RetryWrap from '@/Components/Chat/RetryWrap'
 import { mergeIncoming, settleOptimistic, markFailed, markSending, isNetworkFailure, useElementHeight, usePolling } from '@/Components/Chat/useChatMessages'
 import OffPlatformWarningSheet from '@/Components/Chat/OffPlatformWarningSheet'
 import PayWithFlockrSheet from '@/Components/Chat/PayWithFlockrSheet'
@@ -27,7 +28,8 @@ import MediaComposerPreview from '@/Components/Chat/MediaComposerPreview'
 import InboxSidebarHeader from '@/Components/Inbox/InboxSidebarHeader'
 import NewMessageOverlay from '@/Components/Inbox/NewMessageOverlay'
 import MediaLightbox from '@/Components/Chat/MediaLightbox'
-import MessageActionSheet from '@/Components/Chat/MessageActionSheet'
+import MessageActionMenu, { toggleMyReaction } from '@/Components/Chat/MessageActionMenu'
+import lastPreview from '@/Components/Chat/lastPreview'
 
 
 // ── Off-platform payment detection: layer 1 — keyword regex (free, instant) ───
@@ -160,7 +162,8 @@ function dotStyle(i) {
 // ── Avatar — shows question mark placeholder for blocked users ────────────────
 function Avatar({ user, size = 40, showStatus = false, isBlocked = false }) {
   const [err, setErr] = useState(false)
-  const src = (!err && !isBlocked && user?.avatar_url) ? user.avatar_url : null
+  if (isBlocked) return <BlockedAvatar size={size} />
+  const src = (!err && user?.avatar_url) ? user.avatar_url : null
   const isOnline = user?.is_online
 
   return (
@@ -170,13 +173,11 @@ function Avatar({ user, size = 40, showStatus = false, isBlocked = false }) {
             style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />
         : <div style={{
             width: size, height: size, borderRadius: '50%',
-            background: isBlocked ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg,#ff5c00,#ff8c00)',
+            background: 'linear-gradient(135deg,#ff5c00,#ff8c00)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: isBlocked ? 'rgba(255,255,255,0.3)' : '#fff',
-            fontWeight: 700, fontSize: size * 0.4,
-            border: isBlocked ? '1px solid rgba(255,255,255,0.1)' : 'none',
+            color: '#fff', fontWeight: 700, fontSize: size * 0.4,
           }}>
-            {isBlocked ? '?' : (user?.name ?? 'U')[0].toUpperCase()}
+            {firstChar(user?.name)}
           </div>
       }
       {showStatus && !isBlocked && (
@@ -321,6 +322,7 @@ const [showThemePicker, setShowThemePicker] = useState(false)
 const [showProSheet, setShowProSheet] = useState(false)
 const [showNewMessage, setShowNewMessage] = useState(false)
 const [replyingTo, setReplyingTo] = useState(null)
+const [editingMsg, setEditingMsg] = useState(null)
 const [pendingMedia, setPendingMedia] = useState(null)
 const [pendingCaption, setPendingCaption] = useState('')
 const [sendingMedia, setSendingMedia] = useState(false)
@@ -348,9 +350,54 @@ const openLightbox = (msg) => {
     if (i !== -1) setLightboxIndex(i)
 }
 
-const handlePressAction = (type, msg, y) => {
+const handlePressAction = (type, msg, arg) => {
     if (type === 'reply') setReplyingTo(msg)
-    else setMsgAction(msg)
+    else if (type === 'react') reactTo(msg, arg)
+    else setMsgAction({ msg, rect: arg })
+}
+
+const EDIT_MINUTES = 15
+const canEditMsg = (m) => m && m.sender_id === auth?.user?.id && !!m.body && !m.is_deleted && !String(m.id).startsWith('opt-') && (Date.now() - new Date(m.created_at).getTime()) < EDIT_MINUTES * 60000
+
+const reactTo = async (msg, emoji) => {
+    if (!active || String(msg.id).startsWith('opt-')) return
+    const me = auth.user.id
+    const before = msg.reactions ?? []
+    setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: toggleMyReaction(before, me, emoji) } : m))
+    try {
+        const { data } = await axios.post(`/api/conversations/${active.id}/messages/${msg.id}/react`, { emoji })
+        setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: data.reactions } : m))
+        setConversations(prev => prev.map(c => c.id === active.id ? { ...c, last_reaction: data.last_reaction } : c))
+    } catch {
+        setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: before } : m))
+        showToast('Could not add your reaction.', 'error')
+    }
+}
+
+const startEdit = (msg) => {
+    setReplyingTo(null)
+    setEditingMsg(msg)
+    setBody(msg.body)
+    setTimeout(() => inputRef.current?.focus(), 50)
+}
+const cancelEdit = () => { setEditingMsg(null); setBody('') }
+
+const submitEdit = async () => {
+    const msg = editingMsg
+    const text = body.trim()
+    if (!msg || !text) return
+    if (text === msg.body) { cancelEdit(); return }
+    const prev = { body: msg.body, edited_at: msg.edited_at }
+    setMessages(p => p.map(m => m.id === msg.id ? { ...m, body: text, edited_at: new Date().toISOString() } : m))
+    setConversations(c => c.map(x => x.id === active.id && x.last_message?.id === msg.id ? { ...x, last_message: { ...x.last_message, body: text } } : x))
+    cancelEdit()
+    try {
+        const { data } = await axios.patch(`/api/conversations/${active.id}/messages/${msg.id}`, { body: text })
+        setMessages(p => p.map(m => m.id === msg.id ? { ...m, body: data.body, edited_at: data.edited_at } : m))
+    } catch (err) {
+        setMessages(p => p.map(m => m.id === msg.id ? { ...m, ...prev } : m))
+        showToast(err.response?.data?.message ?? 'Could not edit that message.', 'error')
+    }
 }
 
 
@@ -475,6 +522,23 @@ useEffect(() => {
                 setMessages(prev => mergeIncoming(prev, e.message))
                 axios.post(`/api/conversations/${conv.id}/mark-read`).catch(() => {})
             }
+        })
+
+        channel.listen('.MessageUpdated', (e) => {
+            const stamp = new Date().toISOString()
+            if (e.delivered_up_to) {
+                // the other person's app received my messages: ✓ becomes ✓✓
+                setMessages(p => p.map(m => m.sender_id === auth.user.id && m.id <= e.delivered_up_to && !m.delivered_at && !String(m.id).startsWith('opt-') ? { ...m, delivered_at: stamp } : m))
+                setConversations(prev => prev.map(c => c.id === conv.id && c.last_message?.sender_id === auth.user.id && c.last_message.id <= e.delivered_up_to ? { ...c, last_message: { ...c.last_message, delivered_at: c.last_message.delivered_at ?? stamp } } : c))
+                return
+            }
+            setMessages(p => p.map(m => m.id === e.message_id ? { ...m, reactions: e.reactions ?? m.reactions, ...(e.body != null ? { body: e.body, edited_at: e.edited_at } : {}) } : m))
+            if (e.body != null) setConversations(prev => prev.map(c => c.id === conv.id && c.last_message?.id === e.message_id ? { ...c, last_message: { ...c.last_message, body: e.body } } : c))
+            if (e.last_reaction) setConversations(prev => {
+                const next = prev.map(c => c.id === conv.id ? { ...c, last_reaction: e.last_reaction } : c)
+                const f = next.find(c => c.id === conv.id)
+                return f ? [f, ...next.filter(c => c.id !== conv.id)] : next
+            })
         })
 
         channel.listen('.MessageDeleted', (e) => {
@@ -686,6 +750,7 @@ useEffect(() => {
 
   const sendMessage = async (e) => {
     e?.preventDefault?.()
+    if (editingMsg) { submitEdit(); return }
     if (!body.trim() || !active) return
     const other = otherUser(active)
     if (other && (blockedByMe[other.id] || blockedByOther[other.id])) return
@@ -912,7 +977,8 @@ const dismissRequestSheet = () => {
     return active?.id === conv?.id && messages.some(m => m.sender_id === other.id)
   }
   const activeOther = active ? otherUser(active) : null
-  const activeLimited = !!(active && limitHit[active.id]) && !theyFollowMe(activeOther) && !messages.some(m => m.sender_id === activeOther?.id)
+  // Limit lifts when they follow back OR reply (any message from them)
+  const activeLimited = !!(active && (limitHit[active.id] || active.request_limit_reached)) && !theyFollowMe(activeOther) && !messages.some(m => m.sender_id === activeOther?.id)
   // While limited, check now and then whether they followed back so the input can come back on its own
   usePolling(activeLimited, () => {
     axios.get('/api/conversations').then(({ data }) => {
@@ -1002,15 +1068,23 @@ const dismissRequestSheet = () => {
     />
 )}
 
-{msgAction && (
-    <MessageActionSheet
-        msg={msgAction}
-        canDelete={msgAction.sender_id === auth?.user?.id}
-        onReply={() => { setReplyingTo(msgAction); setMsgAction(null) }}
-        onDelete={(msg) => setDeleteTarget(msg)}
-        onClose={() => setMsgAction(null)}
-    />
-)}
+{msgAction && (() => {
+    const m = msgAction.msg
+    const mine = m.sender_id === auth?.user?.id
+    return (
+        <MessageActionMenu
+            msg={m} rect={msgAction.rect} mine={mine}
+            myReaction={(m.reactions ?? []).find(r => r.user_id === auth?.user?.id)?.emoji}
+            canCopy={!!m.body} canEdit={canEditMsg(m)} canDelete={mine}
+            onReact={(emoji) => reactTo(m, emoji)}
+            onReply={() => setReplyingTo(m)}
+            onCopy={() => { navigator.clipboard?.writeText(m.body).then(() => showToast('Copied')).catch(() => {}) }}
+            onEdit={() => startEdit(m)}
+            onDelete={() => setDeleteTarget(m)}
+            onClose={() => setMsgAction(null)}
+        />
+    )
+})()}
 
 {deleteTarget && (
     <ConfirmModal
@@ -1140,7 +1214,7 @@ const dismissRequestSheet = () => {
         <span style={dotStyle(2)} />
     </div>
 )
-        : (conv.last_message?.sender_id === auth?.user?.id ? 'You: ' : '') + (conv.last_message?.body ?? 'Say hello!')}
+        : lastPreview(conv, auth?.user?.id)}
 </p>
                   </div>
                 </button>
@@ -1206,13 +1280,12 @@ const dismissRequestSheet = () => {
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
                 </div>
             )}
-            <RetryWrap failed={msg._failed} mine={mine} onRetry={() => retrySend(msg)}>
-              <ChatMessageBubble
-                msg={msg} mine={mine} showName={false}
-                showAv={showAvatar(filteredMsgs, i)} avatarUser={other} fmtTime={fmtTime}
-                onOpenLightbox={openLightbox} onPressAction={handlePressAction}
-              />
-            </RetryWrap>
+            <ChatMessageBubble
+              msg={msg} mine={mine} showName={false}
+              showAv={showAvatar(filteredMsgs, i)} avatarUser={other} fmtTime={fmtTime}
+              onOpenLightbox={openLightbox} onPressAction={handlePressAction}
+              onRetry={() => retrySend(msg)} myId={auth?.user?.id}
+            />
 
         </div>
     )
@@ -1296,6 +1369,15 @@ const dismissRequestSheet = () => {
                     {pendingMedia && !iBlocked && !theyBlocked && (
                       <MediaComposerPreview file={pendingMedia.file} previewUrl={pendingMedia.previewUrl} caption={pendingCaption} onCaptionChange={setPendingCaption} onSend={confirmSendMedia} onCancel={() => setPendingMedia(null)} sending={sendingMedia} />
                     )}
+                    {editingMsg && !iBlocked && !theyBlocked && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 16, background: 'rgba(30,30,32,0.5)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        <div style={{ flex: 1, borderLeft: '2px solid #FF6B35', paddingLeft: 8, overflow: 'hidden' }}>
+                          <p style={{ margin: 0, color: '#FF6B35', fontSize: 11, fontWeight: 700 }}>Editing message</p>
+                          <p style={{ margin: 0, color: 'rgba(255,255,255,0.7)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editingMsg.body}</p>
+                        </div>
+                        <button onClick={cancelEdit} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 4, lineHeight: 0 }}><RiCloseLine size={16} style={{ display: 'block' }} /></button>
+                      </div>
+                    )}
                     {replyingTo && !iBlocked && !theyBlocked && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 16, background: 'rgba(30,30,32,0.5)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)' }}>
                         <div style={{ flex: 1, borderLeft: '2px solid #FF6B35', paddingLeft: 8, overflow: 'hidden' }}>
@@ -1323,6 +1405,8 @@ const dismissRequestSheet = () => {
       </div>
 
       <style>{`
+        .inbox-sidebar, .chat-panel { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .chat-panel textarea, .chat-panel input { -webkit-user-select: text; user-select: text; }
         @media (min-width: 768px) {
           .inbox-sidebar { display: flex !important; width: 340px !important; }
           .chat-panel    { display: flex !important; }

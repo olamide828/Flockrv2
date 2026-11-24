@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Head, router, usePage } from '@inertiajs/react'
+import { Head, router, usePage, Link } from '@inertiajs/react'
 import AppLayout from '@/Layouts/AppLayout'
 import axios from 'axios'
 import { useToast } from '@/Components/Toast'
 import {
-  RiAddLine, RiSearchLine, RiGroupLine, RiArrowRightSLine, RiFireLine, RiLoader4Line,
+  RiAddLine, RiBookmarkLine, RiSearchLine, RiGroupLine, RiArrowRightSLine, RiFireLine, RiLoader4Line,
 } from 'react-icons/ri'
 
 import PostComposer from '@/Components/Community/PostComposer'
@@ -444,6 +444,9 @@ export default function Community({ joinedRooms: initJoined = [], discoverRooms:
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 0' }}>
                 <h1 style={{ margin:0, fontSize:20, fontWeight:800, letterSpacing:'-0.4px' }}>Community</h1>
                 <div style={{ display:'flex', gap:8 }}>
+                  <Link href="/community/saved" aria-label="Saved posts" style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.07)', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.6)' }}>
+                    <RiBookmarkLine size={17} />
+                  </Link>
                   <button onClick={() => setShowDiscover(true)} style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.07)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.6)' }}>
                     <RiSearchLine size={17} />
                   </button>

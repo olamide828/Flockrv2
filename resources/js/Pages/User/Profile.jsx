@@ -1,4 +1,5 @@
 import ProductCard from '@/Components/Product/ProductCard';
+import BlockedAvatar from '@/Components/Media/BlockedAvatar';
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
@@ -7,8 +8,7 @@ import BadgeRoadmapSheet from '@/Components/BadgeRoadmapSheet';
 import TrustScoreModal from '@/Components/TrustScoreModal'
 import MutualFriendsRow from '@/Components/MutualFriendsRow'
 import ShareProfileSheet from '@/Components/ShareProfileSheet'
-import { useState, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect } from 'react';
 import { FiLink } from 'react-icons/fi';
 import {
     RiAlertLine,
@@ -19,8 +19,6 @@ import {
     RiPlayFill,
     RiPlayLine,
     RiProhibitedLine,
-    RiUserForbidLine,
-    RiDeleteBin6Line,
     RiSettings4Line,
     RiShareForwardLine,
     RiStoreLine,
@@ -42,10 +40,7 @@ import {
     RiHeartLine,
     RiEyeLine,
     RiBookmarkLine,
-    RiBookmarkFill,
-    RiMusic2Line,
     RiThumbUpLine,
-    RiSortDesc,
 } from 'react-icons/ri';
 import PostCard from '@/Components/Community/PostCard';
 import BadgesDisplay from '@/Components/BadgesDisplay';
@@ -302,28 +297,6 @@ function ProfileMenu({ iBlocked, onBlock, onReport, onClose }) {
 }
 
 // ── Blocked profile banner ────────────────────────────────────────────────────
-function AccountStateBanner({ state, username }) {
-    const banned = state === 'banned'
-    const Icon = banned ? RiUserForbidLine : RiDeleteBin6Line
-    const tint = banned ? '239,68,68' : '255,255,255'
-    return (
-        <div style={{ margin: '24px 16px', padding: '28px 20px', background: `rgba(${tint},${banned ? 0.07 : 0.04})`, border: `1px solid rgba(${tint},${banned ? 0.2 : 0.08})`, borderRadius: 18, textAlign: 'center', maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `rgba(${tint},0.08)` }}>
-                <Icon size={26} color={banned ? '#EF4444' : 'rgba(255,255,255,0.45)'} />
-            </div>
-            <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, margin: '0 0 6px' }}>{banned ? 'Account banned' : 'This account has been deleted'}</p>
-            <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 18px', lineHeight: 1.55 }}>
-                {banned
-                    ? `@${username} was banned for breaking Flockr's community guidelines. Their videos, products and posts are no longer available.`
-                    : 'The person who owned it removed their account. Their videos, products and posts are no longer available.'}
-            </p>
-            <Link href="/" style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-                Back to your feed
-            </Link>
-        </div>
-    )
-}
-
 function BlockedBanner({ iBlockedThem, theyBlockedMe, username, onUnblock }) {
     if (theyBlockedMe && !iBlockedThem) {
         return (
@@ -337,7 +310,7 @@ function BlockedBanner({ iBlockedThem, theyBlockedMe, username, onUnblock }) {
                     textAlign: 'center',
                 }}
             >
-                <RiProhibitedLine size={32} color="rgba(255,255,255,0.2)" style={{ margin: '0 auto 12px' }} />
+                <BlockedAvatar size={52} style={{ margin: '0 auto 12px' }} />
                 <p style={{ color: '#fff', fontWeight: 600, fontSize: 15, margin: '0 0 6px' }}>Content unavailable</p>
                 <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0, lineHeight: 1.5 }}>You can't view @{username}'s content.</p>
             </div>
@@ -355,7 +328,7 @@ function BlockedBanner({ iBlockedThem, theyBlockedMe, username, onUnblock }) {
                     textAlign: 'center',
                 }}
             >
-                <RiProhibitedLine size={32} color="rgba(239,68,68,0.4)" style={{ margin: '0 auto 12px' }} />
+                <BlockedAvatar size={52} style={{ margin: '0 auto 12px' }} />
                 <p style={{ color: '#fff', fontWeight: 600, fontSize: 15, margin: '0 0 6px' }}>You've blocked @{username}</p>
                 <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: '0 0 16px', lineHeight: 1.5 }}>
                     Unblock to see their content and interact with their account.
@@ -473,9 +446,9 @@ export default function UserProfile({
     products,
     isFollowing: initFollowing,
     isOwnProfile,
+    accountState = 'active',
     iBlockedThem: initIBlocked = false,
     theyBlockedMe = false,
-    accountState = 'active',   // 'active' | 'banned' | 'deleted'
 }) {
     const { auth, flash } = usePage().props;
 
@@ -499,9 +472,6 @@ const [privateTabVideos, setPrivateTabVideos] = useState({})
 const [privateTabLoading, setPrivateTabLoading] = useState(false)
 const [wishlistProducts, setWishlistProducts] = useState(null)
 const [wishlistLoading, setWishlistLoading] = useState(false)
-const [savedSub, setSavedSub] = useState('products')
-const [savedSounds, setSavedSounds] = useState(null)
-const [savedSoundsLoading, setSavedSoundsLoading] = useState(false)
 
     // ── Community posts tab state ─────────────────────────────────────────
     const [communityPosts, setCommunityPosts] = useState([]);
@@ -515,8 +485,9 @@ const [savedSoundsLoading, setSavedSoundsLoading] = useState(false)
     const [toast, setToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
 
-    const gone     = accountState !== 'active';           // banned or deleted: same lock-down as a block
-    const anyBlock = iBlockedThem || theyBlockedMe || gone;
+    const blockedEitherWay = iBlockedThem || theyBlockedMe;
+    const accountGone = accountState !== 'active';
+    const anyBlock = blockedEitherWay || accountGone;
 
     const showToast = (msg) => {
         setToastMessage(msg);
@@ -585,34 +556,15 @@ const requestBlockToggle = () => {
     setWishlistLoading(true)
     try {
         const { data } = await axios.get('/api/users/me/wishlist-products')
-        const list = Array.isArray(data) ? data : (data?.data ?? [])
-        setWishlistProducts(list.map(p => ({ ...p, is_saved: true })))   // they are all saved, so the heart/bookmark shows filled
+        setWishlistProducts(data)
     } catch { setWishlistProducts([]) }
     finally { setWishlistLoading(false) }
 }
 
-const loadSavedSounds = async () => {
-    if (savedSounds) return
-    setSavedSoundsLoading(true)
-    try {
-        const { data } = await axios.get('/api/users/me/saved-sounds')
-        setSavedSounds(data)
-    } catch { setSavedSounds([]) }
-    finally { setSavedSoundsLoading(false) }
-}
-
-const loadSaved = (sub) => {
-    if (sub === 'products') loadWishlist()
-    if (sub === 'videos') loadPrivateTab('savedVideos')
-    if (sub === 'sounds') loadSavedSounds()
-}
-
-const handleSavedSub = (sub) => { setSavedSub(sub); loadSaved(sub) }
-
 const handleTabClick = (key) => {
     setActiveTab(key)
     if (key === 'community' && !communityLoaded) loadCommunityPosts(true)
-    if (key === 'saved') loadSaved(savedSub)
+    if (key === 'wishlist') loadWishlist()
     if (PRIVATE_TAB_ENDPOINTS[key]) loadPrivateTab(key)
 }
 
@@ -712,27 +664,15 @@ const loadPrivateTab = async (key) => {
     finally { setPrivateTabLoading(false) }
 }
 
-    const [sortKey, setSortKey] = useState('recent')
-    const [showSort, setShowSort] = useState(false)
-    const sortedVideos = useMemo(() => {
-        const list = [...(videos ?? [])]
-        const t = v => new Date(v.created_at ?? 0).getTime()
-        if (sortKey === 'oldest') list.sort((a, b) => t(a) - t(b))
-        else if (sortKey === 'liked') list.sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0) || t(b) - t(a))
-        else if (sortKey === 'viewed') list.sort((a, b) => (b.views_count ?? 0) - (a.views_count ?? 0) || t(b) - t(a))
-        else list.sort((a, b) => t(b) - t(a))
-        return list
-    }, [videos, sortKey])
-    const SORTS = [['recent', 'Recent'], ['oldest', 'Oldest'], ['liked', 'Most liked'], ['viewed', 'Most viewed']]
-
     const tabs = [
         { key: 'videos', label: 'Videos', Icon: RiVideoLine, count: videos?.length ?? 0 },
         ...(profileUser.role === 'seller' ? [{ key: 'products', label: 'Shop', Icon: RiStoreLine, count: products?.length ?? 0 }] : []),
         { key: 'community', label: 'Posts', Icon: RiNewspaperLine, count: null },
         ...(isOwnProfile ? [
+    { key: 'wishlist', label: 'Wishlist', Icon: RiHeartLine, count: null },
     { key: 'liked', label: 'Liked', Icon: RiThumbUpLine, count: null },
     { key: 'viewed', label: 'Viewed', Icon: RiEyeLine, count: null },
-    { key: 'saved', label: 'Saved', Icon: RiBookmarkLine, count: null },
+    { key: 'savedVideos', label: 'Saved', Icon: RiBookmarkLine, count: null },
 ] : []),
     ];
 
@@ -750,22 +690,7 @@ const loadPrivateTab = async (key) => {
 
 return (
     <>
-        <Head title={accountState === 'deleted' ? 'Deleted account' : `${profileUser.name} (@${profileUser.username})`} />
-
-        {showSort && typeof document !== 'undefined' && createPortal(
-            <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-                <div onClick={() => setShowSort(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.7)', backdropFilter: 'blur(6px)' }} />
-                <div style={{ position: 'relative', width: '100%', maxWidth: 480, background: '#111', borderRadius: '24px 24px 0 0', padding: '14px 18px 26px' }}>
-                    <div style={{ width: 44, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.15)', margin: '0 auto 14px' }} />
-                    <h3 style={{ margin: '0 0 10px', color: '#fff', fontSize: 16, fontWeight: 800 }}>Sort videos</h3>
-                    {SORTS.map(([k, label]) => (
-                        <button key={k} type="button" onClick={() => { setSortKey(k); setShowSort(false) }}
-                            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 4px', background: 'none', border: 0, borderBottom: '1px solid rgba(255,255,255,.06)', color: sortKey === k ? '#FF6B35' : '#fff', fontSize: 15, fontWeight: sortKey === k ? 700 : 500, cursor: 'pointer' }}>
-                            {label}{sortKey === k && <RiCheckLine size={18} />}
-                        </button>
-                    ))}
-                </div>
-            </div>, document.body)}
+        <Head title={`${profileUser.name} (@${profileUser.username})`} />
 
         {showReport && <ReportModal user={profileUser} onClose={() => setShowReport(false)} onSubmit={handleReport} />}
 
@@ -883,7 +808,7 @@ return (
                                 onClick={() => setShowAvatarLightbox(true)}
                             />
                            </div>
-                            {anyBlock && (
+                            {blockedEitherWay && (
                                 <div
                                     style={{
                                         position: 'absolute',
@@ -894,7 +819,7 @@ return (
                                         justifyContent: 'center',
                                     }}
                                 >
-                                    <RiProhibitedLine size={36} color="rgba(255,255,255,0.5)" />
+                                    <BlockedAvatar size="100%" />
                                 </div>
                             )}
                         </div>
@@ -922,7 +847,7 @@ return (
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
     <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
-        {accountState === 'deleted' ? 'Account deleted' : `@${profileUser.username}`}
+        @{profileUser.username}
     </p>
 
     {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
@@ -995,7 +920,7 @@ return (
 </button>
                                         
                                         {/* 3-dot menu with block + report */}
-                                        {auth?.user && !gone && (
+                                        {auth?.user && (
                                             <div style={{ position: 'relative' }}>
                                                 <button onClick={() => setShowMenu((m) => !m)} style={iconBtn}>
                                                     <RiMoreLine size={16} color="#fff" />
@@ -1090,7 +1015,7 @@ return (
                                 onClick={() => setShowAvatarLightbox(true)}
                             />
                            </div>
-                            {anyBlock && (
+                            {blockedEitherWay && (
                                 <div
                                     style={{
                                         position: 'absolute',
@@ -1101,7 +1026,7 @@ return (
                                         justifyContent: 'center',
                                     }}
                                 >
-                                    <RiProhibitedLine size={28} color="rgba(255,255,255,0.5)" />
+                                    <BlockedAvatar size="100%" />
                                 </div>
                             )}
                         </div>
@@ -1193,7 +1118,7 @@ return (
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 6px' }}>
     <p onClick={copyUsername} style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, cursor: 'pointer' }}>
-        {accountState === 'deleted' ? 'Account deleted' : `@${profileUser.username}`}
+        @{profileUser.username}
     </p>
 
     {!isOwnProfile && profileUser.role === 'seller' && !anyBlock && (
@@ -1300,8 +1225,20 @@ return (
                     </div>
                 </div>
 
+                {accountGone && (
+                    <div style={{ margin: '24px 16px', padding: 20, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, textAlign: 'center' }}>
+                        <p style={{ color: '#fff', fontWeight: 600, fontSize: 15, margin: '0 0 6px' }}>
+                            {accountState === 'deleted' ? 'This account was deleted' : 'This account is unavailable'}
+                        </p>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                            {accountState === 'deleted'
+                                ? 'The owner deleted their Flockr account. Their videos, products and posts are no longer available.'
+                                : 'This account has been suspended and its content is hidden.'}
+                        </p>
+                    </div>
+                )}
                 {/* ═══ BLOCKED STATE BANNER ══════════════════════════════════ */}
-                {gone ? <AccountStateBanner state={accountState} username={profileUser.username} /> : <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />}
+                {blockedEitherWay && <BlockedBanner iBlockedThem={iBlockedThem} theyBlockedMe={theyBlockedMe} username={profileUser.username} onUnblock={() => setShowUnblockConfirm(true)} />}
 
                 {!anyBlock && showSuggestedPanel && (
     <SuggestedAccountsPanel afterUserId={profileUser.id} />
@@ -1322,8 +1259,8 @@ return (
         {tabs.map(({ key, label, Icon }) => {
             const active = activeTab === key;
             return (
-                <span key={key} style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
+                    key={key}
                     onClick={() => handleTabClick(key)}
                     style={{
                         display: 'flex',
@@ -1346,17 +1283,6 @@ return (
                 >
                     <Icon size={17} /> {label}
                 </button>
-                {key === 'videos' && (videos?.length ?? 0) > 0 && (
-                    <button
-                        type="button"
-                        aria-label="Sort videos"
-                        onClick={() => setShowSort(true)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 14, marginLeft: -4, padding: '5px 7px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: sortKey === 'recent' ? 'rgba(255,255,255,0.05)' : 'rgba(255,107,53,0.14)', color: sortKey === 'recent' ? 'rgba(255,255,255,0.6)' : '#FF6B35', cursor: 'pointer' }}
-                    >
-                        <RiSortDesc size={14} /><RiArrowDownSLine size={14} />
-                    </button>
-                )}
-                </span>
             );
         })}
     </div>
@@ -1367,7 +1293,7 @@ return (
             {activeTab === 'videos' &&
                 (videos?.length > 0 ? (
                     <div className="vgrid">
-                        {sortedVideos.map((video) => (
+                        {videos.map((video) => (
                             <Link
                                 key={video.id}
                                 href={`/@${video.user?.username}/video/${video.ulid}`}
@@ -1524,100 +1450,22 @@ return (
                 </div>
             )}
 
-            {activeTab === 'saved' && (
-                <div>
-                    {/* semi-tabs */}
-                    <div style={{ display: 'flex', gap: 8, padding: '12px 16px 4px' }}>
-                        {[
-                            { key: 'products', label: 'Products', Icon: RiStoreLine },
-                            { key: 'videos', label: 'Videos', Icon: RiVideoLine },
-                            { key: 'sounds', label: 'Sounds', Icon: RiMusic2Line },
-                        ].map(({ key, label, Icon }) => {
-                            const on = savedSub === key
-                            return (
-                                <button
-                                    key={key}
-                                    onClick={() => handleSavedSub(key)}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, cursor: 'pointer',
-                                        fontSize: 13, fontWeight: on ? 700 : 500, whiteSpace: 'nowrap',
-                                        background: on ? 'rgba(255,107,53,0.14)' : 'rgba(255,255,255,0.05)',
-                                        border: `1px solid ${on ? 'rgba(255,107,53,0.45)' : 'rgba(255,255,255,0.08)'}`,
-                                        color: on ? '#FF6B35' : 'rgba(255,255,255,0.6)',
-                                    }}
-                                >
-                                    <Icon size={15} /> {label}
-                                </button>
-                            )
-                        })}
-                    </div>
-
-                    {savedSub === 'products' && (
-                        wishlistLoading && !wishlistProducts ? <Spinner /> : wishlistProducts?.length > 0 ? (
-                            <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                                {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
-                            </div>
-                        ) : (
-                            <EmptyState Icon={RiStoreLine} title="No saved products" sub="Products you save will show up here." />
-                        )
-                    )}
-
-                    {savedSub === 'videos' && (
-                        privateTabLoading && !privateTabVideos.savedVideos ? <Spinner /> : privateTabVideos.savedVideos?.length > 0 ? (
-                            <div className="vgrid" style={{ marginTop: 10 }}>
-                                {privateTabVideos.savedVideos.map(video => (
-                                    <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="vthumb" style={{ position: 'relative', aspectRatio: '9/16', display: 'block', background: '#1a1a1a', overflow: 'hidden' }}>
-                                        {video.thumbnail_url_full
-                                            ? <img src={video.thumbnail_url_full} alt={video.title} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                            : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>}
-                                        <PlayCount n={video.views_count} />
-                                    </Link>
-                                ))}
-                            </div>
-                        ) : (
-                            <EmptyState Icon={RiVideoLine} title="No saved videos" sub="Videos you save will show up here." />
-                        )
-                    )}
-
-                    {savedSub === 'sounds' && (
-                        savedSoundsLoading && !savedSounds ? <Spinner /> : savedSounds?.length > 0 ? (
-                            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {savedSounds.map(snd => (
-                                    <Link key={snd.id} href={snd.path || `/sound/${snd.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', textDecoration: 'none' }}>
-                                        <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `linear-gradient(135deg, hsl(${(snd.id * 47) % 360} 70% 45%), hsl(${(snd.id * 47 + 55) % 360} 65% 25%))` }}>
-                                            {snd.cover_url ? <img src={snd.cover_url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <RiMusic2Line size={22} color="rgba(255,255,255,0.7)" />}
-                                        </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snd.title}</p>
-                                            <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.45)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {snd.artist}{snd.uses_count ? ` · ${snd.uses_count.toLocaleString()} videos` : ''}
-                                            </p>
-                                        </div>
-                                        <button
-                                            aria-label="Remove from saved"
-                                            onClick={async (e) => {
-                                                e.preventDefault(); e.stopPropagation()
-                                                const prev = savedSounds
-                                                setSavedSounds(list => list.filter(x => x.id !== snd.id))
-                                                try { await axios.post(`/api/sounds/${snd.id}/save`); showToast('Removed from saved') }
-                                                catch { setSavedSounds(prev); showToast('Could not update saved sounds') }
-                                            }}
-                                            style={{ background: 'none', border: 'none', padding: 6, cursor: 'pointer', display: 'flex' }}
-                                        >
-                                            <RiBookmarkFill size={20} color="#FF6B35" />
-                                        </button>
-                                    </Link>
-                                ))}
-                            </div>
-                        ) : (
-                            <EmptyState Icon={RiMusic2Line} title="No saved sounds" sub="Tap the bookmark on any sound to keep it here." />
-                        )
-                    )}
-                </div>
+            {activeTab === 'wishlist' && (
+             wishlistLoading && !wishlistProducts ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+                  <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
+               </div>
+             ) : (wishlistProducts?.length > 0 ? (
+                   <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                   {wishlistProducts.map(p => <ProductCard key={p.id} product={p} />)}
+             </div>
+              ) : (
+            <EmptyState Icon={RiHeartLine} title="Your wishlist is empty" sub="Products you save will show up here." />
+             ))
             )}
 
             {/* Private Tabs Renderer */}
-            {['liked', 'viewed'].includes(activeTab) && (
+            {['liked', 'viewed', 'savedVideos'].includes(activeTab) && (
                 privateTabLoading && !privateTabVideos[activeTab] ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
                         <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
@@ -1627,15 +1475,14 @@ return (
                         {privateTabVideos[activeTab].map(video => (
                             <Link key={video.id} href={`/@${video.user?.username}/video/${video.ulid}`} className="vthumb" style={{ position: 'relative', aspectRatio: '9/16', display: 'block', background: '#1a1a1a', overflow: 'hidden' }}>
                                 {video.thumbnail_url_full
-                                    ? <img src={video.thumbnail_url_full} alt={video.title} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    ? <img src={video.thumbnail_url_full} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RiVideoLine size={24} color="rgba(255,255,255,0.1)" /></div>
                                 }
-                                <PlayCount n={video.views_count} />
                             </Link>
                         ))}
                     </div>
                 ) : (
-                    <EmptyState Icon={activeTab === 'liked' ? RiHeartLine : RiEyeLine} title={`No ${activeTab} videos yet`} sub="Videos will show up here." />
+                    <EmptyState Icon={activeTab === 'liked' ? RiHeartLine : activeTab === 'viewed' ? RiEyeLine : RiBookmarkLine} title={`No ${activeTab === 'savedVideos' ? 'saved' : activeTab} videos yet`} sub="Videos will show up here." />
                 ))
             )}
         </div>
@@ -1699,23 +1546,6 @@ function EmptyState({ Icon, title, sub, cta }) {
             )}
         </div>
     );
-}
-
-function PlayCount({ n }) {
-    return (
-        <div style={{ position: 'absolute', bottom: 7, left: 7, display: 'flex', alignItems: 'center', gap: 2, textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}>
-            <RiPlayLine size={14} color="rgba(255,255,255,0.9)" />
-            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 700 }}>{fmtCount(n ?? 0)}</span>
-        </div>
-    )
-}
-
-function Spinner() {
-    return (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#FF6B35', borderRadius: '50%', animation: 'profileSpin 0.8s linear infinite' }} />
-        </div>
-    )
 }
 
 function fmtCount(n) {

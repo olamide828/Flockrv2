@@ -220,7 +220,37 @@ class VideoController extends Controller
         ->limit(10)
         ->get();
 
+    // Opened from the Saved / Liked / Viewed tab (?from=saved|liked|viewed): keep playing through THAT list,
+    // starting right after this video, instead of falling back to the creator's other videos.
+    $playlist = null;
+    $from = request()->query('from');
+    if (Auth::check() && in_array($from, ['saved', 'liked', 'viewed'], true)) {
+        $uid = Auth::id();
+        $ids = match ($from) {
+            'saved'  => \DB::table('video_saves')->where('user_id', $uid)->orderByDesc('created_at')->limit(100)->pluck('video_id'),
+            'liked'  => \DB::table('video_likes')->where('user_id', $uid)->orderByDesc('created_at')->limit(100)->pluck('video_id'),
+            'viewed' => \App\Models\VideoView::where('user_id', $uid)->latest()->limit(300)->pluck('video_id')->unique()->take(100)->values(),
+        };
+        $ids   = $ids->values();
+        $pos   = $ids->search($video->id);
+        $after = $pos === false ? $ids : $ids->slice($pos + 1)->merge($ids->slice(0, $pos));   // after this one, then wrap round to the start
+        $after = $after->reject(fn ($id) => (int) $id === (int) $video->id)->values();
+
+        if ($after->isNotEmpty()) {
+            $order = $after->flip();
+            $sellerVideos = Video::active()->whereIn('id', $after)
+                ->with([
+                    'user:id,name,username,avatar,is_verified,location',
+                    'products' => fn($q) => $q->where('status', 'active')->with('seller:id,name,username'),
+                ])
+                ->withCount(['allComments'])->get()
+                ->sortBy(fn ($v) => $order[$v->id] ?? PHP_INT_MAX)->values();
+            $playlist = $from;
+        }
+    }
+
     return Inertia::render('Video/Show', [
+        'playlist'            => $playlist,
         'video' => array_merge($video->toArray(), [
             'comments_count' => $video->all_comments_count ?? 0,
         ]),
@@ -369,6 +399,10 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
             'enhance' => $request->boolean('enhance', false),
         ]);
+
+        // @mentions in the caption: tagged people are notified
+        try { app(\App\Services\MentionService::class)->notify($video->description, Auth::user(), 'video', "/@" . Auth::user()->username . "/video/{$video->ulid}"); } catch (\Throwable) {}
+
 
         
 
@@ -550,8 +584,10 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
         }
 
         $request->validate([
-            'photos'      => 'required|array|min:1|max:30',
+            'photos'      => 'nullable|array|max:30',
             'photos.*'    => 'file|mimes:jpg,jpeg,png,webp,gif|max:12288',
+            'staged'      => 'nullable|array|max:30',
+            'staged.*'    => 'string|max:300',
             'title'       => 'nullable|string|max:200',
             'description' => 'nullable|string|max:1000',
             'hashtags'    => 'nullable|string',
@@ -565,15 +601,31 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             'allow_sound_reuse' => 'nullable|boolean',
         ], [
             'photos.max'      => 'You can add up to 30 photos per post.',
+            'staged.max'      => 'You can add up to 30 photos per post.',
             'photos.*.max'    => 'Each photo must be under 12MB.',
             'photos.*.mimes'  => 'Photos must be JPG, PNG, WebP or GIF.',
             'rights.accepted' => 'Please confirm you have the rights to everything in your post.',
         ]);
 
-        $disk  = Storage::disk(config('filesystems.default', 'public'));
-        $paths = [];
+        $disk = Storage::disk(config('filesystems.default', 'public'));
+
+        // Photos uploaded earlier in small batches (see stagePhotos). Only the caller's own staging folder is accepted.
+        $stagePrefix = 'photos/staged/' . Auth::id() . '/';
+        $staged = [];
+        foreach ((array) $request->input('staged', []) as $sp) {
+            if (is_string($sp) && str_starts_with($sp, $stagePrefix) && !str_contains($sp, '..') && $disk->exists($sp)) $staged[] = $sp;
+        }
+        $direct = (array) $request->file('photos', []);
+        if (count($staged) + count($direct) < 1) {
+            return response()->json(['message' => 'Add at least one photo.', 'errors' => ['photos' => ['Add at least one photo.']]], 422);
+        }
+        if (count($staged) + count($direct) > 30) {
+            return response()->json(['message' => 'You can add up to 30 photos per post.', 'errors' => ['photos' => ['You can add up to 30 photos per post.']]], 422);
+        }
+
+        $paths = $staged;
         try {
-            foreach ($request->file('photos') as $file) {
+            foreach ($direct as $file) {
                 $ext   = strtolower($file->getClientOriginalExtension() ?: 'jpg');
                 $name  = 'photos/' . now()->format('Y/m/d') . '/' . \Illuminate\Support\Str::uuid() . '.' . $ext;
                 $disk->putFileAs(dirname($name), $file, basename($name), 'public');
@@ -599,6 +651,9 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
             'published_at' => now(),
             'allow_sound_reuse' => $request->boolean('allow_sound_reuse', true),
         ]);
+
+        // @mentions in the caption: tagged people are notified
+        try { app(\App\Services\MentionService::class)->notify($video->description, Auth::user(), 'video', "/@" . Auth::user()->username . "/video/{$video->ulid}"); } catch (\Throwable) {}
 
         // Optional sound that plays while the photos are on screen
         $sound = $request->filled('sound_id') ? Sound::active()->find($request->integer('sound_id')) : null;
@@ -630,6 +685,41 @@ $hashtags = \App\Services\HashtagService::normalize($request->input('hashtags'))
         });
 
         return response()->json(['message' => 'Posted.', 'video_id' => $video->id, 'video_ulid' => $video->ulid, 'status' => 'active', 'count' => count($paths)], 201);
+    }
+
+    /**
+     * POST /api/videos/photos/stage   (multipart: photos[] up to 10 per call)
+     * PHP silently drops every file past `max_file_uploads` (20 by default) in ONE request, which is why a post of 30
+     * pictures kept only 20. The app now sends photos in small batches here, then posts the saved paths in `staged[]`.
+     */
+    public function stagePhotos(Request $request): JsonResponse
+    {
+        if (!Auth::check()) {
+            return response()->json(['message' => 'Sign in to post.'], 403);
+        }
+        $request->validate([
+            'photos'   => 'required|array|min:1|max:10',
+            'photos.*' => 'file|mimes:jpg,jpeg,png,webp,gif|max:12288',
+        ], [
+            'photos.*.max'   => 'Each photo must be under 12MB.',
+            'photos.*.mimes' => 'Photos must be JPG, PNG, WebP or GIF.',
+        ]);
+
+        $disk  = Storage::disk(config('filesystems.default', 'public'));
+        $paths = [];
+        try {
+            foreach ($request->file('photos') as $file) {
+                $ext  = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+                $name = 'photos/staged/' . Auth::id() . '/' . \Illuminate\Support\Str::uuid() . '.' . $ext;
+                $disk->putFileAs(dirname($name), $file, basename($name), 'public');
+                $paths[] = $name;
+            }
+        } catch (\Throwable $e) {
+            foreach ($paths as $p) { try { $disk->delete($p); } catch (\Throwable) {} }
+            \Illuminate\Support\Facades\Log::error('Photo staging failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Could not save your photos. Please try again.'], 500);
+        }
+        return response()->json(['paths' => $paths], 201);
     }
 
     public function feed(Request $request): JsonResponse

@@ -26,7 +26,7 @@ export const NAV = [
   ]],
   ['Content', [
     ['videos', 'Videos', RiMovieLine, 'videos'], ['products', 'Products', RiShoppingCartLine], ['music', 'Music', RiMusic2Line, 'claims'],
-    ['rooms', 'Rooms', RiChat3Line], ['badges', 'Badges', RiMedalLine], ['feed', 'Feed controls', RiEqualizerLine],
+    ['rooms', 'Rooms', RiChat3Line], ['chats', 'Direct messages', RiChat3Line], ['deletions', 'Account deletions', RiForbidLine], ['badges', 'Badges', RiMedalLine], ['feed', 'Feed controls', RiEqualizerLine],
   ]],
   ['System', [
     ['system', 'System health', RiHeartPulseLine, 'failed_jobs'], ['audit', 'Audit log', RiHistoryLine],

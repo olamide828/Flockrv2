@@ -94,8 +94,10 @@ class CommunityFeedService
         }
 
         $now = now();
+        $ai  = app(\App\Services\AiRecommendService::class);
+        $kw  = $ai->keywords($userId);
 
-        $ranked = $candidates->map(function (Post $post) use ($followingIds, $now, $seenIds) {
+        $ranked = $candidates->map(function (Post $post) use ($followingIds, $now, $seenIds, $ai, $kw) {
             $ageHours = max(0, $now->diffInHours($post->created_at));
             $recency  = exp(-0.693 * $ageHours / 36); // 36h half-life
 
@@ -108,7 +110,10 @@ class CommunityFeedService
             $followBoost = $followingIds->contains($post->user_id) ? 0.25 : 0;
             $novelty     = $seenIds->contains($post->id) ? 0.0 : 0.05;
 
-            $post->_score = ($recency * 0.45) + ($engagementScore * 0.4) + $sellerBoost + $followBoost + $novelty;
+            // Gemini taste match: small nudge on top of recency + engagement
+            $aiBoost = $kw ? 0.12 * $ai->match($kw, (string) ($post->body ?? $post->content ?? '')) : 0;
+
+            $post->_score = ($recency * 0.45) + ($engagementScore * 0.4) + $sellerBoost + $followBoost + $novelty + $aiBoost;
 
             return $post;
         })->sortByDesc('_score')->values();

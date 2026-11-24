@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\Video;
 use App\Services\FeedService;
+use App\Services\GeminiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,12 +18,10 @@ use Inertia\Response;
 /**
  * SearchController
  *
- * Jina/OpenAI removed — neither has network access in dev and
- * no embedding columns exist in the DB yet.
- * All search is keyword-based (ILIKE). Trending uses velocity scoring.
- *
- * When you add embedding columns later, you can re-inject JinaService
- * and swap searchProducts() / searchVideos() to use semantic search.
+ * Keyword search (ILIKE) first. When that finds little, Gemini is asked for
+ * related words / synonyms / Pidgin terms for the query (cached 7 days per query,
+ * fail-safe) and those are searched too, with the exact matches listed first.
+ * No embeddings or pgvector needed.
  */
 class SearchController extends Controller
 {
@@ -55,6 +54,7 @@ class SearchController extends Controller
         }
 
         // ── Sellers ───────────────────────────────────────────────────────────
+        $terms   = [];
         $sellers = collect();
         if (strlen($q) >= 1) {
             $cleanQ  = ltrim($q, '@');
@@ -82,6 +82,32 @@ class SearchController extends Controller
         // ── Videos ────────────────────────────────────────────────────────────
         $videos = $this->searchVideos($q);
 
+        // ── Semantic widening (Gemini): only when the plain search came back thin ──
+        if (strlen($q) >= 3 && !str_starts_with($q, '@') && ($products->count() < 6 || $videos->count() < 3)) {
+            $terms = app(GeminiService::class)->expandSearch($q);
+            if ($terms) {
+                $products = $this->searchProducts($q, $limit, [
+                    'category_id' => $catId, 'price_max' => $priceMax,
+                    'condition'   => $request->input('condition'), 'sort' => $sort,
+                ], $terms);
+                $videos = $this->searchVideos($q, $terms);
+
+                if ($sellers->count() < 4) {
+                    $more = User::where(function ($query) use ($terms) {
+                            foreach ($terms as $t) {
+                                $query->orWhere('bio', 'ilike', "%{$t}%")->orWhere('name', 'ilike', "%{$t}%");
+                            }
+                        })
+                        ->where('role', '!=', 'admin')->where('is_active', true)
+                        ->whereNotIn('id', $sellers->pluck('id'))
+                        ->select(['id','name','username','avatar','bio','role','is_verified','followers_count','location'])
+                        ->limit(8 - $sellers->count())->get()
+                        ->map(fn ($u) => array_merge($u->toArray(), ['avatar_url' => $u->avatar_url]));
+                    $sellers = $sellers->concat($more);
+                }
+            }
+        }
+
         $hasResults = $products->isNotEmpty() || $sellers->isNotEmpty() || $videos->isNotEmpty();
 
         // Related fallback — show trending when nothing found
@@ -99,20 +125,24 @@ class SearchController extends Controller
             'products' => $products->values(),
             'videos'   => $videos->values(),
             'related'  => $related->values(),
+            'also_searched' => $terms,   // words Gemini added, so the UI can say "also showing: ..."
         ]);
     }
 
     // ── Search helpers ────────────────────────────────────────────────────────
 
-    private function searchProducts(string $q, int $limit, array $filters): \Illuminate\Support\Collection
+    private function searchProducts(string $q, int $limit, array $filters, array $terms = []): \Illuminate\Support\Collection
     {
         $query = Product::active()->inStock()
             ->with('seller:id,name,username,avatar,is_verified');
 
         if (strlen($q) >= 1) {
-            $query->where(function ($qb) use ($q) {
+            $query->where(function ($qb) use ($q, $terms) {
                 $qb->where('name',        'ilike', "%{$q}%")
                    ->orWhere('description','ilike', "%{$q}%");
+                foreach ($terms as $t) {
+                    $qb->orWhere('name', 'ilike', "%{$t}%")->orWhere('description', 'ilike', "%{$t}%");
+                }
             });
         }
 
@@ -136,6 +166,12 @@ class SearchController extends Controller
 
         $products = $query->limit($limit)->get();
 
+        // Exact matches stay on top; AI-related items follow (sortBy is stable)
+        if ($terms) {
+            $needle   = mb_strtolower($q);
+            $products = $products->sortBy(fn ($p) => str_contains(mb_strtolower($p->name . ' ' . $p->description), $needle) ? 0 : 1)->values();
+        }
+
     // ── Stamp is_saved ────────────────────────────────────────────────────
     $userId = Auth::id();
     if ($userId && $products->isNotEmpty()) {
@@ -154,17 +190,22 @@ class SearchController extends Controller
     return $products;
     }
 
-    private function searchVideos(string $q): \Illuminate\Support\Collection
+    private function searchVideos(string $q, array $terms = []): \Illuminate\Support\Collection
     {
         if (strlen($q) < 1) return collect();
 
         return Video::active()
             ->with('user:id,name,username,avatar,is_verified')
             ->withCount(['allComments'])
-            ->where(function ($query) use ($q) {
+            ->where(function ($query) use ($q, $terms) {
                 $query->where('title',       'ilike', "%{$q}%")
                       ->orWhere('description','ilike', "%{$q}%")
                       ->orWhereRaw("hashtags::text ilike ?", ["%{$q}%"]);
+                foreach ($terms as $t) {
+                    $query->orWhere('title', 'ilike', "%{$t}%")
+                          ->orWhere('description', 'ilike', "%{$t}%")
+                          ->orWhereRaw("hashtags::text ilike ?", ["%{$t}%"]);
+                }
             })
             ->orderByDesc('views_count')
             ->limit(9)

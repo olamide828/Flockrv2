@@ -38,6 +38,7 @@ class SoundTrendService
                     ->whereNotNull('sound_id')
                     ->where('status', 'active')
                     ->whereNull('deleted_at')
+                    ->whereNotIn('user_id', fn ($q) => $q->select('id')->from('users')->where(fn ($w) => $w->where('is_active', false)->orWhereNotNull('deleted_at')))
                     ->where('published_at', '>=', now()->subHours(self::WINDOW_HOURS))
                     ->selectRaw('sound_id, COUNT(DISTINCT user_id) AS creators')
                     ->groupBy('sound_id')

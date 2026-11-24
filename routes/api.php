@@ -59,6 +59,7 @@ Route::get('/community/rooms/discover', [CommunityController::class, 'discoverRo
 Route::prefix('shop')->group(function () {
     Route::get('/products', [ProductController::class, 'apiIndex']);
 });
+Route::get('/videos/{video}/photos/download', [\App\Http\Controllers\PhotoDownloadController::class, 'zip'])->middleware('throttle:20,1');
 Route::get('/videos/{video}/photos/{index}/download', [\App\Http\Controllers\PhotoDownloadController::class, 'photo'])->whereNumber('index')->middleware('throttle:60,1');
 Route::post('/videos/{video}/download/prepare', [VideoDownloadController::class, 'prepare']);
 Route::get('/videos/download/status', [VideoDownloadController::class, 'status']);
@@ -91,7 +92,7 @@ Route::get('/users/{user}', [UserController::class, 'apiShow'])->whereNumber('us
 Route::middleware('auth')->post('/feed/reset', [\App\Http\Controllers\MiscApiController::class, 'hAuth8']);
 
 // Username availability check — public, used during registration
-Route::get('/auth/check-username', [\App\Http\Controllers\MiscApiController::class, 'hAuthCheckUsername9']);
+Route::get('/auth/check-username', [\App\Http\Controllers\MiscApiController::class, 'hAuthCheckUsername9'])->middleware('throttle:60,1');
 
 // ── Authenticated API ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -104,6 +105,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::middleware('verified')->post('/videos/upload', [VideoController::class, 'store']);
     Route::post('/videos/upload-url', [VideoController::class, 'uploadUrl']);   // direct-to-storage upload link
     Route::post('/videos/upload', [VideoController::class, 'store']);
+    Route::post('/videos/photos/stage', [VideoController::class, 'stagePhotos'])->middleware('throttle:60,1');   // photos in batches of 10
     Route::post('/videos/photos', [VideoController::class, 'storePhotos'])->middleware('throttle:20,1');   // photo post, up to 30 pictures
     Route::get('/sounds', [SoundController::class, 'index']);   // uploader music picker
     Route::post('/sounds', [SoundController::class, 'store']);   // seller records / uploads a sound
@@ -142,6 +144,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/community/posts/{post}', [CommunityController::class, 'showPost']);
     Route::post('/community/posts/{post}/view', [CommunityController::class, 'recordPostView']);
     Route::post('/community/posts/{post}/like', [CommunityController::class, 'likePost']);
+    Route::post('/community/posts/{post}/save', [CommunityController::class, 'savePost']);
+    Route::get('/community/saved', [CommunityController::class, 'savedPosts']);
     Route::post('/community/posts/{post}/dismiss', [CommunityController::class, 'dismissPost']);
     Route::delete('/community/posts/{post}', [CommunityController::class, 'destroyPost']);
     
@@ -166,9 +170,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/community/rooms/{room}/messages', [CommunityController::class, 'roomMessages']);
     Route::post('/community/rooms/{room}/messages', [CommunityController::class, 'sendRoomMessage']);
     Route::delete('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'deleteRoomMessage']);
+    Route::patch('/community/rooms/{room}/messages/{message}', [CommunityController::class, 'editRoomMessage']);
+    Route::post('/community/rooms/{room}/messages/{message}/react', [CommunityController::class, 'reactRoomMessage']);
     Route::post('/community/rooms/{room}/messages/{message}/like', [CommunityController::class, 'likeRoomMessage']);
 
     Route::post('/community/polls/{poll}/vote', [CommunityController::class, 'votePoll'])->middleware('throttle:40,1');
+    Route::post('/community/comments/{comment}/report', [CommunityController::class, 'reportPostComment'])->middleware('throttle:20,1');
     Route::post('/community/comments/{comment}/like', [CommunityController::class, 'likePostComment']);
 Route::post('/community/comments/{comment}/pin', [CommunityController::class, 'pinPostComment']);
  
@@ -184,6 +191,8 @@ Route::get('/community/rooms/lookup-invite', [CommunityController::class, 'looku
     Route::delete('/comments/{comment}', [CommentController::class, 'destroy']);
 
     Route::post('/comments/{comment}/like', [CommentController::class, 'like']);
+    Route::post('/comments/{comment}/report', [CommentController::class, 'report'])->middleware('throttle:20,1');
+    Route::get('/mentions/search', [\App\Http\Controllers\MentionController::class, 'search'])->middleware('throttle:60,1');
     Route::post('/comments/{comment}/pin',  [CommentController::class, 'pin']);
 
     // Products
@@ -277,6 +286,8 @@ Route::delete('/settings/devices/{loginHistory}', [\App\Http\Controllers\MiscApi
     Route::post('/conversations/{conversation}/mark-read', [ConversationController::class, 'markRead']);
     Route::post('/conversations/{conversation}/dismiss-request', [ConversationController::class, 'dismissRequest']);
     Route::delete('/conversations/{conversation}/messages/{message}', [ConversationController::class, 'deleteMessage']);
+    Route::patch('/conversations/{conversation}/messages/{message}', [ConversationController::class, 'editMessage']);
+    Route::post('/conversations/{conversation}/messages/{message}/react', [ConversationController::class, 'reactMessage']);
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/{order}/disputes', [DisputeController::class, 'store']);
 Route::get('/disputes/{dispute}', [DisputeController::class, 'show']);
@@ -390,6 +401,21 @@ Route::get('/users/{user}/suggested-follows', [\App\Http\Controllers\MiscApiCont
         Route::post('/reports/{report}/actioned',  [AdminController::class, 'actionReport']);
         Route::post('/reports/{report}/dismissed', [AdminController::class, 'dismissReport']);
         Route::get('/conversations/{conversation}/messages', [AdminController::class, 'conversationMessages']);
+
+        // Direct-message oversight and chat restrictions
+        Route::get('/chats', [\App\Http\Controllers\Admin\ChatAdminController::class, 'index']);
+        Route::get('/chats/restrictions', [\App\Http\Controllers\Admin\ChatAdminController::class, 'restrictions']);
+        Route::post('/chats/restrict', [\App\Http\Controllers\Admin\ChatAdminController::class, 'restrict']);
+        Route::post('/chats/restrictions/{id}/lift', [\App\Http\Controllers\Admin\ChatAdminController::class, 'lift'])->whereNumber('id');
+        Route::get('/chats/{id}/messages', [\App\Http\Controllers\Admin\ChatAdminController::class, 'messages'])->whereNumber('id');
+        Route::delete('/chats/{id}/messages/{message}', [\App\Http\Controllers\Admin\ChatAdminController::class, 'deleteMessage'])->whereNumber(['id', 'message']);
+
+        // Account deletions: pending purges, legal hold, restore
+        Route::get('/deletions', [\App\Http\Controllers\Admin\DeletionAdminController::class, 'index']);
+        Route::post('/deletions/{id}/hold', [\App\Http\Controllers\Admin\DeletionAdminController::class, 'hold'])->whereNumber('id');
+        Route::post('/deletions/{id}/release', [\App\Http\Controllers\Admin\DeletionAdminController::class, 'release'])->whereNumber('id');
+        Route::post('/deletions/{id}/restore', [\App\Http\Controllers\Admin\DeletionAdminController::class, 'restore'])->whereNumber('id');
+        Route::post('/deletions/{id}/purge', [\App\Http\Controllers\Admin\DeletionAdminController::class, 'purge'])->whereNumber('id');
 
         Route::get('/events', [EventController::class, 'adminIndex']);
 Route::post('/events', [EventController::class, 'adminStore']);

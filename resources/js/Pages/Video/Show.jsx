@@ -35,6 +35,7 @@ import {
     RiShieldCheckLine,
     RiChatSmile3Line,
     RiSparkling2Line,
+  RiStarFill,
 } from 'react-icons/ri';
 import ReportVideoModal from './ReportVideoModal';
 import CommentSheet from '../../Components/Video/CommentSheet';
@@ -726,7 +727,12 @@ function VideoSlide({ video, isActive, showBackBtn = false, onBack }) {
                             {followed ? 'Following' : 'Follow'}
                         </button>
                     )}
-                    <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
+                    {video.is_featured && (
+            <span title="Picked by the Flockr team" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', padding: '2px 9px 2px 7px', marginBottom: 2, borderRadius: 999, background: 'linear-gradient(135deg, rgba(255,107,53,0.95), rgba(245,185,59,0.95))', color: '#fff', fontSize: 11, fontWeight: 800, letterSpacing: '0.02em', lineHeight: 1.4, boxShadow: '0 2px 10px rgba(255,107,53,0.35)' }}>
+              <RiStarFill size={11} style={{ display: 'block' }} /> Featured
+            </span>
+          )}
+        <button onClick={() => (video.user?.username && router.visit(`/@${video.user.username}`))} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.7)' }}>{video.user?.name}</span>
                         <VerifiedBadge type={video.user?.verification_type} size={18} />
                     </button>
@@ -866,10 +872,11 @@ function RiVolumeUpIcon() {
 // ─────────────────────────────────────────────────────────────────────────────
 // VideoShow — scroll container
 // ─────────────────────────────────────────────────────────────────────────────
-export default function VideoShow({ video, isLiked, isSaved, isFollowing, initialSellerVideos = [] }) {
+export default function VideoShow({ video, isLiked, isSaved, isFollowing, initialSellerVideos = [], playlist = null }) {
     const [sellerVideos,  setSellerVideos]  = useState(initialSellerVideos);
     const [sellerCursor,  setSellerCursor]  = useState(initialSellerVideos.length);
-    const [sellerHasMore, setSellerHasMore] = useState(true);
+    // Opened from Saved / Liked / Viewed: the whole list is already here, so don't append the creator's videos
+    const [sellerHasMore, setSellerHasMore] = useState(!playlist);
     const [loadingMore,   setLoadingMore]   = useState(false);
     const [activeIdx,     setActiveIdx]     = useState(0);
     const sentinelRef = useRef(null);

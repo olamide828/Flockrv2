@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
   RiSendPlaneFill, RiCloseLine, RiArrowLeftLine, RiChat1Line, RiMoreLine,
   RiGroupLine, RiShieldLine, RiReplyLine, RiImage2Line, RiDeleteBinLine,
-  RiSettings3Line, RiShareLine, RiLogoutBoxLine, RiInformationLine,
+  RiSettings3Line, RiShareLine, RiLogoutBoxLine, RiInformationLine, RiRestartLine,
 } from 'react-icons/ri'
 import Av from './Av'
 import ShareRoomSheet from './ShareRoomSheet'
@@ -15,6 +15,9 @@ import { fmtTime } from './Helpers'
 import GlassHeader, { GlassIconBtn } from '@/Components/Chat/GlassHeader'
 import GlassComposer from '@/Components/Chat/GlassComposer'
 import { GLASS } from '@/Components/Chat/glass'
+import MessageActionMenu, { ReactionChips, toggleMyReaction } from '@/Components/Chat/MessageActionMenu'
+import Ticks, { tickState } from '@/Components/Chat/Ticks'
+import MentionText from '@/Components/Common/MentionText'
 import { mergeIncoming, settleOptimistic, markFailed, markSending, isNetworkFailure, useElementHeight } from '@/Components/Chat/useChatMessages'
 
 export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRules, onOpenSettings, onLeaveRoom, showToast, initialMediaMessageId, onConsumedInitialMedia }) {
@@ -25,6 +28,8 @@ export default function RoomChat({ room, auth, onBack, onOpenMembers, onOpenRule
   const [sending,   setSending]   = useState(false)
   const [replyTo,   setReplyTo]   = useState(null)
   const [msgAction, setMsgAction] = useState(null)
+  const [editingMsg, setEditingMsg] = useState(null)
+  const startPt = useRef({ x: 0, y: 0 })
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [pendingMedia, setPendingMedia] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null) // 0-100 while uploading, null otherwise
@@ -63,6 +68,18 @@ const typingTimersRef = useRef({})
       .finally(() => setLoading(false))
   }, [room.id])
 
+  // Keep my ticks fresh (✓ → ✓✓ → orange ✓✓) while the room is open: refresh delivery state every 20s
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.hidden) return
+      axios.get(`/api/community/rooms/${room.id}/messages`).then(r => {
+        const fresh = new Map((r.data.messages ?? []).map(m => [m.id, m]))
+        setMessages(p => p.map(m => fresh.has(m.id) && m.user_id === auth?.user?.id ? { ...m, delivery: fresh.get(m.id).delivery } : m))
+      }).catch(() => {})
+    }, 20000)
+    return () => clearInterval(t)
+  }, [room.id, auth?.user?.id])
+
   useEffect(() => {
     if (!loading) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior:'smooth' }), 60)
   }, [messages.length, loading])
@@ -83,6 +100,12 @@ useEffect(() => {
     channel.listen('.RoomMessageDeleted', (e) => {
       setMessages(p => p.map(m => m.id === e.message_id
         ? { ...m, is_deleted: true, body: null, media_url: null, media_type: null }
+        : m))
+    })
+
+    channel.listen('.RoomMessageUpdated', (e) => {
+      setMessages(p => p.map(m => m.id === e.message_id
+        ? { ...m, reactions: e.reactions ?? m.reactions, ...(e.body != null ? { body: e.body, edited_at: e.edited_at } : {}) }
         : m))
     })
 
@@ -187,6 +210,7 @@ useEffect(() => {
 
   const send = async (e) => {
     e?.preventDefault?.()
+    if (editingMsg) { submitEdit(); return }
     if (!body.trim() && !pendingMedia) return
     if (!auth?.user) { router.visit('/login'); return }
 
@@ -211,6 +235,41 @@ useEffect(() => {
     catch { /* already optimistic; a refresh will resync if this genuinely failed */ }
   }
 
+  const EDIT_MINUTES = 15
+  const canEditMsg = (m) => m && isMine(m) && !!m.body && !m.is_deleted && !m._opt && !String(m.id).startsWith('opt-') && (Date.now() - new Date(m.created_at).getTime()) < EDIT_MINUTES * 60000
+
+  const reactTo = async (msg, emoji) => {
+    if (String(msg.id).startsWith('opt-')) return
+    const me = auth.user.id
+    const before = msg.reactions ?? []
+    setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: toggleMyReaction(before, me, emoji) } : m))
+    try {
+      const { data } = await axios.post(`/api/community/rooms/${room.id}/messages/${msg.id}/react`, { emoji })
+      setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: data.reactions } : m))
+    } catch {
+      setMessages(p => p.map(m => m.id === msg.id ? { ...m, reactions: before } : m))
+      showToast?.('Could not add your reaction.', 'error')
+    }
+  }
+
+  const startEdit = (msg) => { setReplyTo(null); setEditingMsg(msg); setBody(msg.body); setTimeout(() => inputRef.current?.focus(), 50) }
+  const cancelEdit = () => { setEditingMsg(null); setBody('') }
+  const submitEdit = async () => {
+    const msg = editingMsg, text = body.trim()
+    if (!msg || !text) return
+    if (text === msg.body) { cancelEdit(); return }
+    const prev = { body: msg.body, edited_at: msg.edited_at }
+    setMessages(p => p.map(m => m.id === msg.id ? { ...m, body: text, edited_at: new Date().toISOString() } : m))
+    cancelEdit()
+    try {
+      const { data } = await axios.patch(`/api/community/rooms/${room.id}/messages/${msg.id}`, { body: text })
+      setMessages(p => p.map(m => m.id === msg.id ? { ...m, body: data.body, edited_at: data.edited_at } : m))
+    } catch (err) {
+      setMessages(p => p.map(m => m.id === msg.id ? { ...m, ...prev } : m))
+      showToast?.(err.response?.data?.message ?? 'Could not edit that message.', 'error')
+    }
+  }
+
   const toggleLikeMsg = async (msg) => {
     const wasLiked = msg.is_liked_by_me
     setMessages(p => p.map(m => m.id === msg.id
@@ -226,8 +285,13 @@ useEffect(() => {
     }
   }
 
-  const onTouchStart = (e, msg) => { swipeRef.current = { startX: e.touches[0].clientX, msgId: msg.id, el: e.currentTarget } }
+  const onTouchStart = (e, msg) => {
+    swipeRef.current = { startX: e.touches[0].clientX, msgId: msg.id, el: e.currentTarget }
+    startPt.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
   const onTouchMove  = (e, msg) => {
+    // scrolling or swiping cancels the long-press
+    if (Math.abs(e.touches[0].clientX - startPt.current.x) > 8 || Math.abs(e.touches[0].clientY - startPt.current.y) > 8) clearTimeout(pressTimer.current)
     const dx = e.touches[0].clientX - (swipeRef.current.startX ?? 0)
     if (dx > 0 && swipeRef.current.msgId === msg.id) {
       const el = swipeRef.current.el
@@ -242,17 +306,17 @@ useEffect(() => {
     swipeRef.current = {}
   }
 
-  // FIX: capture the bounding rect immediately (synchronously), not inside
-  // the setTimeout callback — by the time the timer fires, e.currentTarget
-  // can already be null (event pooling / row re-render), which was throwing
-  // "Cannot read properties of null (reading 'getBoundingClientRect')".
+  // The rect is read right away (not inside the timer), when the row element is certainly still there.
+  const openMenuFor = (rowEl, msg) => {
+    const bubble = rowEl?.querySelector?.('[data-bubble]') ?? rowEl
+    const rect = bubble?.getBoundingClientRect()
+    if (rect) setMsgAction({ msg, rect })
+  }
   const onPressStart = (e, msg) => {
-    if (msg.is_system || msg.is_deleted) return
-    const rect = e.currentTarget?.getBoundingClientRect()
-    if (!rect) return
-    pressTimer.current = setTimeout(() => {
-      setMsgAction({ msg, y: rect.top })
-    }, 900)
+    if (msg.is_system || msg.is_deleted || msg._opt) return
+    const row = e.currentTarget
+    clearTimeout(pressTimer.current)
+    pressTimer.current = setTimeout(() => { navigator.vibrate?.(8); openMenuFor(row, msg) }, 420)
   }
   const onPressEnd = () => clearTimeout(pressTimer.current)
 
@@ -328,14 +392,15 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                   onMouseDown={e  => onPressStart(e, msg)}
                   onMouseUp={onPressEnd}
                   onMouseLeave={onPressEnd}
-                  style={{ display:'flex', justifyContent: mine ? 'flex-end' : 'flex-start', padding:`${showAv ? 8 : 2}px 12px 2px`, alignItems:'flex-end', gap:8, opacity: msg._failed ? 1 : (msg._opt ? 0.6 : 1), transition:'transform 0.15s ease', cursor:'default', userSelect:'none' }}>
+                  onContextMenu={e => { e.preventDefault(); if (!msg.is_deleted && !msg._opt) openMenuFor(e.currentTarget, msg) }}
+                  style={{ WebkitTouchCallout:'none', WebkitUserSelect:'none', display:'flex', justifyContent: mine ? 'flex-end' : 'flex-start', padding:`${showAv ? 8 : 2}px 12px 2px`, alignItems:'flex-end', gap:8, opacity: msg._failed ? 1 : (msg._opt ? 0.6 : 1), transition:'transform 0.15s ease', cursor:'default', userSelect:'none' }}>
                   {!mine && (
                     <div style={{ width:32, flexShrink:0, alignSelf:'flex-end' }}>
                       {showAv && <Link href={`/@${msg.user?.username}`}><Av user={msg.user} size={32} /></Link>}
                     </div>
                   )}
 
-                  <div style={{ maxWidth:'72%', display:'flex', flexDirection:'column', alignItems: mine ? 'flex-end' : 'flex-start', gap:2 }}>
+                  <div data-bubble style={{ maxWidth:'72%', display:'flex', flexDirection:'column', alignItems: mine ? 'flex-end' : 'flex-start', gap:2 }}>
                     {showName && <span style={{ color:'#FF6B35', fontSize:11, fontWeight:700, paddingLeft:2 }}>{msg.user?.name}</span>}
 
                     {msg.reply_to && !msg.is_deleted && (
@@ -381,16 +446,24 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
                         overflow:'hidden',
                         boxShadow: mine ? '0 2px 12px rgba(255,107,53,0.3)' : 'none',
                       }}>
-                        <p style={{ margin: 0, whiteSpace:'pre-wrap' }}>{msg.body}</p>
+                        <p style={{ margin: 0, whiteSpace:'pre-wrap' }}><MentionText text={msg.body} linkStyle={{ fontWeight:700, color:'#fff', textDecoration:'underline' }} /></p>
                       </div>
                     )}
 
-                    <span style={{ color:'rgba(255,255,255,0.22)', fontSize:10, padding: mine ? '0 4px 0 0' : '0 0 0 4px' }}>{fmtTime(msg.created_at)}</span>
+                    {!msg.is_deleted && msg.reactions?.length > 0 && (
+                      <ReactionChips reactions={msg.reactions} myId={auth?.user?.id} mine={mine} onToggle={(emoji) => reactTo(msg, emoji)} />
+                    )}
+
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:4, color:'rgba(255,255,255,0.3)', fontSize:10, padding: mine ? '0 4px 0 0' : '0 0 0 4px' }}>
+                      {msg.edited_at && !msg.is_deleted && <span>Edited</span>}
+                      <span>{fmtTime(msg.created_at)}</span>
+                      {mine && !msg.is_deleted && !msg._failed && <Ticks state={tickState({ ...msg, _optimistic: msg._opt && !msg._failed })} />}
+                    </span>
                   </div>
                   {msg._failed && (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); retrySend(msg) }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} aria-label="Message not sent. Tap to retry"
-                      style={{ flexShrink:0, alignSelf:'center', display:'flex', alignItems:'center', gap:4, padding:'6px 10px', borderRadius:999, border:'1px solid rgba(239,68,68,0.5)', background:'rgba(239,68,68,0.16)', color:'#f87171', fontSize:12, fontWeight:700, cursor:'pointer', order: mine ? 2 : 0 }}>
-                      Retry
+                    <button type="button" onClick={(e) => { e.stopPropagation(); retrySend(msg) }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} aria-label="Message not sent. Tap to retry" title="Not sent. Tap to retry"
+                      style={{ flex:'0 0 28px', width:28, height:28, minWidth:28, padding:0, borderRadius:'50%', border:'1px solid rgba(239,68,68,0.55)', background:'rgba(239,68,68,0.18)', color:'#f87171', display:'inline-flex', alignItems:'center', justifyContent:'center', alignSelf:'center', cursor:'pointer', lineHeight:0, order: mine ? -1 : 2 }}>
+                      <RiRestartLine size={15} />
                     </button>
                   )}
                 </div>
@@ -460,32 +533,17 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
       />
 
       {msgAction && (
-        <>
-          <div onClick={() => setMsgAction(null)} style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.5)' }} />
-          <div style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:201, background:'rgba(18,18,18,0.98)', backdropFilter:'blur(24px)', borderRadius:'20px 20px 0 0', borderTop:'1px solid rgba(255,255,255,0.08)', paddingBottom:'env(safe-area-inset-bottom, 16px)', animation:'slideUp 0.22s ease' }}>
-            <div style={{ display:'flex', justifyContent:'center', padding:'10px 0 6px' }}>
-              <div style={{ width:36, height:4, borderRadius:999, background:'rgba(255,255,255,0.2)' }} />
-            </div>
-            <div style={{ padding:'6px 20px 12px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-              <p style={{ margin:0, color:'rgba(255,255,255,0.4)', fontSize:11 }}>{msgAction.msg.user?.name}</p>
-              <p style={{ margin:'4px 0 0', color:'rgba(255,255,255,0.7)', fontSize:13, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{msgAction.msg.body}</p>
-            </div>
-            <button onClick={() => { setReplyTo(msgAction.msg); setMsgAction(null); inputRef.current?.focus() }}
-              style={{ display:'flex', alignItems:'center', gap:14, width:'100%', padding:'15px 20px', background:'none', border:'none', cursor:'pointer', color:'#fff', fontSize:15, fontWeight:600, borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-              <RiReplyLine size={22} color="#FF6B35" /> Reply
-            </button>
-            {canDel(msgAction.msg) && (
-              <button onClick={() => deleteMsg(msgAction.msg)}
-                style={{ display:'flex', alignItems:'center', gap:14, width:'100%', padding:'15px 20px', background:'none', border:'none', cursor:'pointer', color:'#EF4444', fontSize:15, fontWeight:700, borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-                <RiDeleteBinLine size={22} /> Delete message
-              </button>
-            )}
-            <button onClick={() => setMsgAction(null)}
-              style={{ display:'flex', alignItems:'center', justifyContent:'center', width:'calc(100% - 32px)', margin:'6px 16px 8px', padding:'13px', background:'rgba(255,255,255,0.06)', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.6)', fontSize:14, fontWeight:600, borderRadius:14 }}>
-              Cancel
-            </button>
-          </div>
-        </>
+        <MessageActionMenu
+          msg={msgAction.msg} rect={msgAction.rect} mine={isMine(msgAction.msg)}
+          myReaction={(msgAction.msg.reactions ?? []).find(r => r.user_id === auth?.user?.id)?.emoji}
+          canCopy={!!msgAction.msg.body} canEdit={canEditMsg(msgAction.msg)} canDelete={canDel(msgAction.msg)}
+          onReact={(emoji) => reactTo(msgAction.msg, emoji)}
+          onReply={() => { setReplyTo(msgAction.msg); inputRef.current?.focus() }}
+          onCopy={() => { navigator.clipboard?.writeText(msgAction.msg.body).then(() => showToast?.('Copied')).catch(() => {}) }}
+          onEdit={() => startEdit(msgAction.msg)}
+          onDelete={() => deleteMsg(msgAction.msg)}
+          onClose={() => setMsgAction(null)}
+        />
       )}
 
       {lightboxIndex !== null && (
@@ -518,6 +576,15 @@ const showAv   = !mine && (!nextMsg || nextMsg.user_id !== msg.user_id || nextMs
           canSend={body.trim().length > 0 || !!pendingMedia}
           onInputExtra={() => broadcastTyping()}
           top={<>
+            {editingMsg && (
+              <div style={{ ...GLASS, display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderRadius:16 }}>
+                <div style={{ flex:1, minWidth:0, borderLeft:'2px solid #FF6B35', paddingLeft:8 }}>
+                  <p style={{ margin:0, color:'#FF6B35', fontSize:11, fontWeight:700 }}>Editing message</p>
+                  <p style={{ margin:0, color:'rgba(255,255,255,0.7)', fontSize:12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{editingMsg.body}</p>
+                </div>
+                <button onClick={cancelEdit} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.5)', display:'inline-flex', alignItems:'center', justifyContent:'center', padding:4, lineHeight:0 }}><RiCloseLine size={16} style={{ display:'block' }} /></button>
+              </div>
+            )}
             {replyTo && (
               <div style={{ ...GLASS, display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderRadius:16 }}>
                 <RiReplyLine size={15} color="#FF6B35" />

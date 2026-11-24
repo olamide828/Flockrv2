@@ -32,7 +32,7 @@ Schedule::call(function () {
     LoginHistory::where('created_at', '<', now()->subDays(90))->delete();
 })->daily();
 
-Schedule::command('users:purge-deleted')->daily();
+Schedule::command('users:purge-deleted')->dailyAt('03:30')->withoutOverlapping()->onOneServer();
 
 Schedule::command('badges:check')->hourly();
 

@@ -47,6 +47,8 @@ class HandleInertiaRequests extends Middleware
                     'is_subscriber' => $user->hasActiveSubscription(),
                     'chat_theme' => $user->chat_theme ?? 'off',
                     'email_verified_at' => $user->email_verified_at,
+                    'name_changeable_at' => $user->name_changeable_at,
+                    'username_changeable_at' => $user->username_changeable_at,
                     'is_active' => $user->is_active,
                     'followers_count' => $user->followers_count ?? 0,
                     'following_count' => $user->following_count ?? 0,

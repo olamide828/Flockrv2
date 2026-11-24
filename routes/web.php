@@ -32,7 +32,8 @@ Route::get('/@{username}/video/{video:ulid}', [VideoController::class, 'show'])-
 Route::get('/@{username}/products/{product:slug}', [ProductController::class, 'show'])->name('products.show')->withTrashed();
 Route::get('/@{username}', [UserController::class, 'show'])->name('profile.show');
 Route::get('/community', [CommunityController::class, 'index'])->name('community');
-Route::get('/community/posts/{post}', [CommunityController::class, 'showPostPage'])->name('community.post');
+Route::get('/community/posts/{post}', [CommunityController::class, 'showPostPage'])->whereNumber('post')->name('community.post');
+Route::get('/community/saved', fn () => \Inertia\Inertia::render('Community/SavedPosts'))->middleware('auth')->name('community.saved');
 Route::get('/events', [EventController::class, 'indexPage'])->name('events.index');
 Route::get('/events/{event}', [EventController::class, 'showPage']);
 
@@ -68,9 +69,10 @@ Route::middleware('auth')->group(function () {
 Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verify'])
     ->middleware('signed')
     ->name('verification.verify');
-Route::post('/email/verification-notification', [AuthController::class, 'sendVerification'])
-    ->middleware('throttle:6,1')
-    ->name('verification.send');
+// Code flow: the 60-second cooldown lives in the service and is answered as JSON (a throttle 429 shows up as a server error)
+Route::post('/email/verification-code', [AuthController::class, 'sendVerification'])->middleware('throttle:30,10')->name('verification.send');
+Route::post('/email/verification-notification', [AuthController::class, 'sendVerification']);   // old path, same handler
+Route::post('/email/verify-code', [AuthController::class, 'verifyCode'])->middleware('throttle:30,10')->name('verification.code');
 
     Route::get('/suspended', [SuspensionController::class, 'show'])->name('suspended');
 Route::post('/suspended/appeal', [SuspensionController::class, 'appeal'])->name('suspended.appeal');

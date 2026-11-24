@@ -129,7 +129,7 @@ export function CourierCard({ order }) {
                     <p style={{ margin: '2px 0 0', color: '#10B981', fontSize: 14, fontWeight: 800 }}>{eta}</p>
                 </div>
             )}
-            {showNum && <button onClick={copy} style={{ width: 34, height: 34, borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: copied ? '#10B981' : 'rgba(255,255,255,0.45)' }}>{copied ? <RiCheckLine size={15} /> : <RiFileCopyLine size={15} />}</button>}
+            {showNum && <button onClick={copy} aria-label="Copy reference" style={{ flex: '0 0 36px', width: 36, height: 36, padding: 0, lineHeight: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.06)', color: copied ? '#10B981' : 'rgba(255,255,255,0.45)' }}>{copied ? <RiCheckLine size={16} style={{ display: 'block' }} /> : <RiFileCopyLine size={16} style={{ display: 'block' }} />}</button>}
         </div>
     );
 }

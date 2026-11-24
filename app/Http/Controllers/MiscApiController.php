@@ -350,32 +350,22 @@ class MiscApiController extends Controller
     return response()->json(['ok' => true]);
 }
 
-    /** /auth/check-username */
+    /** /auth/check-username?username=&name=  — always returns ideas (<=15 chars, free, not reserved) */
     public function hAuthCheckUsername9(Request $request)
     {
-    $username = strtolower(trim($request->input('username', '')));
+        $svc = new \App\Services\UsernameService();
+        $username = \App\Services\UsernameService::clean((string) $request->input('username', ''));
+        $name = (string) $request->input('name', '');
 
-    if (strlen($username) < 3) {
-        return response()->json(['available' => null, 'suggestions' => []]);
-    }
-
-    $exists = \App\Models\User::where('username', $username)->exists();
-    if (!$exists) {
-        return response()->json(['available' => true, 'suggestions' => []]);
-    }
-
-    $suggestions = [];
-    $attempts = 0;
-    while (count($suggestions) < 3 && $attempts < 20) {
-        $attempts++;
-        $candidate = $username . rand(1, 999);
-        if (!in_array($candidate, $suggestions) && !\App\Models\User::where('username', $candidate)->exists()) {
-            $suggestions[] = $candidate;
+        if (strlen($username) < \App\Services\UsernameService::MIN) {
+            return response()->json(['available' => null, 'suggestions' => $name !== '' ? $svc->suggest('', $name) : []]);
         }
+        $taken = \App\Services\UsernameService::taken($username);
+        return response()->json([
+            'available'   => !$taken,
+            'suggestions' => $taken || $request->boolean('ideas') ? $svc->suggest($username, $name) : [],
+        ]);
     }
-
-    return response()->json(['available' => false, 'suggestions' => $suggestions]);
-}
 
     /** /coupons/available */
     public function hCouponsAvailable10(Request $request)

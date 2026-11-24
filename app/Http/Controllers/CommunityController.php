@@ -81,7 +81,7 @@ class CommunityController extends Controller
             if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
             return $arr;
         });
-        $data = $this->polls->decorate($data, $userId);
+        $data = $this->decorateSaved($this->polls->decorate($data, $userId), $userId);
 
         return response()->json([
             'data'         => $data,
@@ -132,7 +132,7 @@ class CommunityController extends Controller
             if ($p->user) $arr['user']['avatar_url'] = $p->user->avatar_url;
             return $arr;
         });
-        $data = $this->polls->decorate($data, $viewerId);
+        $data = $this->decorateSaved($this->polls->decorate($data, $viewerId), $viewerId);
 
         return response()->json([
             'data'         => $data,
@@ -164,6 +164,7 @@ class CommunityController extends Controller
         return response()->json([
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me'      => $liked,
+                'is_saved_by_me'      => (bool) ($userId && DB::table('post_saves')->where('post_id', $post->id)->where('user_id', $userId)->exists()),
                 'is_following_author' => $following,
                 'comments_count'      => $this->countComments($post),
                 'poll'                => $this->polls->payloadFor($post->id, $userId, $post->user_id),
@@ -189,6 +190,7 @@ class CommunityController extends Controller
         return Inertia::render('Community/CommunityPost', [
             'post'     => array_merge($post->toArray(), [
                 'is_liked_by_me'      => $liked,
+                'is_saved_by_me'      => (bool) ($userId && DB::table('post_saves')->where('post_id', $post->id)->where('user_id', $userId)->exists()),
                 'is_following_author' => $following,
                 'comments_count'      => $this->countComments($post),
                 'poll'                => $this->polls->payloadFor($post->id, $userId, $post->user_id),
@@ -274,7 +276,7 @@ class CommunityController extends Controller
             return $arr;
         });
 
-        return response()->json($this->polls->decorate($data, $userId));
+        return response()->json($this->decorateSaved($this->polls->decorate($data, $userId), $userId));
     }
 
     // ── Post Comments ─────────────────────────────────────────────────────────
@@ -302,6 +304,10 @@ class CommunityController extends Controller
 
         $post->increment('comments_count');
 
+        try {
+            app(\App\Services\MentionService::class)->notify($validated['body'], Auth::user(), 'comment', "/community/posts/{$post->id}", [$post->user_id]);
+        } catch (\Throwable) {}
+
         $comment->load('user:id,name,username,avatar');
 
         return response()->json(array_merge($comment->toArray(), [
@@ -311,13 +317,54 @@ class CommunityController extends Controller
         ]), 201);
     }
 
+    /** POST /api/community/comments/{comment}/report — report a reply/comment on a community post */
+    public function reportPostComment(Request $request, PostComment $comment): JsonResponse
+    {
+        $data = $request->validate([
+            'reason'      => 'required|string|max:120',
+            'description' => 'nullable|string|max:500',
+        ]);
+        if ((int) $comment->user_id === (int) Auth::id()) {
+            return response()->json(['message' => "You can't report your own reply."], 422);
+        }
+        $prefix = "[PostComment: {$comment->id}]";
+        if (\App\Models\Report::where('reporter_id', Auth::id())->where('reason', 'like', $prefix . '%')->exists()) {
+            return response()->json(['message' => 'You already reported this. Our team will review it.']);
+        }
+        \App\Models\Report::upsertReport(
+            reporterId: Auth::id(),
+            reportedId: $comment->user_id,
+            reason:     "{$prefix} {$data['reason']}" . (!empty($data['description']) ? ": {$data['description']}" : ''),
+            context:    []
+        );
+        return response()->json(['message' => 'Report sent. Thank you, our team will review it.']);
+    }
+
     public function destroyPostComment(PostComment $comment): JsonResponse
     {
-        abort_unless(Auth::id() === $comment->user_id || Auth::user()->isAdmin(), 403);
+        abort_unless(Auth::id() === $comment->user_id || Auth::user()?->role === 'admin', 403);
 
-        $post = $comment->post;
-        $comment->delete();
-        if ($post) $post->decrement('comments_count');
+        // Likes and replies point at the comment: remove them first, otherwise the database refuses the delete (that was the server error)
+        $postId = $comment->post_id;
+        try {
+            DB::transaction(function () use ($comment, $postId) {
+                $ids  = collect([$comment->id]);
+                $kids = collect();
+                if (\Illuminate\Support\Facades\Schema::hasColumn('post_comments', 'parent_id')) {
+                    $kids = DB::table('post_comments')->where('parent_id', $comment->id)->pluck('id');
+                    $ids  = $ids->merge($kids);
+                }
+                if (\Illuminate\Support\Facades\Schema::hasTable('post_comment_likes')) {
+                    DB::table('post_comment_likes')->whereIn('post_comment_id', $ids)->delete();
+                }
+                if ($kids->isNotEmpty()) DB::table('post_comments')->whereIn('id', $kids)->delete();
+                DB::table('post_comments')->where('id', $comment->id)->delete();
+                DB::table('posts')->where('id', $postId)->update(['comments_count' => DB::raw('GREATEST(comments_count - ' . (int) $ids->count() . ', 0)')]);
+            });
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Community comment delete failed', ['comment' => $comment->id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Could not delete that comment. Please try again.'], 500);
+        }
 
         return response()->json(['message' => 'Deleted.']);
     }
@@ -414,6 +461,10 @@ class CommunityController extends Controller
             catch (\Throwable $e) { $post->delete(); throw $e; }   // no half-made poll posts
         }
 
+        try {
+            app(\App\Services\MentionService::class)->notify($post->content, Auth::user(), 'post', "/community/posts/{$post->id}");
+        } catch (\Throwable) {}
+
         $post->load(['user:id,name,username,avatar,is_verified', 'media']);
 
         return response()->json(array_merge($post->toArray(), [
@@ -422,6 +473,52 @@ class CommunityController extends Controller
             'poll'           => $this->polls->payloadFor($post->id, Auth::id(), Auth::id()),
             'user'           => array_merge($post->user->toArray(), ['avatar_url' => $post->user->avatar_url]),
         ]), 201);
+    }
+
+    /** Adds is_saved_by_me to a list of post arrays with one query. */
+    private function decorateSaved($data, ?int $userId)
+    {
+        $collection = collect($data);
+        if (!$userId || $collection->isEmpty()) return $collection->map(fn ($p) => array_merge((array) $p, ['is_saved_by_me' => false]))->values();
+        $saved = DB::table('post_saves')->where('user_id', $userId)->whereIn('post_id', $collection->pluck('id'))->pluck('post_id')->flip();
+        return $collection->map(fn ($p) => array_merge((array) $p, ['is_saved_by_me' => $saved->has($p['id'] ?? null)]))->values();
+    }
+
+    /** POST /api/community/posts/{post}/save — toggles the bookmark */
+    public function savePost(Post $post): JsonResponse
+    {
+        $uid = Auth::id();
+        $exists = DB::table('post_saves')->where('post_id', $post->id)->where('user_id', $uid)->exists();
+        if ($exists) {
+            DB::table('post_saves')->where('post_id', $post->id)->where('user_id', $uid)->delete();
+        } else {
+            DB::table('post_saves')->insertOrIgnore(['post_id' => $post->id, 'user_id' => $uid, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        return response()->json(['saved' => !$exists]);
+    }
+
+    /** GET /api/community/saved — the posts I bookmarked, newest save first */
+    public function savedPosts(Request $request): JsonResponse
+    {
+        $uid = Auth::id();
+        $ids = DB::table('post_saves')->where('user_id', $uid)->orderByDesc('created_at')->limit(100)->pluck('post_id');
+        $posts = Post::whereIn('id', $ids)->with(['user:id,name,username,avatar,is_verified,role', 'media'])->get()
+            ->filter(fn ($p) => $p->user && $p->user->is_active ?? true)
+            ->sortBy(fn ($p) => $ids->search($p->id))->values();
+
+        $liked = DB::table('post_likes')->where('user_id', $uid)->whereIn('post_id', $posts->pluck('id'))->pluck('post_id')->all();
+        $follows = DB::table('follows')->where('follower_id', $uid)->pluck('following_id')->all();
+
+        $data = $posts->map(function ($p) use ($liked, $follows) {
+            $arr = $p->toArray();
+            $arr['is_liked_by_me'] = in_array($p->id, $liked);
+            $arr['is_following_author'] = in_array($p->user_id, $follows);
+            $arr['comments_count'] = PostComment::where('post_id', $p->id)->whereNull('parent_id')->count();
+            $arr['user']['avatar_url'] = $p->user->avatar_url;
+            return $arr;
+        });
+
+        return response()->json($this->decorateSaved($this->polls->decorate($data, $uid), $uid));
     }
 
     public function likePost(Post $post): JsonResponse
@@ -513,10 +610,25 @@ class CommunityController extends Controller
             ->whereIn('room_message_id', $messages->pluck('id'))
             ->pluck('room_message_id')->flip();
 
+        // Ticks for my messages: ✓ sent, ✓✓ delivered (another member is online), orange ✓✓ seen (another member has read up to it)
+        $others = DB::table('room_user')->join('users', 'users.id', '=', 'room_user.user_id')
+            ->where('room_user.room_id', $room->id)->where('room_user.user_id', '!=', Auth::id())
+            ->get(['room_user.last_read_at', 'users.last_seen_at']);
+        $maxRead = $others->max('last_read_at');
+        $anyOnline = $others->contains(fn ($o) => $o->last_seen_at && \Illuminate\Support\Carbon::parse($o->last_seen_at)->gt(now()->subMinutes(2)));
+
+        $reactionRows = DB::table('room_message_reactions')->whereIn('room_message_id', $messages->pluck('id'))
+            ->get(['room_message_id', 'emoji', 'user_id'])->groupBy('room_message_id');
+
         return response()->json([
             'messages' => $messages->map(fn($m) => array_merge(
                 $this->serialiseMessage($m),
-                ['is_liked_by_me' => isset($likedIds[$m->id])]
+                [
+                    'is_liked_by_me' => isset($likedIds[$m->id]),
+                    'delivery'       => ((int) $m->user_id !== (int) Auth::id()) ? null
+                        : ($maxRead && $m->created_at <= \Illuminate\Support\Carbon::parse($maxRead) ? 'seen' : ($anyOnline ? 'delivered' : 'sent')),
+                    'reactions'      => ($reactionRows[$m->id] ?? collect())->map(fn ($r) => ['emoji' => $r->emoji, 'user_id' => (int) $r->user_id])->values()->all(),
+                ]
             )),
             'has_more' => RoomMessage::where('room_id', $room->id)
                 ->when($myMembership, fn($q) => $q->where('created_at', '>=', $myMembership->created_at))
@@ -528,6 +640,10 @@ class CommunityController extends Controller
     public function sendRoomMessage(Request $request, Room $room): JsonResponse
     {
         $this->assertMember($room);
+
+        if ($restriction = \App\Support\ChatRestriction::active(Auth::id(), 'rooms')) {
+            return response()->json(['message' => \App\Support\ChatRestriction::message($restriction), 'chat_restricted' => true], 403);
+        }
 
         $validated = $request->validate([
             'body'        => 'nullable|string|max:2000',
@@ -562,6 +678,7 @@ class CommunityController extends Controller
             ->update(['last_read_at' => now()]);
 
         try { broadcast(new RoomMessageSent($msg))->toOthers(); } catch (\Throwable) {}
+        try { app(\App\Services\MentionService::class)->notify($msg->body, Auth::user(), 'room', "/community/rooms/{$room->id}"); } catch (\Throwable) {}
 
         return response()->json($this->serialiseMessage($msg), 201);
     }
@@ -611,6 +728,63 @@ class CommunityController extends Controller
         try { broadcast(new RoomMessageDeleted($room->id, $message->id))->toOthers(); } catch (\Throwable) {}
 
         return response()->json(['message' => 'Deleted.']);
+    }
+
+    /** PATCH /api/community/rooms/{room}/messages/{message}  { body }  (own text messages, 15 minutes) */
+    public function editRoomMessage(Request $request, Room $room, RoomMessage $message): JsonResponse
+    {
+        $this->assertMember($room);
+        if ((int) $message->room_id !== (int) $room->id) return response()->json(['message' => 'Not found.'], 404);
+        if ((int) $message->user_id !== (int) Auth::id()) return response()->json(['message' => 'You can only edit your own messages.'], 403);
+        if ($message->is_deleted) return response()->json(['message' => 'This message was deleted.'], 422);
+        if ($message->created_at->lt(now()->subMinutes(15))) {
+            return response()->json(['message' => 'Messages can only be edited for 15 minutes after sending.'], 422);
+        }
+        if ($restriction = \App\Support\ChatRestriction::active(Auth::id(), 'rooms')) {
+            return response()->json(['message' => \App\Support\ChatRestriction::message($restriction), 'chat_restricted' => true], 403);
+        }
+
+        $body = trim((string) $request->validate(['body' => 'required|string|max:2000'])['body']);
+        if ($body === '') return response()->json(['message' => 'Message cannot be empty.'], 422);
+
+        $editedAt = now();
+        DB::table('room_messages')->where('id', $message->id)->update(['body' => $body, 'edited_at' => $editedAt]);
+
+        try {
+            broadcast(new \App\Events\RoomMessageUpdated($room->id, $message->id, $body, $editedAt->toIso8601String(), $this->roomReactionsOf($message->id)))->toOthers();
+        } catch (\Throwable) {}
+
+        return response()->json(['message' => 'ok', 'body' => $body, 'edited_at' => $editedAt->toIso8601String()]);
+    }
+
+    /** POST /api/community/rooms/{room}/messages/{message}/react  { emoji } (same emoji again removes it) */
+    public function reactRoomMessage(Request $request, Room $room, RoomMessage $message): JsonResponse
+    {
+        $this->assertMember($room);
+        if ((int) $message->room_id !== (int) $room->id) return response()->json(['message' => 'Not found.'], 404);
+        if ($message->is_deleted) return response()->json(['message' => 'This message was deleted.'], 422);
+
+        $emoji = (string) $request->validate(['emoji' => 'required|string|max:16'])['emoji'];
+        $existing = DB::table('room_message_reactions')->where('room_message_id', $message->id)->where('user_id', Auth::id())->first();
+        if ($existing && $existing->emoji === $emoji) {
+            DB::table('room_message_reactions')->where('id', $existing->id)->delete();
+        } else {
+            DB::table('room_message_reactions')->upsert(
+                [['room_message_id' => $message->id, 'user_id' => Auth::id(), 'emoji' => $emoji, 'created_at' => now(), 'updated_at' => now()]],
+                ['room_message_id', 'user_id'], ['emoji', 'updated_at']
+            );
+        }
+
+        $reactions = $this->roomReactionsOf($message->id);
+        try { broadcast(new \App\Events\RoomMessageUpdated($room->id, $message->id, null, null, $reactions))->toOthers(); } catch (\Throwable) {}
+
+        return response()->json(['reactions' => $reactions]);
+    }
+
+    private function roomReactionsOf(int $messageId): array
+    {
+        return DB::table('room_message_reactions')->where('room_message_id', $messageId)->get(['emoji', 'user_id'])
+            ->map(fn ($r) => ['emoji' => $r->emoji, 'user_id' => (int) $r->user_id])->all();
     }
 
     public function likeRoomMessage(Room $room, RoomMessage $message): JsonResponse

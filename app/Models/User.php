@@ -9,11 +9,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use HasFactory, Notifiable, SoftDeletes;
 
     protected $fillable = [
     'name',
@@ -56,6 +55,8 @@ class User extends Authenticatable implements MustVerifyEmail
     'suspension_reason',
     'suspended_at',
     'chat_theme',
+    'username_changed_at',
+    'name_changed_at',
 ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -70,10 +71,60 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_seen_at' => 'datetime',
         'deletion_scheduled_at' => 'datetime',
         'is_flockr_support' => 'boolean',
+        'username_changed_at' => 'datetime',
+        'name_changed_at' => 'datetime',
 
     ];
 
-    protected $appends = ['avatar_url', 'is_online', 'verification_type'];
+    protected $appends = ['avatar_url', 'is_online', 'verification_type', 'name_changeable_at', 'username_changeable_at'];
+
+    public const NAME_COOLDOWN_DAYS = 7;
+    public const USERNAME_COOLDOWN_DAYS = 30;
+    private static bool $identityLimitsOff = false;
+
+    /** Run $fn without name/username cooldowns (account deletion, imports, admin tools). */
+    public static function withoutIdentityLimits(callable $fn)
+    {
+        $prev = self::$identityLimitsOff;
+        self::$identityLimitsOff = true;
+        try { return $fn(); } finally { self::$identityLimitsOff = $prev; }
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (User $u) {
+            if (self::$identityLimitsOff) return;
+            $admin = \Illuminate\Support\Facades\Auth::user();
+            $isAdmin = $admin && $admin->role === 'admin' && $admin->id !== $u->id;
+            $fresh = $u->created_at && $u->created_at->gt(now()->subHours(24)) && !$u->username_changed_at;
+            $becomingSeller = $u->isDirty('role') && $u->role === 'seller';
+
+            foreach (['name' => ['name_changed_at', self::NAME_COOLDOWN_DAYS, 'name'], 'username' => ['username_changed_at', self::USERNAME_COOLDOWN_DAYS, 'username']] as $field => [$col, $days, $label]) {
+                if (!$u->isDirty($field) || !$u->getOriginal($field)) continue;
+                if ($isAdmin || $becomingSeller) continue;
+                if ($field === 'name' && $fresh) continue;
+                if ($field === 'username' && $fresh) { $u->$col = now(); continue; }
+                $last = $u->getOriginal($col);
+                if ($last && \Illuminate\Support\Carbon::parse($last)->addDays($days)->isFuture()) {
+                    $next = \Illuminate\Support\Carbon::parse($last)->addDays($days)->format('j M Y');
+                    throw \Illuminate\Validation\ValidationException::withMessages([$field => "You can change your {$label} again on {$next}."]);
+                }
+                $u->$col = now();
+            }
+        });
+    }
+
+    public function getNameChangeableAtAttribute(): ?string
+    {
+        $t = $this->name_changed_at;
+        return $t && $t->copy()->addDays(self::NAME_COOLDOWN_DAYS)->isFuture() ? $t->copy()->addDays(self::NAME_COOLDOWN_DAYS)->toIso8601String() : null;
+    }
+
+    public function getUsernameChangeableAtAttribute(): ?string
+    {
+        $t = $this->username_changed_at;
+        return $t && $t->copy()->addDays(self::USERNAME_COOLDOWN_DAYS)->isFuture() ? $t->copy()->addDays(self::USERNAME_COOLDOWN_DAYS)->toIso8601String() : null;
+    }
 
     // ─── Relationships ────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { useToast } from '@/Components/Toast';
+import { firstChar } from '@/lib/initial'
 import AppLayout from '@/Layouts/AppLayout';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import axios from 'axios';
@@ -356,6 +357,8 @@ const [devicesLoading, setDevicesLoading] = useState(false)
 const [revoking,       setRevoking]       = useState(null)
 
     // ── Inertia form ──────────────────────────────────────────────────────────
+    const nameLockedUntil = auth?.user?.name_changeable_at ?? null
+    const usernameLockedUntil = auth?.user?.username_changeable_at ?? null
     const { data, setData, post, processing, errors, recentlySuccessful, reset } = useForm({
         name:     auth?.user?.name     ?? '',
         username: auth?.user?.username ?? '',
@@ -608,7 +611,7 @@ const confirmRevokeDevice = (device) => {
                                     <div style={{ position: 'relative' }}>
                                         {avatarPrev
                                             ? <img src={avatarPrev} alt={auth?.user?.name} style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(255,255,255,0.1)' }} />
-                                            : <div style={{ width: 96, height: 96, borderRadius: '50%', background: 'linear-gradient(135deg,var(--flockr-orange),#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, fontWeight: 700, color: '#fff', border: '3px solid rgba(255,255,255,0.1)' }}>{(auth?.user?.name ?? 'U')[0].toUpperCase()}</div>
+                                            : <div style={{ width: 96, height: 96, borderRadius: '50%', background: 'linear-gradient(135deg,var(--flockr-orange),#ff8c00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, fontWeight: 700, color: '#fff', border: '3px solid rgba(255,255,255,0.1)' }}>{firstChar(auth?.user?.name)}</div>
                                         }
                                         {editing && (
                                             <button type="button" onClick={() => fileRef.current?.click()} style={{ position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderRadius: '50%', background: 'var(--flockr-orange)', border: '2px solid var(--flockr-black)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -666,12 +669,17 @@ const confirmRevokeDevice = (device) => {
 
                                 {editing && (
                                     <form onSubmit={submitProfile} style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                                        <FormField label="Full Name" error={errors.name}><input value={data.name} onChange={e => setData('name', e.target.value)} placeholder="Your full name" style={inputStyle} /></FormField>
+                                        <FormField label="Full Name" error={errors.name}>
+                                            <input value={data.name} onChange={e => setData('name', e.target.value)} placeholder="Your full name" disabled={!!nameLockedUntil} maxLength={100} style={{ ...inputStyle, opacity: nameLockedUntil ? 0.5 : 1 }} />
+                                            <ChangeNote text="You can change your name once every 7 days." lockedUntil={nameLockedUntil} />
+                                        </FormField>
                                         <FormField label="Username" error={errors.username}>
-                                            <div style={{ display: 'flex', alignItems: 'center', background: 'var(--flockr-card)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', background: 'var(--flockr-card)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, opacity: usernameLockedUntil ? 0.5 : 1 }}>
                                                 <span style={{ padding: '0 0 0 14px', color: 'var(--flockr-muted)', fontSize: 14, flexShrink: 0 }}>@</span>
-                                                <input value={data.username} onChange={e => setData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g,''))} placeholder="username" style={{ ...inputStyle, border: 'none', background: 'none', paddingLeft: 6, borderRadius: 0 }} />
+                                                <input value={data.username} maxLength={15} disabled={!!usernameLockedUntil} onChange={e => setData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g,'').slice(0, 15))} placeholder="username" style={{ ...inputStyle, border: 'none', background: 'none', paddingLeft: 6, borderRadius: 0 }} />
+                                                <span style={{ padding: '0 12px', color: 'var(--flockr-muted)', fontSize: 11 }}>{data.username.length}/15</span>
                                             </div>
+                                            <ChangeNote text="Usernames can be changed once every 30 days (up to 15 letters, numbers, _ or .)." lockedUntil={usernameLockedUntil} />
                                         </FormField>
                                         <FormField label="Bio" error={errors.bio}><textarea value={data.bio} onChange={e => setData('bio', e.target.value)} placeholder="Tell people about yourself..." maxLength={500} rows={3} style={{ ...inputStyle, resize: 'none', lineHeight: 1.6 }} /></FormField>
                                         <FormField label="Location" error={errors.location}><input value={data.location} onChange={e => setData('location', e.target.value)} placeholder="Lagos, Nigeria" style={inputStyle} /></FormField>
@@ -925,6 +933,15 @@ function SectionCard({ title, children }) {
             </div>
             <div style={{ padding: 16 }}>{children}</div>
         </div>
+    )
+}
+
+function ChangeNote({ text, lockedUntil }) {
+    const fmt = d => new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })
+    return (
+        <p style={{ margin: '6px 0 0', fontSize: 11.5, lineHeight: 1.5, color: lockedUntil ? '#EAB308' : 'var(--flockr-muted)' }}>
+            {text}{lockedUntil ? ` Next change available on ${fmt(lockedUntil)}.` : ''}
+        </p>
     )
 }
 
