@@ -24,6 +24,9 @@ class FeedService
     const W_NOVELTY = 0.05;
     const MAX_PER_SELLER = 2;
     /** Gemini taste keywords for the user being served (set per request) */
+    /** A video is hidden from a user's feed only while it is among their most recent N seen videos. Small on purpose while the catalogue is young, so the feed never runs dry. Raise it as you add videos. */
+    private const SEEN_WINDOW = 50;
+
     private array $aiKeywords = [];
     const MAX_PER_CATEGORY = 3;
     const EXPLORATION_RATIO = 0.15;
@@ -779,7 +782,7 @@ return $baseScore * $proBoost;
                 ->when($userId, fn($q) => $q->where('user_id', $userId))
                 ->when(!$userId, fn($q) => $q->where('session_id', $sessionId))
                 ->orderByDesc('seen_at')
-                ->limit(1000)
+                ->limit(self::SEEN_WINDOW)
                 ->pluck('video_id');
         });
     }

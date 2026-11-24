@@ -3,7 +3,7 @@ import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import AuthShell from '@/Components/Auth/AuthShell'
 
-export function VerifyEmail({ email, cooldown = 0 }) {
+export function VerifyEmail({ email, cooldown = 0, skipTo = null }) {
   const [digits, setDigits] = useState(['', '', '', '', '', ''])
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -59,7 +59,7 @@ export function VerifyEmail({ email, cooldown = 0 }) {
     <>
       <Head title="Verify Email" />
       <AuthShell title="Enter your code" subtitle={email ? `We sent a 6-digit code to ${email}` : 'We sent a 6-digit code to your email'}
-        back={<Link href="/logout" method="post" as="button" className="text-flockr-muted hover:text-white text-sm">Log out</Link>}>
+        footer={<>{skipTo && <><Link href={skipTo} style={{ color: 'rgba(255,255,255,0.7)', textDecoration: 'none' }}>Skip for now</Link> · </>}<Link href="/logout" method="post" as="button" style={{ background: 'none', border: 0, color: 'var(--flockr-orange, #FF6B35)', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>Log out</Link></>}>
         <div className="flex justify-between gap-2" onPaste={(e) => { e.preventDefault(); setAt(0, e.clipboardData.getData('text')) }}>
           {digits.map((d, i) => (
             <input key={i} ref={el => (refs.current[i] = el)} value={d} inputMode="numeric" autoComplete={i === 0 ? 'one-time-code' : 'off'} maxLength={6}

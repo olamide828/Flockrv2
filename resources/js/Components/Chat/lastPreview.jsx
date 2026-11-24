@@ -1,6 +1,9 @@
 import { RiImageFill, RiVideoFill } from 'react-icons/ri'
 
-const icon = { verticalAlign: -2, marginRight: 4, flexShrink: 0 }
+const icon = { display: 'block', flexShrink: 0 }
+// ONE inline-flex row: the icon and the label always sit side by side on a single line, whatever the parent's layout is
+const row = (children) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: '100%', verticalAlign: 'bottom' }}>{children}</span>
+const txt = (t) => <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{t}</span>
 
 export function parseReaction(conv) {
     let lr = conv?.last_reaction
@@ -26,7 +29,7 @@ export default function lastPreview(conv, myId) {
     const hasMedia = !!(m.media_type || m.media_url || m.media_path)
     if (hasMedia) {
         const isVideo = m.media_type === 'video'
-        return <>{prefix}{isVideo ? <RiVideoFill size={13} style={icon} /> : <RiImageFill size={13} style={icon} />}{m.body ? m.body : (isVideo ? 'Video' : 'Photo')}</>
+        return row(<>{prefix && <span style={{ flexShrink: 0 }}>{prefix.trim()}</span>}{isVideo ? <RiVideoFill size={14} style={icon} /> : <RiImageFill size={14} style={icon} />}{txt(m.body ? m.body : (isVideo ? 'Video' : 'Photo'))}</>)
     }
     return prefix + (m.body ?? 'Say hello!')
 }

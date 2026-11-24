@@ -21,6 +21,7 @@ class Comment extends Model
         'likes_count',
         'is_pinned',
         'image_path',
+        'images',
         'liked_by_creator',
     ];
 
@@ -28,13 +29,22 @@ class Comment extends Model
         'is_pinned'   => 'boolean',
         'likes_count' => 'integer',
         'liked_by_creator' => 'boolean',
+        'images' => 'array',
     ];
 
-    protected $appends = ['image_url'];
+    protected $appends = ['image_url', 'image_urls'];
 
     public function getImageUrlAttribute(): ?string
     {
         return $this->image_path ? app(\App\Services\StorageService::class)->url($this->image_path) : null;
+    }
+
+    /** Every picture on this comment (up to 4), in order. Older single-picture comments return a one-item list. */
+    public function getImageUrlsAttribute(): array
+    {
+        $storage = app(\App\Services\StorageService::class);
+        $paths = $this->images ?: ($this->image_path ? [$this->image_path] : []);
+        return array_values(array_map(fn ($p) => $storage->url($p), $paths));
     }
 
     // ── Relationships ─────────────────────────────────────────────────────────

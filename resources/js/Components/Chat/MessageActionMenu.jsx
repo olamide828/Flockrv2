@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import EmojiSheet from './EmojiSheet'
 import { RiReplyLine, RiFileCopyLine, RiEdit2Line, RiDeleteBinLine, RiAddLine } from 'react-icons/ri'
 
 export const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
-const MORE_EMOJIS = ['🔥', '😍', '🥰', '😭', '😅', '🤣', '😎', '🤔', '👏', '🙌', '💯', '🎉', '😡', '🤝', '👀', '💔', '😴', '🤯', '😬', '✨', '💪', '🙈', '🥹', '🤩']
 
 /** [{emoji, user_id}] -> [{emoji, count, mine}] sorted by count */
 export function groupReactions(reactions = [], myId) {
@@ -49,6 +49,10 @@ export function ReactionChips({ reactions, myId, mine, onToggle }) {
  */
 export default function MessageActionMenu({ msg, rect, mine, myReaction, canReply = true, canCopy, canEdit, canDelete, onReact, onReply, onCopy, onEdit, onDelete, onClose }) {
     const [more, setMore] = useState(false)
+    // The finger that did the long press is still lifting when the menu appears; that lift (and Android's
+    // contextmenu event) must NOT count as 'tap outside', or the menu vanishes instantly.
+    const openedAt = useRef(Date.now())
+    const outside = () => { if (Date.now() - openedAt.current > 600) onClose() }
     const cardRef = useRef(null)
     const [pos, setPos] = useState({ top: 0, left: 0, ready: false })
 
@@ -85,13 +89,13 @@ export default function MessageActionMenu({ msg, rect, mine, myReaction, canRepl
     const run = (fn) => () => { onClose(); fn?.(msg) }
 
     return createPortal(
-        <div onClick={onClose} onContextMenu={e => { e.preventDefault(); onClose() }}
+        <div onClick={outside} onContextMenu={e => { e.preventDefault(); outside() }}
             style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}>
             <div ref={cardRef} onClick={e => e.stopPropagation()}
                 style={{ position: 'fixed', top: pos.top, left: pos.left, opacity: pos.ready ? 1 : 0, transition: 'opacity .12s', display: 'flex', flexDirection: 'column', gap: 8, alignItems: mine ? 'flex-end' : 'flex-start', width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}>
 
                 {/* emoji pill */}
-                <div style={{ background: 'rgba(32,32,36,0.92)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: more ? 22 : 999, padding: '6px 8px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', maxWidth: 280 }}>
+                <div style={{ background: 'rgba(32,32,36,0.92)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 999, padding: '6px 8px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', maxWidth: 280 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         {QUICK_EMOJIS.map(e => (
                             <button key={e} type="button" onClick={run(() => onReact?.(e))} aria-label={`React ${e}`}
@@ -104,14 +108,6 @@ export default function MessageActionMenu({ msg, rect, mine, myReaction, canRepl
                             <RiAddLine size={20} style={{ display: 'block' }} />
                         </button>
                     </div>
-                    {more && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 2, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                            {MORE_EMOJIS.map(e => (
-                                <button key={e} type="button" onClick={run(() => onReact?.(e))}
-                                    style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1, background: myReaction === e ? 'rgba(255,107,53,0.35)' : 'transparent' }}>{e}</button>
-                            ))}
-                        </div>
-                    )}
                 </div>
 
                 {/* actions */}
@@ -127,6 +123,7 @@ export default function MessageActionMenu({ msg, rect, mine, myReaction, canRepl
                     </div>
                 )}
             </div>
+            {more && <EmojiSheet onClose={() => setMore(false)} onPick={(e) => { onClose(); onReact?.(e) }} />}
         </div>,
         document.body
     )

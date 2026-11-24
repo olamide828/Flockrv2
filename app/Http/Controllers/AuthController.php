@@ -36,7 +36,7 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
-        \App\Jobs\RecordLoginJob::dispatch($request->user()->id, $request->ip(), $request->userAgent(), $request->session()->getId());
+        $this->recordLogin($request, Auth::user());   // never lets a logging hiccup turn a good login into a server error
         return $this->redirectByRole(Auth::user());
     }
 
@@ -60,29 +60,15 @@ class AuthController extends Controller
             return back()->withErrors(['username' => 'That username is taken.'])->withInput();
         }
 
-        $emailTaken = User::withTrashed()
-        ->where('deleted_email', $request->email)
-        ->whereNotNull('deleted_at')
-        ->exists();
-
-    if ($emailTaken) {
-        return back()->withErrors([
-            'email' => 'This email address is not available.',
-        ]);
-    }
-
-    // Phone uniqueness (also check soft-deleted rows)
-    if ($request->filled('phone')) {
-        $phoneTaken = User::withTrashed()
-            ->where('phone', $request->phone)
-            ->exists();
-
-        if ($phoneTaken) {
-            return back()->withErrors([
-                'phone' => 'This phone number is already registered.',
-            ]);
+        // Emails / phones of accounts that were deleted but not purged yet stay reserved.
+        // (Guarded with hasColumn so a missing migration can never turn sign-up into a server error.)
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'deleted_email')
+            && User::withTrashed()->where('deleted_email', $validated['email'])->whereNotNull('deleted_at')->exists()) {
+            return back()->withErrors(['email' => 'This email address is not available.'])->withInput();
         }
-    }
+        if (!empty($validated['phone']) && User::withTrashed()->where('phone', $validated['phone'])->exists()) {
+            return back()->withErrors(['phone' => 'This phone number is already registered.'])->withInput();
+        }
 
         $user = User::create([
             'name' => $validated['name'],
@@ -93,20 +79,31 @@ class AuthController extends Controller
             'role' => $validated['role'],
         ]);
 
-        Auth::login($user);
-
-        app(\App\Services\EmailVerificationCodeService::class)->send($user, true);
-       \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
-
-        // IMPORTANT: regenerate session ONCE here, before any redirect
+        // Log in and START A FRESH SESSION FIRST, so everything after this point (job, email) sees the final session id
+        Auth::login($user, true);
         $request->session()->regenerate();
 
-        if ($user->role === 'seller') {
-            return redirect()->route('seller.onboarding');
+        $this->recordLogin($request, $user);
+
+        // Send the 6-digit code. If mail is down the person can still tap "Resend code" on the next page.
+        try {
+            app(\App\Services\EmailVerificationCodeService::class)->send($user, true);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Sign-up verification code failed: ' . $e->getMessage());
         }
 
-        // Buyers go to interest onboarding
-        return redirect()->route('buyer.onboarding');
+        // Verify email first (the OTP page), THEN onboarding
+        session(['after_verify' => $user->role === 'seller' ? route('seller.onboarding', [], false) : route('buyer.onboarding', [], false)]);
+        return redirect()->route('verification.notice');
+    }
+
+    private function recordLogin(Request $request, User $user): void
+    {
+        try {
+            \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Login record failed: ' . $e->getMessage());
+        }
     }
 
     public function sellerOnboarding(): Response
@@ -263,12 +260,14 @@ foreach ($categoryIds as $catId) {
     public function verifyNotice(): Response|RedirectResponse
     {
         $user = Auth::user();
-        if ($user->hasVerifiedEmail()) return redirect()->route('home');
-        $svc = app(\App\Services\EmailVerificationCodeService::class);
+        if ($user->hasVerifiedEmail()) return redirect(session()->pull('after_verify') ?: route('home'));
+        try { $cooldown = app(\App\Services\EmailVerificationCodeService::class)->cooldownLeft($user); }
+        catch (\Throwable $e) { $cooldown = 0; }
         return Inertia::render('Auth/VerifyEmail', [
             'status'   => session('status'),
             'email'    => $user->email,
-            'cooldown' => $svc->cooldownLeft($user),
+            'cooldown' => $cooldown,
+            'skipTo'   => session('after_verify'),   // set right after sign-up: lets them carry on and verify later from the banner
         ]);
     }
 
@@ -295,7 +294,8 @@ public function verifyCode(Request $request): \Illuminate\Http\JsonResponse
 {
     $request->validate(['code' => 'required|string|max:12']);
     $res = app(\App\Services\EmailVerificationCodeService::class)->verify($request->user(), $request->input('code'));
-    return response()->json($res + ['redirect' => $res['ok'] ? route('home') : null], $res['ok'] ? 200 : 422);
+    $to = $res['ok'] ? (session()->pull('after_verify') ?: route('home')) : null;
+    return response()->json($res + ['redirect' => $to], $res['ok'] ? 200 : 422);
 }
 
     // Terms of service and privacy policy pages are static, so we can just return Inertia views
@@ -341,7 +341,8 @@ public function verifyCode(Request $request): \Illuminate\Http\JsonResponse
         );
 
         Auth::login($user, remember: true);
-        \App\Jobs\RecordLoginJob::dispatch($user->id, $request->ip(), $request->userAgent(), $request->session()->getId());
+        $request->session()->regenerate();
+        $this->recordLogin($request, $user);
         return $this->redirectByRole($user);
     }
 

@@ -24,6 +24,7 @@ class CommentController extends Controller
         $data['likes_count']        = $comment->likes_count ?? 0;
         $data['is_pinned']          = (bool) $comment->is_pinned;
         $data['image_url']          = $comment->image_url;
+        $data['image_urls']         = $comment->image_urls;
         $data['liked_by_creator']   = (bool) $comment->liked_by_creator;
         $data['is_liked_by_me']     = in_array($comment->id, $likedIds);
 
@@ -40,6 +41,7 @@ class CommentController extends Controller
                     $arr['is_liked_by_me']    = in_array($reply->id, $likedIds);
                     $arr['reply_to_username'] = $reply->reply_to_username;
                     $arr['image_url']         = $reply->image_url;
+                    $arr['image_urls']        = $reply->image_urls;
                     if ($reply->user) $arr['user']['avatar_url'] = $reply->user->avatar_url;
                     return $arr;
                 }
@@ -135,12 +137,16 @@ class CommentController extends Controller
         $validated = $request->validate([
             'body'              => 'nullable|string|max:500',
             'image'             => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:5120',
+            'images'            => 'nullable|array|max:4',
+            'images.*'          => 'image|mimes:jpg,jpeg,png,webp,gif|max:5120',
             'parent_id'         => 'nullable|integer|exists:comments,id',
             'reply_to_username' => 'nullable|string|max:50',
         ]);
 
         $body = trim((string) ($validated['body'] ?? ''));
-        if ($body === '' && !$request->hasFile('image')) {
+        $files = $request->hasFile('images') ? array_values((array) $request->file('images')) : ($request->hasFile('image') ? [$request->file('image')] : []);
+        $files = array_slice($files, 0, 4);
+        if ($body === '' && empty($files)) {
             return response()->json(['message' => 'Write something or add a picture.'], 422);
         }
 
@@ -164,15 +170,18 @@ class CommentController extends Controller
             }
         }
 
-        $imagePath = $request->hasFile('image')
-            ? app(\App\Services\StorageService::class)->uploadCommunityMedia($request->file('image'), 'image')
-            : null;
+        $paths = [];
+        foreach ($files as $f) {
+            $paths[] = app(\App\Services\StorageService::class)->uploadCommunityMedia($f, 'image');
+        }
+        $imagePath = $paths[0] ?? null;
 
         $comment = Comment::create([
             'user_id'           => Auth::id(),
             'video_id'          => $video->id,
             'body'              => $body,
             'image_path'        => $imagePath,
+            'images'            => count($paths) > 1 ? $paths : null,
             'parent_id'         => $validated['parent_id'] ?? null,
             'reply_to_username' => $validated['reply_to_username'] ?? null,
             'likes_count'       => 0,

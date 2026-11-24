@@ -625,11 +625,6 @@ export default function VideoCard({ video, isActive }) {
             {followed ? 'Following' : 'Follow'}
           </button>
         )}
-        {video.is_featured && (
-            <span title="Picked by the Flockr team" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', padding: '2px 9px 2px 7px', marginBottom: 5, borderRadius: 999, background: 'linear-gradient(135deg, rgba(255,107,53,0.95), rgba(245,185,59,0.95))', color: '#fff', fontSize: 11, fontWeight: 800, letterSpacing: '0.02em', lineHeight: 1.4, boxShadow: '0 2px 10px rgba(255,107,53,0.35)' }}>
-              <RiStarFill size={11} style={{ display: 'block' }} /> Featured
-            </span>
-          )}
         <Link href={video.user?.username ? `/@${video.user.username}` : '#'} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none', marginBottom: 5 }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{video.user?.name ?? 'Deleted user'}</span>
           <VerifiedBadge type={video.user?.verification_type} size={13} />
@@ -646,6 +641,11 @@ export default function VideoCard({ video, isActive }) {
             ))}
           </div>
         )}
+        {video.is_featured && (
+<span title="Picked by the Flockr team" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', width: 'fit-content', flexShrink: 0, padding: '2px 9px 2px 7px', margin: '4px 0 2px', borderRadius: 999, background: 'linear-gradient(135deg, rgba(255,107,53,0.95), rgba(245,185,59,0.95))', color: '#fff', fontSize: 11, fontWeight: 800, letterSpacing: '0.02em', lineHeight: 1.4, boxShadow: '0 2px 10px rgba(255,107,53,0.35)' }}>
+              <RiStarFill size={11} style={{ display: 'block' }} /> Featured
+            </span>
+          )}
         <SoundMarquee sound={video.sound_credit} username={video.user?.username} href={soundHref(video)} style={{ marginTop: 6 }} />
         {video.user?.location && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 4 }}>

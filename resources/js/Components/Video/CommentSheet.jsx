@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link, usePage, router } from '@inertiajs/react'
 import axios from 'axios'
+import { createPortal } from 'react-dom'
 import {
   RiCloseLine, RiMoreFill, RiHeartFill, RiHeartLine, RiPushpinFill, RiFlagLine, RiDeleteBinLine,
   RiFileCopyLine, RiSendPlaneFill, RiImageAddLine, RiChat3Line, RiCheckLine,
@@ -12,6 +13,7 @@ import { firstChar } from '@/lib/initial'
 
 const ORANGE = '#FF6B35'
 const MAX_IMG_MB = 5
+const MAX_IMAGES = 4
 const REPORT_REASONS = ['Spam', 'Harassment or bullying', 'Hate speech', 'Nudity or sexual content', 'Violence or threats', 'Scam or fraud', 'Misinformation', 'Something else']
 
 // ── emoji suggestions: a default row, with matching ones moved to the front as you type ──
@@ -101,9 +103,12 @@ function LikeBtn({ commentId, initialCount = 0, initialLiked = false, onResult, 
 
 // ── bottom sheet used for the ⋯ menu and the report form (sits inside the comment sheet) ──
 function MiniSheet({ title, onClose, children }) {
+  // The finger that did the long-press is still lifting when this opens: ignore that "tap" so the sheet stays until they tap outside
+  const openedAt = useRef(Date.now())
+  const outside = () => { if (Date.now() - openedAt.current > 600) onClose() }
   return (
     <>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.55)' }} />
+      <div onClick={outside} onContextMenu={e => e.preventDefault()} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.55)' }} />
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 61, background: 'rgba(22,22,24,0.98)', backdropFilter: 'blur(24px)', borderRadius: '20px 20px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', maxHeight: '80%', overflowY: 'auto', animation: 'cs-slideUp .22s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}><div style={{ width: 36, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.2)' }} /></div>
         {title && <p style={{ margin: 0, padding: '4px 20px 10px', color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 600 }}>{title}</p>}
@@ -146,14 +151,72 @@ function ReportSheet({ onClose, onSubmit }) {
   )
 }
 
-function ImageViewer({ src, onClose }) {
+/** Picture with a grey shimmering placeholder until it has loaded */
+function LoadImg({ src, style, imgStyle, alt = '', eager }) {
+  const [ok, setOk] = useState(false)
+  const [bad, setBad] = useState(false)
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <button onClick={onClose} aria-label="Close" style={{ position: 'absolute', top: 'max(14px, env(safe-area-inset-top))', right: 14, width: 38, height: 38, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.14)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0 }}>
-        <RiCloseLine size={22} style={{ display: 'block' }} />
-      </button>
-      <img src={src} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+    <div style={{ position: 'relative', background: '#1a1a1c', overflow: 'hidden', ...style }}>
+      {!ok && !bad && <div className="cs-shimmer" style={{ position: 'absolute', inset: 0 }} />}
+      {bad
+        ? <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Couldn't load</div>
+        : <img src={src} alt={alt} loading={eager ? 'eager' : 'lazy'} onLoad={() => setOk(true)} onError={() => setBad(true)}
+            style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', opacity: ok ? 1 : 0, transition: 'opacity .25s', ...imgStyle }} />}
     </div>
+  )
+}
+
+/** Full-black viewer: swipe sideways through every picture of ONE comment, with who posted it and when at the bottom */
+function ImageViewer({ comment, index = 0, onClose }) {
+  const urls = comment.image_urls?.length ? comment.image_urls : (comment.image_url ? [comment.image_url] : [])
+  const [i, setI] = useState(index)
+  const scroller = useRef(null)
+  useEffect(() => { const el = scroller.current; if (el) el.scrollLeft = index * el.clientWidth }, [index])
+  const onScroll = (e) => { const el = e.currentTarget; setI(Math.round(el.scrollLeft / Math.max(1, el.clientWidth))) }
+  const u = comment.user
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#000', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'max(12px, env(safe-area-inset-top)) 14px 12px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)' }}>
+        <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, opacity: urls.length > 1 ? 1 : 0 }}>{i + 1} / {urls.length}</span>
+        <button onClick={onClose} aria-label="Close" style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.16)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0 }}>
+          <RiCloseLine size={22} style={{ display: 'block' }} />
+        </button>
+      </div>
+
+      <div ref={scroller} onScroll={onScroll} style={{ flex: 1, display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+        {urls.map((src, k) => (
+          <div key={k} style={{ flex: '0 0 100%', scrollSnapAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+            <ViewerImage src={src} />
+          </div>
+        ))}
+      </div>
+
+      {urls.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '8px 0' }}>
+          {urls.map((_, k) => <span key={k} style={{ width: k === i ? 18 : 6, height: 6, borderRadius: 3, background: k === i ? '#fff' : 'rgba(255,255,255,0.3)', transition: 'all .2s' }} />)}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px max(16px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), #000)' }}>
+        <Avatar user={u} size={38} />
+        <div style={{ minWidth: 0 }}>
+          <p style={{ margin: 0, color: '#fff', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u?.name}</p>
+          <p style={{ margin: '1px 0 0', color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>@{u?.username} · {timeAgo(comment.created_at)}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ViewerImage({ src }) {
+  const [ok, setOk] = useState(false)
+  const [bad, setBad] = useState(false)
+  return (
+    <>
+      {!ok && !bad && <div className="cs-spin" style={{ position: 'absolute', width: 34, height: 34, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.15)', borderTopColor: '#fff' }} />}
+      {bad && <span style={{ position: 'absolute', color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>Couldn't load this picture</span>}
+      <img src={src} alt="" onLoad={() => setOk(true)} onError={() => setBad(true)} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', opacity: ok ? 1 : 0, transition: 'opacity .25s' }} />
+    </>
   )
 }
 
@@ -174,7 +237,8 @@ function CommentRow({ comment, isReply, onLikeResult, owner, videoOwnerId, curre
 
   return (
     <div onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={endPress} onTouchCancel={endPress}
-      style={{ display: 'flex', gap: small ? 8 : 10, opacity: comment._opt ? 0.55 : 1, WebkitTouchCallout: 'none' }}>
+      onContextMenu={(e) => { if (currentUserId) { e.preventDefault(); onMenu(comment, isReply) } }}
+      style={{ display: 'flex', gap: small ? 8 : 10, opacity: comment._opt ? 0.55 : 1, WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       <Link href={`/@${comment.user?.username}`} style={{ flexShrink: 0 }}><Avatar user={comment.user} size={small ? 28 : 36} /></Link>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -191,11 +255,27 @@ function CommentRow({ comment, isReply, onLikeResult, owner, videoOwnerId, curre
           </p>
         )}
 
-        {comment.image_url && (
-          <button onClick={() => onOpenImage(comment.image_url)} aria-label="Open picture" style={{ display: 'block', padding: 0, margin: '2px 0 8px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', background: '#000', cursor: 'zoom-in' }}>
-            <img src={comment.image_url} alt="" loading="lazy" style={{ display: 'block', maxWidth: small ? 170 : 220, maxHeight: small ? 170 : 240, width: 'auto', height: 'auto', objectFit: 'cover' }} />
-          </button>
-        )}
+        {(() => {
+          const urls = comment.image_urls?.length ? comment.image_urls : (comment.image_url ? [comment.image_url] : [])
+          if (!urls.length) return null
+          const w = small ? 170 : 220
+          if (urls.length === 1) {
+            return (
+              <button onClick={() => onOpenImage(comment, 0)} aria-label="Open picture" style={{ display: 'block', padding: 0, margin: '2px 0 8px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden', background: '#000', cursor: 'zoom-in' }}>
+                <LoadImg src={urls[0]} style={{ width: w, height: small ? 170 : 200 }} />
+              </button>
+            )
+          }
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, width: w, margin: '2px 0 8px' }}>
+              {urls.slice(0, 4).map((u, k) => (
+                <button key={k} onClick={() => onOpenImage(comment, k)} aria-label={`Open picture ${k + 1}`} style={{ padding: 0, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden', cursor: 'zoom-in', background: '#000', aspectRatio: '1 / 1' }}>
+                  <LoadImg src={u} style={{ width: '100%', height: '100%' }} />
+                </button>
+              ))}
+            </div>
+          )
+        })()}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, minHeight: 24 }}>
           <LikeBtn commentId={comment.id} initialCount={comment.likes_count ?? 0} initialLiked={comment.is_liked_by_me ?? false} size={small ? 12 : 13}
@@ -224,7 +304,7 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
   const [owner, setOwner]       = useState(null)
   const [loading, setLoading]   = useState(true)
   const [body, setBody]         = useState('')
-  const [image, setImage]       = useState(null)       // { file, url }
+  const [images, setImages]     = useState([])         // up to 4 x { file, url }
   const [posting, setPosting]   = useState(false)
   const [replyTo, setReplyTo]   = useState(null)       // { rootId, tagUsername }
   const [expanded, setExpanded] = useState({})
@@ -245,7 +325,9 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
 
   useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)) }, [load])
   useEffect(() => { if (replyTo) setTimeout(() => inputRef.current?.focus(), 80) }, [replyTo])
-  useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url) }, [image])
+  const imagesRef = useRef([])
+  useEffect(() => { imagesRef.current = images }, [images])
+  useEffect(() => () => { imagesRef.current.forEach(i => URL.revokeObjectURL(i.url)) }, [])
 
   const emojis = useMemo(() => suggestEmojis(body), [body])
   const isOwner = me?.id === videoOwnerId
@@ -265,13 +347,21 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
   }
 
   const pickFile = (e) => {
-    const f = e.target.files?.[0]
+    const picked = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (!f) return
-    if (!/^image\//.test(f.type)) { showToast('Only pictures can be added for now.', 'error'); return }
-    if (f.size > MAX_IMG_MB * 1024 * 1024) { showToast(`That picture is too big (max ${MAX_IMG_MB}MB).`, 'error'); return }
-    setImage({ file: f, url: URL.createObjectURL(f) })
+    if (!picked.length) return
+    const room = MAX_IMAGES - images.length
+    if (room <= 0) { showToast(`You can add up to ${MAX_IMAGES} pictures.`, 'error'); return }
+    const ok = []
+    for (const f of picked.slice(0, room)) {
+      if (!/^image\//.test(f.type)) { showToast('Only pictures can be added for now.', 'error'); continue }
+      if (f.size > MAX_IMG_MB * 1024 * 1024) { showToast(`A picture was too big (max ${MAX_IMG_MB}MB).`, 'error'); continue }
+      ok.push({ file: f, url: URL.createObjectURL(f) })
+    }
+    if (picked.length > room) showToast(`Only ${MAX_IMAGES} pictures per comment.`, 'error')
+    if (ok.length) setImages(prev => [...prev, ...ok])
   }
+  const removeImage = (k) => setImages(prev => { URL.revokeObjectURL(prev[k]?.url); return prev.filter((_, j) => j !== k) })
 
   const handleReply = useCallback((comment, isReply) => {
     const rootId = isReply ? comments.find(c => (c.replies ?? []).some(r => r.id === comment.id))?.id : comment.id
@@ -313,16 +403,16 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
     e?.preventDefault?.()
     if (!me) { router.visit('/login'); return }
     const text = body.trim()
-    if ((!text && !image) || posting) return
+    if ((!text && !images.length) || posting) return
     setPosting(true)
 
     const parentId = replyTo?.rootId ?? null
     const tagUser  = replyTo?.tagUsername ?? null
-    const img      = image
+    const imgs     = images
 
     const optimistic = {
       id: `opt-${Date.now()}`, body: text, user: me, created_at: new Date().toISOString(), likes_count: 0, replies: [],
-      reply_to_username: tagUser, is_pinned: false, image_url: img?.url ?? null, _opt: true,
+      reply_to_username: tagUser, is_pinned: false, image_url: imgs[0]?.url ?? null, image_urls: imgs.map(i => i.url), _opt: true,
     }
     if (parentId) {
       setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: [...(c.replies ?? []), optimistic] } : c))
@@ -330,33 +420,34 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
     } else {
       setComments(prev => [optimistic, ...prev]); onCountChange?.(1)
     }
-    setBody(''); setReplyTo(null); setImage(null); setMention(null)
+    setBody(''); setReplyTo(null); setImages([]); setMention(null)
 
     try {
       const fd = new FormData()
       if (text) fd.append('body', text)
       if (parentId) fd.append('parent_id', parentId)
       if (tagUser) fd.append('reply_to_username', tagUser)
-      if (img) fd.append('image', img.file)
+      imgs.forEach(i => fd.append('images[]', i.file))
       const { data } = await axios.post(`/api/videos/${videoId}/comments`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
       if (parentId) setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).map(r => r.id === optimistic.id ? { ...data, reply_to_username: tagUser } : r) } : c))
       else { setComments(prev => prev.map(c => c.id === optimistic.id ? data : c)); showToast('Comment added') }
     } catch (err) {
       if (parentId) setComments(prev => prev.map(c => c.id === parentId ? { ...c, replies: (c.replies ?? []).filter(r => r.id !== optimistic.id) } : c))
       else { setComments(prev => prev.filter(c => c.id !== optimistic.id)); onCountChange?.(-1) }
-      setBody(text); if (img) setImage(img)
-      showToast(err.response?.data?.message ?? err.response?.data?.errors?.image?.[0] ?? 'Could not post your comment', 'error')
+      setBody(text); if (imgs.length) setImages(imgs)
+      const errs = err.response?.data?.errors
+      showToast(err.response?.data?.message ?? (errs && Object.values(errs)[0]?.[0]) ?? 'Could not post your comment', 'error')
     } finally { setPosting(false) }
   }
 
   const totalCount = comments.reduce((s, c) => s + 1 + (c.replies?.length ?? 0), 0)
   const replyingToComment = replyTo ? comments.find(c => c.id === replyTo.rootId) : null
-  const canSend = (body.trim() || image) && !posting
+  const canSend = (body.trim() || images.length) && !posting
 
   const menuComment = menu?.comment
   const canDeleteMenu = menuComment && me && (menuComment.user?.id === me.id || isOwner || isAdmin)
   const onLikeResult = (id, d) => setComments(prev => prev.map(c => c.id === id ? { ...c, liked_by_creator: d.liked_by_creator } : { ...c, replies: (c.replies ?? []).map(r => r.id === id ? { ...r, liked_by_creator: d.liked_by_creator } : r) }))
-  const rowProps = { onLikeResult, owner, videoOwnerId, currentUserId: me?.id, isAdmin, onReply: handleReply, onMenu: (comment, isReply) => setMenu({ comment, isReply }), onOpenImage: setViewer }
+  const rowProps = { onLikeResult, owner, videoOwnerId, currentUserId: me?.id, isAdmin, onReply: handleReply, onMenu: (comment, isReply) => setMenu({ comment, isReply }), onOpenImage: (comment, index) => setViewer({ comment, index }) }
 
   return (
     <>
@@ -435,12 +526,16 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
                 </div>
               )}
 
-              {image && (
-                <div style={{ position: 'relative', display: 'inline-block', marginBottom: 8 }}>
-                  <img src={image.url} alt="" style={{ height: 72, maxWidth: 160, objectFit: 'cover', borderRadius: 12, display: 'block', border: '1px solid rgba(255,255,255,0.12)' }} />
-                  <button onClick={() => setImage(null)} aria-label="Remove picture" style={{ position: 'absolute', top: -7, right: -7, width: 22, height: 22, borderRadius: '50%', background: '#2a2a2e', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0 }}>
-                    <RiCloseLine size={13} style={{ display: 'block' }} />
-                  </button>
+              {images.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, overflowX: 'auto', paddingTop: 8, paddingBottom: 2, scrollbarWidth: 'none' }}>
+                  {images.map((im, k) => (
+                    <div key={im.url} style={{ position: 'relative', flex: '0 0 auto' }}>
+                      <img src={im.url} alt="" style={{ height: 72, width: 72, objectFit: 'cover', borderRadius: 12, display: 'block', border: '1px solid rgba(255,255,255,0.12)' }} />
+                      <button onClick={() => removeImage(k)} aria-label="Remove picture" style={{ position: 'absolute', top: -7, right: -7, width: 22, height: 22, borderRadius: '50%', background: '#2a2a2e', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0 }}>
+                        <RiCloseLine size={13} style={{ display: 'block' }} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -461,10 +556,10 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
                     maxLength={500}
                     style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14, padding: '10px 0', WebkitUserSelect: 'text', userSelect: 'text' }} />
                   {body.length > 400 && <span style={{ fontSize: 10, color: body.length >= 500 ? '#EF4444' : 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{500 - body.length}</span>}
-                  <button type="button" onClick={() => fileRef.current?.click()} aria-label="Add a picture" style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'none', cursor: 'pointer', color: image ? ORANGE : 'rgba(255,255,255,0.55)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0, flexShrink: 0 }}>
+                  <button type="button" onClick={() => fileRef.current?.click()} aria-label="Add a picture" style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'none', cursor: 'pointer', color: images.length ? ORANGE : 'rgba(255,255,255,0.55)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                     <RiImageAddLine size={20} style={{ display: 'block' }} />
                   </button>
-                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={pickFile} style={{ display: 'none' }} />
+                  <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" onChange={pickFile} style={{ display: 'none' }} />
                 </div>
                 <button type="submit" disabled={!canSend} aria-label="Send" style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, border: 'none', cursor: canSend ? 'pointer' : 'default', background: canSend ? ORANGE : 'rgba(255,255,255,0.07)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 0, transition: 'background .2s' }}>
                   <RiSendPlaneFill size={17} color={canSend ? '#fff' : 'rgba(255,255,255,0.3)'} style={{ display: 'block' }} />
@@ -487,7 +582,7 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
         {reporting && <ReportSheet onClose={() => setReporting(null)} onSubmit={submitReport} />}
       </div>
 
-      {viewer && <ImageViewer src={viewer} onClose={() => setViewer(null)} />}
+      {viewer && createPortal(<ImageViewer comment={viewer.comment} index={viewer.index} onClose={() => setViewer(null)} />, document.body)}
 
       {toast && (
         <div style={{ position: 'absolute', bottom: 150, left: '50%', transform: 'translateX(-50%)', zIndex: 70, pointerEvents: 'none' }}>
@@ -495,7 +590,13 @@ export default function CommentSheet({ videoId, videoOwnerId, onClose, onCountCh
         </div>
       )}
 
-      <style>{`@keyframes cs-slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      <style>{`
+        @keyframes cs-slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes cs-shimmer { 0% { background-position: -300px 0; } 100% { background-position: 300px 0; } }
+        @keyframes cs-spin { to { transform: rotate(360deg); } }
+        .cs-shimmer { background: linear-gradient(90deg, #1a1a1c 25%, #2a2a2e 50%, #1a1a1c 75%); background-size: 600px 100%; animation: cs-shimmer 1.3s infinite linear; }
+        .cs-spin { animation: cs-spin .8s linear infinite; }
+      `}</style>
     </>
   )
 }
